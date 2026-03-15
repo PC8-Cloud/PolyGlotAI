@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Mic, Radio, Users, MessageCircleQuestion, LogOut } from "lucide-react";
+import { ChevronLeft, Mic, Radio, Users, MessageCircleQuestion, LogOut, QrCode, X } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLocaleForCode } from "../lib/languages";
@@ -42,6 +43,7 @@ export default function RoomHost() {
   const [isTranslating, setIsTranslating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [showQR, setShowQR] = useState(false);
 
   const recognitionRef = useRef<any>(null);
   const transcriptRef = useRef("");
@@ -329,6 +331,12 @@ export default function RoomHost() {
       <div className="bg-[#0E2666] border-b border-[#FFFFFF14] p-4 flex items-center justify-center gap-4">
         <span className="text-[#F4F4F4]/40 text-sm">{t("roomCode")}:</span>
         <span className="text-4xl font-mono font-black tracking-[0.3em] text-[#295BDB]">{roomCode}</span>
+        <button
+          onClick={() => setShowQR(true)}
+          className="p-2 rounded-xl bg-[#295BDB]/20 text-[#295BDB] hover:bg-[#295BDB]/30 transition-colors"
+        >
+          <QrCode className="w-5 h-5" />
+        </button>
       </div>
 
       {/* Participants by language */}
@@ -441,6 +449,32 @@ export default function RoomHost() {
           {participants.length === 0 ? t("waitingForParticipants") : isListening ? t("tapToStop") : t("tapToSpeak")}
         </span>
       </div>
+
+      {/* QR Code Modal */}
+      {showQR && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-[#0E2666] p-8 rounded-3xl max-w-sm w-full flex flex-col items-center relative border border-[#FFFFFF14]">
+            <button
+              onClick={() => setShowQR(false)}
+              className="absolute top-4 right-4 text-[#F4F4F4]/60 hover:text-[#F4F4F4]"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <h2 className="text-2xl font-bold mb-2">{t("joinRoom")}</h2>
+            <p className="text-[#F4F4F4]/60 text-center mb-8 text-sm">
+              {t("scanQR")}
+            </p>
+
+            <div className="bg-white p-4 rounded-2xl mb-6">
+              <QRCodeSVG value={`${window.location.origin}/join?code=${roomCode}`} size={200} />
+            </div>
+
+            <div className="bg-[#02114A] p-3 rounded-xl w-full text-center text-sm font-mono text-[#F4F4F4]/80 break-all border border-[#FFFFFF14]">
+              {t("roomCode")}: <span className="text-[#295BDB] font-bold text-lg">{roomCode}</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { ChevronLeft, Radio, Volume2, VolumeX, Send, MessageCircleQuestion } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
@@ -22,11 +22,12 @@ interface Msg {
 
 export default function RoomJoin() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { uiLanguage } = useUserStore();
   const t = useTranslation(uiLanguage);
 
   // Join phase
-  const [code, setCode] = useState("");
+  const [code, setCode] = useState(searchParams.get("code") || "");
   const [name, setName] = useState("");
   const [myLang, setMyLang] = useState(uiLanguage || "en");
   const [joining, setJoining] = useState(false);
