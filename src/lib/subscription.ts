@@ -4,6 +4,7 @@ import { useUserStore, PlanType } from "./store";
 
 // Stripe Checkout URLs — replace with your actual Stripe payment links
 export const STRIPE_LINKS = {
+  tourist_weekly: "https://buy.stripe.com/YOUR_TOURIST_WEEKLY_LINK",
   tourist: "https://buy.stripe.com/YOUR_TOURIST_LINK",
   pro: "https://buy.stripe.com/YOUR_PRO_LINK",
   business: "https://buy.stripe.com/YOUR_BUSINESS_LINK",
@@ -19,6 +20,15 @@ export const PLAN_FEATURES = {
     room: false,
     conversation: true,
     camera: false,
+    phrases: true,
+    converter: true,
+    maxRoomParticipants: 0,
+  },
+  tourist_weekly: {
+    megaphone: true,
+    room: false,
+    conversation: true,
+    camera: true,
     phrases: true,
     converter: true,
     maxRoomParticipants: 0,
@@ -81,7 +91,7 @@ export function subscribeToPlan(uid: string): () => void {
 }
 
 // Open Stripe Checkout for a specific plan
-export function openCheckout(plan: "tourist" | "pro" | "business", uid: string, email?: string) {
+export function openCheckout(plan: "tourist_weekly" | "tourist" | "pro" | "business", uid: string, email?: string) {
   const url = new URL(STRIPE_LINKS[plan]);
   url.searchParams.set("client_reference_id", uid);
   if (email) url.searchParams.set("prefilled_email", email);

@@ -13,6 +13,7 @@ const stripeWebhookSecret = defineSecret("STRIPE_WEBHOOK_SECRET");
 // Plan mapping: Stripe Price ID → PolyGlot plan name
 // Update these after creating products in Stripe Dashboard
 const PRICE_TO_PLAN = {
+  // "price_WWWWW": "tourist_weekly",
   // "price_XXXXX": "tourist",
   // "price_YYYYY": "pro",
   // "price_ZZZZZ": "business",

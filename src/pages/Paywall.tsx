@@ -1,12 +1,18 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
-import { Check, Crown, Zap, Building2 } from "lucide-react";
+import { Check, Crown, Zap, Building2, Palmtree } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { useAuth } from "../components/AuthProvider";
 import { openCheckout } from "../lib/subscription";
 
 const PLANS = [
+  {
+    id: "tourist_weekly" as const,
+    icon: Palmtree,
+    color: "#38BDF8",
+    features: ["megaphone", "conversation", "camera", "phrases", "converter"],
+  },
   {
     id: "tourist" as const,
     icon: Zap,
@@ -33,7 +39,7 @@ export default function Paywall() {
   const t = useTranslation(uiLanguage);
   const { user } = useAuth();
 
-  const handleSubscribe = (plan: "tourist" | "pro" | "business") => {
+  const handleSubscribe = (plan: "tourist_weekly" | "tourist" | "pro" | "business") => {
     if (!user) return;
     openCheckout(plan, user.uid, user.email || undefined);
   };

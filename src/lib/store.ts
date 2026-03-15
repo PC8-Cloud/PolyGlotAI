@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type PlanType = "free" | "tourist" | "pro" | "business";
+export type PlanType = "free" | "tourist_weekly" | "tourist" | "pro" | "business";
 
 interface UserState {
   userId: string | null;
