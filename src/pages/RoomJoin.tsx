@@ -194,11 +194,11 @@ export default function RoomJoin() {
               type="text"
               inputMode="numeric"
               pattern="[0-9]*"
-              maxLength={4}
+              maxLength={6}
               value={code}
               onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-              placeholder="0000"
-              className="w-full bg-[#0E2666] border border-[#FFFFFF14] rounded-xl px-4 py-4 text-center text-3xl font-mono font-black tracking-[0.3em] text-[#F4F4F4] outline-none focus:ring-2 focus:ring-[#295BDB]"
+              placeholder="000000"
+              className="w-full bg-[#0E2666] border border-[#FFFFFF14] rounded-xl px-4 py-4 text-center text-2xl font-mono font-black tracking-[0.2em] text-[#F4F4F4] outline-none focus:ring-2 focus:ring-[#295BDB]"
             />
           </div>
 
@@ -236,7 +236,7 @@ export default function RoomJoin() {
 
           <button
             onClick={handleJoin}
-            disabled={joining || code.length < 4 || !name.trim()}
+            disabled={joining || code.length < 6 || !name.trim()}
             className="w-full bg-[#295BDB] hover:bg-[#295BDB]/80 disabled:opacity-40 text-[#F4F4F4] font-bold py-4 rounded-xl transition-colors text-lg"
           >
             {joining ? "..." : t("join")}
