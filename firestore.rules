@@ -1,0 +1,73 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isValidSession(data) {
+      return data.keys().hasAll(['hostId', 'title', 'sourceLanguage', 'targetLanguages', 'status', 'createdAt']) &&
+             data.hostId is string &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 100 &&
+             data.sourceLanguage is string && data.sourceLanguage.size() >= 2 && data.sourceLanguage.size() <= 5 &&
+             data.targetLanguages is list && data.targetLanguages.size() <= 10 &&
+             data.status in ['ACTIVE', 'ENDED'] &&
+             data.createdAt is timestamp;
+    }
+    
+    function isValidParticipant(data) {
+      return data.keys().hasAll(['sessionId', 'role', 'language', 'joinedAt']) &&
+             data.sessionId is string &&
+             data.role in ['HOST', 'GUEST'] &&
+             data.language is string && data.language.size() >= 2 && data.language.size() <= 5 &&
+             (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 50)) &&
+             data.joinedAt is timestamp;
+    }
+    
+    function isValidMessage(data) {
+      return data.keys().hasAll(['sessionId', 'senderId', 'type', 'sourceLanguage', 'sourceText', 'createdAt']) &&
+             data.sessionId is string &&
+             data.senderId is string &&
+             data.type in ['BROADCAST', 'QUESTION', 'ANSWER', 'CONCIERGE'] &&
+             data.sourceLanguage is string && data.sourceLanguage.size() >= 2 && data.sourceLanguage.size() <= 5 &&
+             data.sourceText is string && data.sourceText.size() <= 2000 &&
+             (!('translations' in data) || data.translations is map) &&
+             data.createdAt is timestamp;
+    }
+
+    match /sessions/{sessionId} {
+      // Anyone can read a session (needed for guests to join via link)
+      allow read: if true;
+      // Only authenticated users can create a session, and they must be the host
+      allow create: if isAuthenticated() && isValidSession(request.resource.data) && request.resource.data.hostId == request.auth.uid;
+      // Only the host can update the session
+      allow update: if isAuthenticated() && isValidSession(request.resource.data) && resource.data.hostId == request.auth.uid && request.resource.data.hostId == resource.data.hostId;
+      allow delete: if isAuthenticated() && resource.data.hostId == request.auth.uid;
+      
+      match /participants/{participantId} {
+        // Anyone can read participants in a session
+        allow read: if true;
+        // Guests can join without auth, so we allow create if data is valid
+        allow create: if isValidParticipant(request.resource.data) && request.resource.data.sessionId == sessionId;
+        allow update: if isValidParticipant(request.resource.data) && request.resource.data.sessionId == sessionId;
+        allow delete: if true; // Allow guests to leave
+      }
+      
+      match /messages/{messageId} {
+        // Anyone can read messages in a session
+        allow read: if true;
+        // Anyone can create a message in a session (guests asking questions, host broadcasting)
+        allow create: if isValidMessage(request.resource.data) && request.resource.data.sessionId == sessionId;
+        // Allow updates (e.g., adding translations after the fact)
+        allow update: if isValidMessage(request.resource.data) && request.resource.data.sessionId == sessionId;
+        allow delete: if isAuthenticated() && get(/databases/$(database)/documents/sessions/$(sessionId)).data.hostId == request.auth.uid;
+      }
+    }
+  }
+}

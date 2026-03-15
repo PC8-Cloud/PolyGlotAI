@@ -1,0 +1,7 @@
+{
+  "name": "Polyglot Host",
+  "description": "Real-time multilingual communication platform for hospitality and events.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}

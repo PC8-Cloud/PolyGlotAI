@@ -1,0 +1,119 @@
+{
+  "entities": {
+    "Session": {
+      "title": "Session",
+      "description": "A live translation session",
+      "type": "object",
+      "properties": {
+        "hostId": {
+          "type": "string",
+          "description": "The UID of the host who created the session"
+        },
+        "title": {
+          "type": "string",
+          "description": "The name of the session"
+        },
+        "sourceLanguage": {
+          "type": "string",
+          "description": "The ISO 639-1 code of the host's language"
+        },
+        "targetLanguages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Active target language codes"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["ACTIVE", "ENDED"],
+          "description": "Current status of the session"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["hostId", "title", "sourceLanguage", "targetLanguages", "status", "createdAt"]
+    },
+    "Participant": {
+      "title": "Participant",
+      "description": "A user in a session",
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["HOST", "GUEST"]
+        },
+        "language": {
+          "type": "string"
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "joinedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["sessionId", "role", "language", "joinedAt"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "A transcribed and translated message",
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        },
+        "senderId": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["BROADCAST", "QUESTION", "ANSWER", "CONCIERGE"]
+        },
+        "sourceLanguage": {
+          "type": "string"
+        },
+        "sourceText": {
+          "type": "string"
+        },
+        "translations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["sessionId", "senderId", "type", "sourceLanguage", "sourceText", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/sessions/{sessionId}": {
+      "schema": {
+        "$ref": "#/entities/Session"
+      },
+      "description": "Live translation sessions"
+    },
+    "/sessions/{sessionId}/participants/{participantId}": {
+      "schema": {
+        "$ref": "#/entities/Participant"
+      },
+      "description": "Participants in a session"
+    },
+    "/sessions/{sessionId}/messages/{messageId}": {
+      "schema": {
+        "$ref": "#/entities/Message"
+      },
+      "description": "Messages in a session"
+    }
+  }
+}
