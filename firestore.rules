@@ -41,6 +41,18 @@ service cloud.firestore {
              data.createdAt is timestamp;
     }
 
+    // User profiles and subscription plans
+    match /users/{userId} {
+      // Users can read their own profile
+      allow read: if isOwner(userId);
+      // Only Cloud Functions (admin SDK) can write plan data
+      // Users can create their own profile
+      allow create: if isOwner(userId);
+      // Users cannot modify plan fields directly — only Cloud Functions can
+      allow update: if isOwner(userId) &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['plan', 'planExpiresAt', 'stripeCustomerId', 'stripeSubscriptionId']);
+    }
+
     match /sessions/{sessionId} {
       // Anyone can read a session (needed for guests to join via link)
       allow read: if true;

@@ -1,6 +1,7 @@
 import { useEffect, useState, createContext, useContext, ReactNode } from "react";
 import { auth } from "../firebase";
 import { onAuthStateChanged, User } from "firebase/auth";
+import { subscribeToPlan } from "../lib/subscription";
 
 interface AuthContextType {
   user: User | null;
@@ -36,6 +37,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setReady(true);
     }
   }, []);
+
+  // Sync plan from Firestore when user changes
+  useEffect(() => {
+    if (!user) return;
+    const unsub = subscribeToPlan(user.uid);
+    return unsub;
+  }, [user?.uid]);
 
   // Non-blocking: render children immediately, auth state updates in background
   return (

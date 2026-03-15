@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+export type PlanType = "free" | "tourist" | "pro" | "business";
+
 interface UserState {
   userId: string | null;
   role: "HOST" | "GUEST" | null;
@@ -15,6 +17,8 @@ interface UserState {
   ttsModel: string;
   ttsVoice: string;
   ttsSpeed: number;
+  plan: PlanType;
+  planExpiresAt: string | null;
   setUserId: (id: string) => void;
   setRole: (role: "HOST" | "GUEST") => void;
   setDisplayName: (name: string) => void;
@@ -28,6 +32,7 @@ interface UserState {
   setTtsModel: (model: string) => void;
   setTtsVoice: (voice: string) => void;
   setTtsSpeed: (speed: number) => void;
+  setPlan: (plan: PlanType, expiresAt?: string | null) => void;
 }
 
 export const useUserStore = create<UserState>()(
@@ -46,6 +51,8 @@ export const useUserStore = create<UserState>()(
       ttsModel: "gpt-4o-mini-tts",
       ttsVoice: "nova",
       ttsSpeed: 1.0,
+      plan: "free",
+      planExpiresAt: null,
       setUserId: (id) => set({ userId: id }),
       setRole: (role) => set({ role }),
       setDisplayName: (name) => set({ displayName: name }),
@@ -59,6 +66,7 @@ export const useUserStore = create<UserState>()(
       setTtsModel: (model) => set({ ttsModel: model }),
       setTtsVoice: (voice) => set({ ttsVoice: voice }),
       setTtsSpeed: (speed) => set({ ttsSpeed: speed }),
+      setPlan: (plan, expiresAt) => set({ plan, planExpiresAt: expiresAt || null }),
     }),
     {
       name: "polyglot-user-storage",

@@ -20,6 +20,7 @@ import GroupTranslation from "./pages/GroupTranslation";
 import MegaphonePage from "./pages/Megaphone";
 import RoomHost from "./pages/RoomHost";
 import RoomJoin from "./pages/RoomJoin";
+import Paywall from "./pages/Paywall";
 
 function AutoTranslate() {
   const { uiLanguage } = useUserStore();
@@ -51,6 +52,7 @@ export default function App() {
           <Route path="/megaphone" element={<MegaphonePage />} />
           <Route path="/room" element={<RoomHost />} />
           <Route path="/join" element={<RoomJoin />} />
+          <Route path="/plans" element={<Paywall />} />
           <Route path="/session/:sessionId/host" element={<SessionHost />} />
           <Route path="/join/:sessionId" element={<SessionJoin />} />
           <Route
