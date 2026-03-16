@@ -157,12 +157,18 @@ export default function Phrases() {
 
   const handlePhraseClick = async (phrase: string) => {
     const key = `${phrase}__${targetLang}`;
-    if (translations[key]) return; // already translated in memory
+
+    // If already translated, just speak it
+    if (translations[key]) {
+      handleSpeak(translations[key]);
+      return;
+    }
 
     // Check offline cache first
     const cached = getPhraseTranslation(phrase, targetLang);
     if (cached) {
       setTranslations((prev) => ({ ...prev, [key]: cached }));
+      handleSpeak(cached);
       return;
     }
 
@@ -179,6 +185,8 @@ export default function Phrases() {
       setTranslations((prev) => ({ ...prev, [key]: translated }));
       // Cache for offline use
       savePhraseTranslations({ [key]: translated });
+      // Speak immediately after translating
+      handleSpeak(translated);
     } catch (e: any) {
       console.error("Translation failed:", e);
       const msg = e?.message || String(e);
