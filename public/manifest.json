@@ -1,0 +1,17 @@
+{
+  "name": "PolyGlot AI",
+  "short_name": "PolyGlot",
+  "description": "Real-time multilingual translation",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#02114A",
+  "theme_color": "#02114A",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

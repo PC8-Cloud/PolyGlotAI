@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#02114A"/>
+  <circle cx="256" cy="220" r="100" fill="none" stroke="#295BDB" stroke-width="16"/>
+  <path d="M200 200 L240 280 L260 240 L280 280 L320 200" fill="none" stroke="#F4F4F4" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="180" cy="340" r="8" fill="#295BDB"/>
+  <circle cx="256" cy="360" r="8" fill="#295BDB"/>
+  <circle cx="332" cy="340" r="8" fill="#295BDB"/>
+  <text x="256" y="430" text-anchor="middle" font-family="system-ui,sans-serif" font-size="48" font-weight="900" fill="#F4F4F4">PolyGlot</text>
+</svg>
