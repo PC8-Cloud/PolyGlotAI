@@ -89,13 +89,12 @@ export default function Conversation() {
   const toggleListening = (side: "you" | "them") => {
     // If already listening on this side → manual stop
     if (activeSide === side) {
-      prepareAudioForSafari(); // unlock audio before async work
+      prepareAudioForSafari(); // unlock audio before TTS plays
       finishListening();
       return;
     }
 
     if (activeSide || isTranslating || isSpeaking) return;
-    prepareAudioForSafari(); // unlock audio on user tap
 
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -124,6 +123,9 @@ export default function Conversation() {
       transcriptRef.current = combined;
 
       if (combined.trim()) {
+        if (!hasSpokenRef.current) {
+          prepareAudioForSafari(); // unlock audio when speech first detected
+        }
         hasSpokenRef.current = true;
         // Reset silence timer on every new speech
         resetSilenceTimer();

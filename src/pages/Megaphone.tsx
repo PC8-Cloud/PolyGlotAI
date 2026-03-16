@@ -68,8 +68,8 @@ export default function MegaphonePage() {
   };
 
   const toggleListening = () => {
-    prepareAudioForSafari(); // unlock audio on user tap
     if (isListening) {
+      prepareAudioForSafari(); // unlock audio before TTS plays
       finishListening();
       return;
     }
@@ -97,6 +97,9 @@ export default function MegaphonePage() {
       setTranscript(combined);
       transcriptRef.current = combined;
       if (combined.trim()) {
+        if (!hasSpokenRef.current) {
+          prepareAudioForSafari(); // unlock audio when speech first detected
+        }
         hasSpokenRef.current = true;
         resetSilenceTimer();
       }
