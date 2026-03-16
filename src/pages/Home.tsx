@@ -306,12 +306,6 @@ export default function Home() {
 
             </div>
 
-            <button
-              onClick={() => setShowOffline(false)}
-              className="mt-6 w-full bg-[#123182] hover:bg-[#295BDB] text-[#F4F4F4] font-medium py-3 rounded-xl transition-colors"
-            >
-              {t("cancel")}
-            </button>
           </div>
         </div>
       )}
