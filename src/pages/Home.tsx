@@ -222,7 +222,7 @@ export default function Home() {
       {/* Offline Functions Modal */}
       {showOffline && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-[#0E2666] rounded-3xl max-w-md w-full flex flex-col relative border border-[#FFFFFF14] max-h-[90vh]">
+          <div className="bg-[#0E2666] rounded-3xl max-w-md w-full flex flex-col relative max-h-[90vh]">
             <div className="flex items-center gap-3 p-6 pb-4 border-b border-[#FFFFFF14] shrink-0">
               <button onClick={() => setShowOffline(false)} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
                 <ChevronLeft className="w-6 h-6" />
