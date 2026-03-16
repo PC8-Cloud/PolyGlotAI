@@ -19,10 +19,10 @@ const stripeWebhookSecret = defineSecret("STRIPE_WEBHOOK_SECRET");
 // Pro:            prod_U9faR6uaTtvhkK
 // Business:       prod_U9fbdJFO8lCutl
 const PRICE_TO_PLAN = {
-  // "price_WWWWW": "tourist_weekly",
-  // "price_XXXXX": "tourist",
-  // "price_YYYYY": "pro",
-  // "price_ZZZZZ": "business",
+  "price_1TBMD0FMY3pYKHOxGEX1KFSx": "tourist_weekly",
+  "price_1TBMELFMY3pYKHOxiB3PP3Uy": "tourist",
+  "price_1TBMFOFMY3pYKHOxzK4r2qUF": "pro",
+  "price_1TBMGeFMY3pYKHOx5DdCzOPH": "business",
 };
 
 /**
