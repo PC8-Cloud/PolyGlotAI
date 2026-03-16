@@ -4,7 +4,7 @@ import { ChevronLeft, Camera, RotateCcw, Volume2 } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES } from "../lib/languages";
-import { analyzeImage, playTTS } from "../lib/openai";
+import { analyzeImage, playTTS, prepareAudioForSafari } from "../lib/openai";
 
 export default function CameraTranslate() {
   const navigate = useNavigate();
@@ -66,6 +66,7 @@ export default function CameraTranslate() {
 
   const handleSpeak = async (text: string) => {
     if (playing) return;
+    prepareAudioForSafari();
     setPlaying(true);
     try {
       await playTTS(text, undefined, undefined, targetLang);

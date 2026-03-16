@@ -4,7 +4,7 @@ import { ChevronLeft, Mic, Send, Volume2, VolumeX } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLabelForCode, getLocaleForCode } from "../lib/languages";
-import { translateText, playTTS } from "../lib/openai";
+import { translateText, playTTS, prepareAudioForSafari } from "../lib/openai";
 
 interface Message {
   id: number;
@@ -89,11 +89,13 @@ export default function Conversation() {
   const toggleListening = (side: "you" | "them") => {
     // If already listening on this side → manual stop
     if (activeSide === side) {
+      prepareAudioForSafari(); // unlock audio before async work
       finishListening();
       return;
     }
 
     if (activeSide || isTranslating || isSpeaking) return;
+    prepareAudioForSafari(); // unlock audio on user tap
 
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -250,6 +252,7 @@ export default function Conversation() {
 
   const handleSpeak = async (text: string, id: number, langCode: string) => {
     if (playingId !== null) return;
+    prepareAudioForSafari();
     setPlayingId(id);
     try {
       await playTTS(text, undefined, undefined, langCode);

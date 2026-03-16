@@ -4,7 +4,7 @@ import { ChevronLeft, Mic, Volume2, VolumeX, Megaphone } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLocaleForCode } from "../lib/languages";
-import { translateText, playTTS } from "../lib/openai";
+import { translateText, playTTS, prepareAudioForSafari } from "../lib/openai";
 
 interface Entry {
   id: number;
@@ -68,6 +68,7 @@ export default function MegaphonePage() {
   };
 
   const toggleListening = () => {
+    prepareAudioForSafari(); // unlock audio on user tap
     if (isListening) {
       finishListening();
       return;

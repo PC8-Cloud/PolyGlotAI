@@ -92,6 +92,10 @@ export async function translateText(
 
 export type TTSVoice = "alloy" | "ash" | "ballad" | "coral" | "echo" | "fable" | "onyx" | "nova" | "sage" | "shimmer";
 
+// Detect Safari (doesn't support opus well, and blocks non-user-initiated audio)
+const isSafari = typeof navigator !== "undefined" &&
+  /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+
 export async function textToSpeech(
   text: string,
   voice: TTSVoice = "nova",
@@ -102,10 +106,22 @@ export async function textToSpeech(
     voice,
     input: text,
     speed,
-    response_format: "opus",
+    response_format: isSafari ? "mp3" : "opus",
   });
 
   return response.arrayBuffer();
+}
+
+// Pre-created audio element for Safari (must be created on user tap)
+let _preAudio: HTMLAudioElement | null = null;
+
+// Call this synchronously inside a tap/click handler BEFORE any await
+export function prepareAudioForSafari() {
+  if (!isSafari) return;
+  _preAudio = new Audio();
+  // Play silent to "unlock" audio context on Safari
+  _preAudio.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRwBHAAAAAAD/+1DEAAAHAAGf9AAAIgAANIAAAARMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7UMQbgAADSAAAAAAAAANIAAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVQ==";
+  _preAudio.play().catch(() => {});
 }
 
 export async function playTTS(
@@ -131,9 +147,14 @@ export async function playTTS(
     const buffer = await textToSpeech(text, selectedVoice, selectedSpeed);
     reportResponseTime(Date.now() - start);
 
-    const blob = new Blob([buffer], { type: "audio/ogg; codecs=opus" });
+    const mimeType = isSafari ? "audio/mpeg" : "audio/ogg; codecs=opus";
+    const blob = new Blob([buffer], { type: mimeType });
     const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
+
+    // On Safari, reuse the pre-created audio element (already unlocked)
+    const audio = _preAudio || new Audio();
+    _preAudio = null; // consume it
+    audio.src = url;
 
     return new Promise((resolve, reject) => {
       audio.onended = () => {
@@ -142,9 +163,22 @@ export async function playTTS(
       };
       audio.onerror = (e) => {
         URL.revokeObjectURL(url);
-        reject(e);
+        // Fallback to local TTS on playback error
+        if (canUseLocalTTS()) {
+          playLocalTTS(text, langCode).then(resolve).catch(reject);
+        } else {
+          reject(e);
+        }
       };
-      audio.play();
+      audio.play().catch((playErr) => {
+        URL.revokeObjectURL(url);
+        // Safari blocked — fallback to local TTS
+        if (canUseLocalTTS()) {
+          playLocalTTS(text, langCode).then(resolve).catch(reject);
+        } else {
+          reject(playErr);
+        }
+      });
     });
   } catch (e) {
     // Fallback to local TTS on any error

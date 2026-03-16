@@ -13,7 +13,7 @@ import {
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES } from "../lib/languages";
-import { translateText, playTTS } from "../lib/openai";
+import { translateText, playTTS, prepareAudioForSafari } from "../lib/openai";
 import { savePhraseTranslations, getPhraseTranslation, isOnline } from "../lib/offline";
 
 interface Phrase {
@@ -156,6 +156,7 @@ export default function Phrases() {
   const [error, setError] = useState<string | null>(null);
 
   const handlePhraseClick = async (phrase: string) => {
+    prepareAudioForSafari(); // unlock audio on user tap
     const key = `${phrase}__${targetLang}`;
 
     // If already translated, just speak it
@@ -201,6 +202,7 @@ export default function Phrases() {
   };
 
   const handleSpeak = async (text: string) => {
+    prepareAudioForSafari();
     setPlayingPhrase(text);
     try {
       await playTTS(text, undefined, undefined, targetLang);

@@ -17,7 +17,7 @@ import {
   isOnline,
 } from "../lib/offline";
 import { ALL_PHRASE_TEXTS } from "../lib/phrases-data";
-import { playTTS } from "../lib/openai";
+import { playTTS, prepareAudioForSafari } from "../lib/openai";
 
 export default function Home() {
   const navigate = useNavigate();
@@ -59,6 +59,7 @@ export default function Home() {
 
   const handlePreviewVoice = async (voiceId: string) => {
     if (previewingVoice) return;
+    prepareAudioForSafari();
     setPreviewingVoice(voiceId);
     try {
       await playTTS("Hello! This is how I sound.", voiceId as any, 1.0, "en");

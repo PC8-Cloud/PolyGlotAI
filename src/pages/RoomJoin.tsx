@@ -5,7 +5,7 @@ import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES } from "../lib/languages";
 import { findRoomByCode, joinRoom, sendMessage } from "../lib/firebase-helpers";
-import { playTTS, translateText } from "../lib/openai";
+import { playTTS, translateText, prepareAudioForSafari } from "../lib/openai";
 import { db } from "../firebase";
 import { collection, doc, onSnapshot, orderBy, query } from "firebase/firestore";
 
@@ -131,6 +131,7 @@ export default function RoomJoin() {
 
   const speakText = async (text: string, id: string) => {
     if (playingId) return;
+    prepareAudioForSafari();
     setPlayingId(id);
     try {
       await playTTS(text, undefined, undefined, myLang);
