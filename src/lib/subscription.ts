@@ -4,10 +4,10 @@ import { useUserStore, PlanType } from "./store";
 
 // Stripe Checkout URLs — replace with your actual Stripe payment links
 export const STRIPE_LINKS = {
-  tourist_weekly: "https://buy.stripe.com/YOUR_TOURIST_WEEKLY_LINK",
-  tourist: "https://buy.stripe.com/YOUR_TOURIST_LINK",
-  pro: "https://buy.stripe.com/YOUR_PRO_LINK",
-  business: "https://buy.stripe.com/YOUR_BUSINESS_LINK",
+  tourist_weekly: "https://buy.stripe.com/aFa28r0wV8aJchU1Ufes000",
+  tourist: "https://buy.stripe.com/bJeeVd6Vj76F5Tw1Ufes001",
+  pro: "https://buy.stripe.com/8x2dR9enLdv33Lo42nes002",
+  business: "https://buy.stripe.com/bJe8wP3J7dv36XA7ezes003",
 };
 
 // Stripe Customer Portal — users manage their subscription here
