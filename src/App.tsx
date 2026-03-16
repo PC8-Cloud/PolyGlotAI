@@ -69,7 +69,7 @@ function SplashScreen({ onDone }: { onDone: () => void }) {
   }, [onDone]);
 
   return (
-    <div className="min-h-screen bg-[#02114A] flex items-center justify-center">
+    <div className="min-h-screen bg-[#010B2E] flex items-center justify-center">
       <div className="flex flex-col items-center gap-6 animate-fade-in">
         <img
           src="/splash.png"

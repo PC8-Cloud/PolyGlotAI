@@ -221,18 +221,18 @@ export default function Home() {
 
       {/* Offline Functions Modal */}
       {showOffline && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-[#0E2666] rounded-3xl max-w-md w-full flex flex-col relative max-h-[90vh]">
-            <div className="flex items-center gap-3 p-6 pb-4 border-b border-[#FFFFFF14] shrink-0">
+        <div className="fixed inset-0 z-50 flex flex-col bg-[#010B2E]">
+          <div className="flex-1 flex flex-col w-full max-w-[430px] mx-auto overflow-hidden">
+            <div className="flex items-center gap-3 p-4 shrink-0">
               <button onClick={() => setShowOffline(false)} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
                 <ChevronLeft className="w-6 h-6" />
               </button>
               <h2 className="text-2xl font-bold">{t("offlineFunctions")}</h2>
             </div>
 
-            <div className="overflow-y-auto p-6 pt-4 space-y-3">
+            <div className="overflow-y-auto p-4 pt-2 space-y-3 flex-1">
               {/* Offline Phrases */}
-              <div className="bg-[#02114A] border border-[#FFFFFF14] rounded-2xl p-4">
+              <div className="bg-[#0A1628] p-4">
                 <div className="flex items-center gap-4">
                   <span className="text-2xl">💬</span>
                   <div className="flex-1 min-w-0">
@@ -292,7 +292,7 @@ export default function Home() {
               </div>
 
               {/* Offline Conversions */}
-              <div className="bg-[#02114A] border border-[#FFFFFF14] rounded-2xl p-4">
+              <div className="bg-[#0A1628] p-4">
                 <div className="flex items-center gap-4">
                   <span className="text-2xl">🔄</span>
                   <div className="flex-1 min-w-0">
