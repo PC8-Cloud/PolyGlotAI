@@ -112,16 +112,19 @@ export async function textToSpeech(
   return response.arrayBuffer();
 }
 
-// Pre-created audio element for Safari (must be created on user tap)
-let _preAudio: HTMLAudioElement | null = null;
+// AudioContext for reliable playback (survives async gaps on Safari)
+let _audioCtx: AudioContext | null = null;
 
 // Call this synchronously inside a tap/click handler BEFORE any await
 export function prepareAudioForSafari() {
-  if (!isSafari) return;
-  _preAudio = new Audio();
-  // Play silent to "unlock" audio context on Safari
-  _preAudio.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRwBHAAAAAAD/+1DEAAAHAAGf9AAAIgAANIAAAARMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7UMQbgAADSAAAAAAAAANIAAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVQ==";
-  _preAudio.play().catch(() => {});
+  const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+  if (!AudioCtx) return;
+  if (!_audioCtx) {
+    _audioCtx = new AudioCtx();
+  }
+  if (_audioCtx.state === "suspended") {
+    _audioCtx.resume();
+  }
 }
 
 export async function playTTS(
@@ -147,13 +150,27 @@ export async function playTTS(
     const buffer = await textToSpeech(text, selectedVoice, selectedSpeed);
     reportResponseTime(Date.now() - start);
 
+    // Try AudioContext first (works reliably on Safari after unlock)
+    if (_audioCtx && _audioCtx.state === "running") {
+      try {
+        const audioData = await _audioCtx.decodeAudioData(buffer.slice(0));
+        const source = _audioCtx.createBufferSource();
+        source.buffer = audioData;
+        source.connect(_audioCtx.destination);
+        source.start();
+        return new Promise<void>((resolve) => {
+          source.onended = () => resolve();
+        });
+      } catch (decodeErr) {
+        console.warn("AudioContext decode failed, falling back to Audio element:", decodeErr);
+      }
+    }
+
+    // Fallback: HTMLAudioElement
     const mimeType = isSafari ? "audio/mpeg" : "audio/ogg; codecs=opus";
     const blob = new Blob([buffer], { type: mimeType });
     const url = URL.createObjectURL(blob);
-
-    // On Safari, reuse the pre-created audio element (already unlocked)
-    const audio = _preAudio || new Audio();
-    _preAudio = null; // consume it
+    const audio = new Audio();
     audio.src = url;
 
     return new Promise((resolve, reject) => {
@@ -163,7 +180,6 @@ export async function playTTS(
       };
       audio.onerror = (e) => {
         URL.revokeObjectURL(url);
-        // Fallback to local TTS on playback error
         if (canUseLocalTTS()) {
           playLocalTTS(text, langCode).then(resolve).catch(reject);
         } else {
@@ -172,7 +188,6 @@ export async function playTTS(
       };
       audio.play().catch((playErr) => {
         URL.revokeObjectURL(url);
-        // Safari blocked — fallback to local TTS
         if (canUseLocalTTS()) {
           playLocalTTS(text, langCode).then(resolve).catch(reject);
         } else {

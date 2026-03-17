@@ -96,6 +96,9 @@ export default function Conversation() {
 
     if (activeSide || isTranslating || isSpeaking) return;
 
+    // Unlock audio context on user tap (before any async)
+    prepareAudioForSafari();
+
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
@@ -123,9 +126,6 @@ export default function Conversation() {
       transcriptRef.current = combined;
 
       if (combined.trim()) {
-        if (!hasSpokenRef.current) {
-          prepareAudioForSafari(); // unlock audio when speech first detected
-        }
         hasSpokenRef.current = true;
         // Reset silence timer on every new speech
         resetSilenceTimer();

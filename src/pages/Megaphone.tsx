@@ -75,6 +75,9 @@ export default function MegaphonePage() {
     }
     if (isTranslating || isSpeaking) return;
 
+    // Unlock audio context on user tap (before any async)
+    prepareAudioForSafari();
+
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) return;
@@ -97,9 +100,6 @@ export default function MegaphonePage() {
       setTranscript(combined);
       transcriptRef.current = combined;
       if (combined.trim()) {
-        if (!hasSpokenRef.current) {
-          prepareAudioForSafari(); // unlock audio when speech first detected
-        }
         hasSpokenRef.current = true;
         resetSilenceTimer();
       }
