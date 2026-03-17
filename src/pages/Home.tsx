@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { createSession } from "../lib/firebase-helpers";
 import { Settings, Camera, MessagesSquare, Coins, MessageSquarePlus, Users, Globe, ChevronLeft, WifiOff, Download, Check, Loader2, Volume2 } from "lucide-react";
@@ -57,16 +57,26 @@ export default function Home() {
     { id: "shimmer", label: "Shimmer", desc: "Femminile, luminosa" },
   ];
 
+  const previewAbortRef = useRef(false);
+
   const handlePreviewVoice = async (voiceId: string) => {
-    if (previewingVoice) return;
+    // If already previewing, just switch — don't block
+    previewAbortRef.current = true;
     prepareAudioForSafari();
     setPreviewingVoice(voiceId);
+
+    // Small delay to let any in-flight playback notice abort
+    await new Promise((r) => setTimeout(r, 100));
+    previewAbortRef.current = false;
+
     try {
       await playTTS("Hello! This is how I sound.", voiceId as any, 1.0, "en");
     } catch (e) {
       console.error("Voice preview failed:", e);
     } finally {
-      setPreviewingVoice(null);
+      if (!previewAbortRef.current) {
+        setPreviewingVoice(null);
+      }
     }
   };
   const [tempTargets, setTempTargets] = useState<string[]>(defaultTargetLanguages);
@@ -394,8 +404,7 @@ export default function Home() {
                         setTtsVoice(v.id);
                         handlePreviewVoice(v.id);
                       }}
-                      disabled={previewingVoice !== null}
-                      className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors border disabled:opacity-60 ${
+                      className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors border ${
                         ttsVoice === v.id
                           ? "bg-[#295BDB]/20 border-[#295BDB] text-[#295BDB]"
                           : "bg-[#02114A] border-[#FFFFFF14] text-[#F4F4F4]/60 hover:border-[#FFFFFF30]"
