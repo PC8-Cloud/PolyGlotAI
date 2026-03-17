@@ -204,14 +204,37 @@ export default function RoomHost() {
       </style></head><body>
         <h1>PolyGlot AI</h1>
         <p>Scan to join the room</p>
-        <div id="qr" style="margin:20px auto;"></div>
+        <div id="qr" style="margin:20px auto; position:relative; display:inline-block;"></div>
         <div class="code">${roomCode}</div>
         <div class="url">${url}</div>
         <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"><\/script>
         <script>
           var qr = qrcode(0, 'M'); qr.addData('${url}'); qr.make();
-          document.getElementById('qr').innerHTML = qr.createSvgTag(6, 0);
-          setTimeout(function() { window.print(); window.close(); }, 300);
+          var container = document.getElementById('qr');
+          container.innerHTML = qr.createSvgTag(6, 0);
+          var svg = container.querySelector('svg');
+          var w = svg.getAttribute('width');
+          var h = svg.getAttribute('height');
+          var iconSize = 40;
+          var x = (parseInt(w) - iconSize) / 2;
+          var y = (parseInt(h) - iconSize) / 2;
+          // White background behind icon
+          var rect = document.createElementNS('http://www.w3.org/2000/svg','rect');
+          rect.setAttribute('x', x - 4); rect.setAttribute('y', y - 4);
+          rect.setAttribute('width', iconSize + 8); rect.setAttribute('height', iconSize + 8);
+          rect.setAttribute('fill', 'white'); rect.setAttribute('rx', '6');
+          svg.appendChild(rect);
+          // Icon image
+          var img = document.createElementNS('http://www.w3.org/2000/svg','image');
+          img.setAttribute('href', '${window.location.origin}/icons/icon-192.png');
+          img.setAttribute('x', x); img.setAttribute('y', y);
+          img.setAttribute('width', iconSize); img.setAttribute('height', iconSize);
+          svg.appendChild(img);
+          // Wait for icon to load then print
+          var testImg = new Image();
+          testImg.onload = function() { setTimeout(function() { window.print(); window.close(); }, 200); };
+          testImg.onerror = function() { setTimeout(function() { window.print(); window.close(); }, 200); };
+          testImg.src = '${window.location.origin}/icons/icon-192.png';
         <\/script>
       </body></html>
     `);
