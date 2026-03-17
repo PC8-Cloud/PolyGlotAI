@@ -441,7 +441,7 @@ export default function RoomHost() {
       </header>
 
       {/* Room code banner */}
-      <div className="bg-[#0E2666] border-b border-[#FFFFFF14] p-4 flex items-center justify-center gap-4">
+      <div className="bg-[#0E2666] border-b border-[#FFFFFF14] p-4 flex items-center justify-center gap-3">
         <span className="text-[#F4F4F4]/40 text-sm">{t("roomCode")}:</span>
         <span className="text-4xl font-mono font-black tracking-[0.3em] text-[#295BDB]">{roomCode}</span>
         <button
@@ -449,6 +449,12 @@ export default function RoomHost() {
           className="p-2 rounded-xl bg-[#295BDB]/20 text-[#295BDB] hover:bg-[#295BDB]/30 transition-colors"
         >
           <QrCode className="w-5 h-5" />
+        </button>
+        <button
+          onClick={handleShare}
+          className="p-2 rounded-xl bg-[#295BDB]/20 text-[#295BDB] hover:bg-[#295BDB]/30 transition-colors"
+        >
+          <Share2 className="w-5 h-5" />
         </button>
       </div>
 
@@ -582,17 +588,9 @@ export default function RoomHost() {
               <QRCodeSVG value={`${window.location.origin}/join?code=${roomCode}`} size={200} />
             </div>
 
-            <div className="bg-[#02114A] p-3 rounded-xl w-full text-center text-sm font-mono text-[#F4F4F4]/80 break-all border border-[#FFFFFF14] mb-4">
+            <div className="bg-[#02114A] p-3 rounded-xl w-full text-center text-sm font-mono text-[#F4F4F4]/80 break-all border border-[#FFFFFF14]">
               {t("roomCode")}: <span className="text-[#295BDB] font-bold text-lg">{roomCode}</span>
             </div>
-
-            <button
-              onClick={handleShare}
-              className="w-full bg-[#295BDB] hover:bg-[#295BDB]/80 text-[#F4F4F4] font-bold py-3 rounded-xl transition-colors flex items-center justify-center gap-2"
-            >
-              <Share2 className="w-5 h-5" />
-              {t("shareRoom")}
-            </button>
           </div>
         </div>
       )}
