@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Mic, Radio, Users, MessageCircleQuestion, LogOut, QrCode, X } from "lucide-react";
+import { ChevronLeft, Mic, Radio, Users, MessageCircleQuestion, LogOut, QrCode, X, Share2, RotateCcw } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
@@ -8,7 +8,7 @@ import { LANGUAGES, getLocaleForCode } from "../lib/languages";
 import { translateText } from "../lib/openai";
 import { createRoom, sendMessage } from "../lib/firebase-helpers";
 import { db } from "../firebase";
-import { collection, doc, onSnapshot, orderBy, query, updateDoc } from "firebase/firestore";
+import { collection, doc, getDoc, onSnapshot, orderBy, query, updateDoc, where, getDocs, limit } from "firebase/firestore";
 
 interface Participant {
   id: string;
@@ -44,6 +44,9 @@ export default function RoomHost() {
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [showQR, setShowQR] = useState(false);
+  const [rejoinCode, setRejoinCode] = useState("");
+  const [rejoining, setRejoining] = useState(false);
+  const [lastRoom, setLastRoom] = useState<{ code: string; sessionId: string; hostId: string } | null>(null);
 
   const recognitionRef = useRef<any>(null);
   const transcriptRef = useRef("");
@@ -51,6 +54,14 @@ export default function RoomHost() {
   const isListeningRef = useRef(false);
   const hasSpokenRef = useRef(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Load last room from localStorage
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("polyglot_last_room");
+      if (saved) setLastRoom(JSON.parse(saved));
+    } catch {}
+  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -102,10 +113,77 @@ export default function RoomHost() {
       setSessionId(result.sessionId);
       setRoomCode(result.roomCode);
       setHostId(result.hostId);
+      // Save to localStorage for rejoin
+      const roomData = { code: result.roomCode, sessionId: result.sessionId, hostId: result.hostId };
+      localStorage.setItem("polyglot_last_room", JSON.stringify(roomData));
+      setLastRoom(roomData);
     } catch (e: any) {
       setError(e?.message || "Failed to create room");
     } finally {
       setCreating(false);
+    }
+  };
+
+  // ─── Rejoin room ─────────────────────────────────────────────────────────
+
+  const handleRejoin = async (code?: string) => {
+    const codeToUse = code || rejoinCode.trim();
+    if (!codeToUse || codeToUse.length !== 6) return;
+    setRejoining(true);
+    setError(null);
+    try {
+      // Find session by room code
+      const q = query(
+        collection(db, "sessions"),
+        where("roomCode", "==", codeToUse),
+        where("status", "==", "ACTIVE"),
+        limit(1),
+      );
+      const snap = await getDocs(q);
+      if (snap.empty) {
+        setError(t("roomNotFound"));
+        setRejoining(false);
+        return;
+      }
+      const sessionDoc = snap.docs[0];
+      const data = sessionDoc.data();
+      setSessionId(sessionDoc.id);
+      setRoomCode(codeToUse);
+      setHostId(data.hostId);
+      setSpeakerLang(data.hostLanguage || defaultSourceLanguage);
+      // Update localStorage
+      const roomData = { code: codeToUse, sessionId: sessionDoc.id, hostId: data.hostId };
+      localStorage.setItem("polyglot_last_room", JSON.stringify(roomData));
+      setLastRoom(roomData);
+    } catch (e: any) {
+      setError(e?.message || "Failed to rejoin");
+    } finally {
+      setRejoining(false);
+    }
+  };
+
+  // ─── Share room link ────────────────────────────────────────────────────
+
+  const handleShare = async () => {
+    const url = `${window.location.origin}/join?code=${roomCode}`;
+    const shareData = {
+      title: "PolyGlot AI",
+      text: `${t("joinRoom")} - ${t("roomCode")}: ${roomCode}`,
+      url,
+    };
+
+    if (navigator.share) {
+      try {
+        await navigator.share(shareData);
+      } catch (e: any) {
+        if (e.name !== "AbortError") {
+          // Fallback to clipboard
+          await navigator.clipboard.writeText(url);
+        }
+      }
+    } else {
+      await navigator.clipboard.writeText(url);
+      alert(t("linkCopied"));
     }
   };
 
@@ -301,6 +379,41 @@ export default function RoomHost() {
           >
             {creating ? "..." : t("createRoom")}
           </button>
+
+          {/* Rejoin last room */}
+          {lastRoom && (
+            <button
+              onClick={() => handleRejoin(lastRoom.code)}
+              disabled={rejoining}
+              className="w-full bg-[#123182] hover:bg-[#123182]/80 disabled:opacity-50 text-[#F4F4F4] font-medium py-3 rounded-xl transition-colors flex items-center justify-center gap-2"
+            >
+              <RotateCcw className="w-4 h-4" />
+              {t("rejoinRoom")} {lastRoom.code}
+            </button>
+          )}
+
+          {/* Manual rejoin */}
+          <div className="w-full border-t border-[#FFFFFF14] pt-4">
+            <label className="text-xs text-[#F4F4F4]/40 mb-2 block">{t("rejoinByCode")}</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                value={rejoinCode}
+                onChange={(e) => setRejoinCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                placeholder="000000"
+                className="flex-1 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl px-4 py-3 text-[#F4F4F4] text-center font-mono text-lg tracking-widest outline-none focus:ring-2 focus:ring-[#295BDB]"
+              />
+              <button
+                onClick={() => handleRejoin()}
+                disabled={rejoining || rejoinCode.length !== 6}
+                className="bg-[#295BDB] hover:bg-[#295BDB]/80 disabled:opacity-40 text-[#F4F4F4] font-bold px-5 rounded-xl transition-colors"
+              >
+                {rejoining ? "..." : "→"}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -469,9 +582,17 @@ export default function RoomHost() {
               <QRCodeSVG value={`${window.location.origin}/join?code=${roomCode}`} size={200} />
             </div>
 
-            <div className="bg-[#02114A] p-3 rounded-xl w-full text-center text-sm font-mono text-[#F4F4F4]/80 break-all border border-[#FFFFFF14]">
+            <div className="bg-[#02114A] p-3 rounded-xl w-full text-center text-sm font-mono text-[#F4F4F4]/80 break-all border border-[#FFFFFF14] mb-4">
               {t("roomCode")}: <span className="text-[#295BDB] font-bold text-lg">{roomCode}</span>
             </div>
+
+            <button
+              onClick={handleShare}
+              className="w-full bg-[#295BDB] hover:bg-[#295BDB]/80 text-[#F4F4F4] font-bold py-3 rounded-xl transition-colors flex items-center justify-center gap-2"
+            >
+              <Share2 className="w-5 h-5" />
+              {t("shareRoom")}
+            </button>
           </div>
         </div>
       )}
