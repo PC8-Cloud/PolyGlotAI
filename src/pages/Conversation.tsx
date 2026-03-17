@@ -14,7 +14,7 @@ interface Message {
   sourceLang: string;
 }
 
-const SILENCE_TIMEOUT_MS = 3000; // 3s silence before processing
+const SILENCE_TIMEOUT_MS = 2500; // 2.5s silence before processing
 const NO_SPEECH_TIMEOUT_MS = 5000; // 5s no speech → switch back
 const AUTO_LISTEN_DELAY_MS = 800; // pause after TTS before auto-listening
 

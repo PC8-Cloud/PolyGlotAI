@@ -352,14 +352,19 @@ export default function RoomHost() {
         (l): l is string => l !== speakerLang,
       );
 
-      let translations: Record<string, string> = {};
-      if (targetLangs.length > 0) {
-        translations = await translateText(text, speakerLang, targetLangs);
-      }
-      // Include the source text as its own "translation"
-      translations[speakerLang] = text;
+      // Send source text immediately so clients see something fast
+      const initialTranslations: Record<string, string> = { [speakerLang]: text };
+      const msgId = await sendMessage(sessionId!, hostId!, "BROADCAST", speakerLang, text, initialTranslations);
 
-      await sendMessage(sessionId!, hostId!, "BROADCAST", speakerLang, text, translations);
+      // Then translate and update the message with translations
+      if (targetLangs.length > 0) {
+        const translations = await translateText(text, speakerLang, targetLangs);
+        translations[speakerLang] = text;
+        // Update the message in Firestore with translations
+        if (msgId) {
+          await updateDoc(doc(db, "sessions", sessionId!, "messages", msgId), { translations });
+        }
+      }
     } catch (e: any) {
       console.error("Translation/broadcast failed:", e);
       const msg = e?.message || String(e);

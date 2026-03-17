@@ -45,6 +45,8 @@ export default function RoomJoin() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const prevMsgCountRef = useRef(0);
   const initialLoadRef = useRef(true);
+  const ttsQueueRef = useRef<{ text: string; id: string }[]>([]);
+  const ttsPlayingRef = useRef(false);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -127,19 +129,33 @@ export default function RoomJoin() {
     }
   };
 
-  // ─── TTS ──────────────────────────────────────────────────────────────────
+  // ─── TTS Queue ───────────────────────────────────────────────────────────
 
-  const speakText = async (text: string, id: string) => {
-    if (playingId) return;
+  const processTTSQueue = async () => {
+    if (ttsPlayingRef.current) return;
+    const next = ttsQueueRef.current.shift();
+    if (!next) return;
+
+    ttsPlayingRef.current = true;
     prepareAudioForSafari();
-    setPlayingId(id);
+    setPlayingId(next.id);
     try {
-      await playTTS(text, undefined, undefined, myLang);
+      await playTTS(next.text, undefined, undefined, myLang);
     } catch (e) {
       console.error("TTS failed:", e);
     } finally {
       setPlayingId(null);
+      ttsPlayingRef.current = false;
+      // Process next in queue
+      if (ttsQueueRef.current.length > 0) {
+        processTTSQueue();
+      }
     }
+  };
+
+  const speakText = (text: string, id: string) => {
+    ttsQueueRef.current.push({ text, id });
+    processTTSQueue();
   };
 
   // ─── Q&A ─────────────────────────────────────────────────────────────────

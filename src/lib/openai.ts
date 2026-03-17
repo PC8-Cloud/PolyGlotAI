@@ -65,15 +65,16 @@ export async function translateText(
   const response = await getClient().chat.completions.create({
     model: getModels().text,
     temperature: 0.3,
+    max_tokens: 1024,
     response_format: { type: "json_object" },
     messages: [
       {
         role: "system",
-        content: `You are a professional translator. Translate text naturally (not literally), preserving tone and context. Return ONLY a JSON object where keys are target language codes and values are translated strings.`,
+        content: `Translator. Return JSON: {langCode: translation}. Natural, not literal.`,
       },
       {
         role: "user",
-        content: `Translate from ${sourceLanguage} to ${targetLanguages.join(", ")}:\n\n"${text}"`,
+        content: `${sourceLanguage} → ${targetLanguages.join(", ")}:\n"${text}"`,
       },
     ],
   });
