@@ -610,7 +610,17 @@ export default function RoomHost() {
             </p>
 
             <div className="bg-white p-4 rounded-2xl mb-6">
-              <QRCodeSVG value={`${window.location.origin}/join?code=${roomCode}`} size={200} />
+              <QRCodeSVG
+                value={`${window.location.origin}/join?code=${roomCode}`}
+                size={200}
+                level="M"
+                imageSettings={{
+                  src: "/icons/icon-192.png",
+                  height: 40,
+                  width: 40,
+                  excavate: true,
+                }}
+              />
             </div>
 
             <div className="bg-[#02114A] p-3 rounded-xl w-full text-center text-sm font-mono text-[#F4F4F4]/80 break-all border border-[#FFFFFF14] mb-4">
