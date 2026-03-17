@@ -211,7 +211,7 @@ export default function RoomHost() {
         <script>
           var qr = qrcode(0, 'M'); qr.addData('${url}'); qr.make();
           document.getElementById('qr').innerHTML = qr.createSvgTag(6, 0);
-          setTimeout(function() { window.print(); }, 300);
+          setTimeout(function() { window.print(); window.close(); }, 300);
         <\/script>
       </body></html>
     `);
