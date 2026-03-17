@@ -14,9 +14,10 @@ interface Message {
   sourceLang: string;
 }
 
-const SILENCE_TIMEOUT_MS = 2500; // 2.5s silence before processing
-const NO_SPEECH_TIMEOUT_MS = 5000; // 5s no speech → switch back
-const AUTO_LISTEN_DELAY_MS = 800; // pause after TTS before auto-listening
+const SILENCE_TIMEOUT_MS = 2500;
+const NO_SPEECH_TIMEOUT_MS = 5000;
+const AUTO_LISTEN_DELAY_MS = 800;
+const MAX_EMPTY_RESTARTS = 3; // max restarts without speech before pausing
 
 export default function Conversation() {
   const navigate = useNavigate();
@@ -51,6 +52,8 @@ export default function Conversation() {
   const hasSpokenRef = useRef(false);
   const conversationActiveRef = useRef(false);
   const lastSideRef = useRef<"you" | "them">("you");
+  const emptyRestartsRef = useRef(0); // count consecutive empty restarts
+  const processingRef = useRef(false); // prevent concurrent processing
 
   const speechSupported =
     typeof window !== "undefined" &&
@@ -72,13 +75,10 @@ export default function Conversation() {
     conversationActiveRef.current = conversationActive;
   }, [conversationActive]);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       clearAllTimers();
-      if (recognitionRef.current) {
-        try { recognitionRef.current.stop(); } catch {}
-      }
+      stopRecognitionQuiet();
     };
   }, []);
 
@@ -107,27 +107,21 @@ export default function Conversation() {
     }, SILENCE_TIMEOUT_MS);
   };
 
-  const startNoSpeechTimer = (currentSide: "you" | "them") => {
-    if (noSpeechTimerRef.current) clearTimeout(noSpeechTimerRef.current);
-    noSpeechTimerRef.current = setTimeout(() => {
-      // No speech detected → switch back to the other side
-      if (conversationActiveRef.current && activeSideRef.current === currentSide && !hasSpokenRef.current) {
-        stopRecognition();
-        const switchTo = otherSide(currentSide);
-        startListeningForSide(switchTo);
-      }
-    }, NO_SPEECH_TIMEOUT_MS);
-  };
-
   // ─── Recognition control ───────────────────────────────────────────────
 
-  const stopRecognition = () => {
+  // Stop without state updates (for cleanup)
+  const stopRecognitionQuiet = () => {
     if (recognitionRef.current) {
+      try { recognitionRef.current.abort(); } catch {}
       try { recognitionRef.current.stop(); } catch {}
       recognitionRef.current = null;
     }
-    setActiveSide(null);
+  };
+
+  const stopRecognition = () => {
+    stopRecognitionQuiet();
     activeSideRef.current = null;
+    setActiveSide(null);
     setTranscript("");
     transcriptRef.current = "";
     hasSpokenRef.current = false;
@@ -135,22 +129,22 @@ export default function Conversation() {
 
   const startListeningForSide = useCallback((side: "you" | "them") => {
     if (!conversationActiveRef.current) return;
+    if (processingRef.current) return; // don't start while processing
 
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) return;
 
-    // Stop any existing recognition
-    if (recognitionRef.current) {
-      try { recognitionRef.current.stop(); } catch {}
-      recognitionRef.current = null;
-    }
+    // Stop any existing recognition cleanly
+    stopRecognitionQuiet();
 
     const rec = new SpeechRecognition();
     rec.continuous = true;
     rec.interimResults = true;
     const lang = getRecognitionLang(side);
     if (lang) rec.lang = lang;
+
+    let ended = false; // guard against double-fire
 
     rec.onresult = (event: any) => {
       let finalText = "";
@@ -166,8 +160,8 @@ export default function Conversation() {
 
       if (combined.trim()) {
         if (!hasSpokenRef.current) {
-          // Cancel no-speech timer — someone is speaking
           if (noSpeechTimerRef.current) { clearTimeout(noSpeechTimerRef.current); noSpeechTimerRef.current = null; }
+          emptyRestartsRef.current = 0; // reset counter on speech
         }
         hasSpokenRef.current = true;
         resetSilenceTimer();
@@ -175,8 +169,12 @@ export default function Conversation() {
     };
 
     rec.onerror = (event: any) => {
+      if (ended) return;
+      ended = true;
       console.warn("Speech recognition error:", event.error);
       clearAllTimers();
+      recognitionRef.current = null;
+
       if (event.error === "not-allowed" || event.error === "service-not-available") {
         setConversationActive(false);
         conversationActiveRef.current = false;
@@ -184,25 +182,49 @@ export default function Conversation() {
         setTextInputSide(side);
         setShowTextInput(true);
       } else {
-        // Try to restart on transient errors
-        if (conversationActiveRef.current) {
-          setTimeout(() => startListeningForSide(side), 500);
-        } else {
-          setActiveSide(null);
-        }
+        setActiveSide(null);
+        activeSideRef.current = null;
+        // Don't auto-restart on error — wait for next auto-listen cycle
       }
     };
 
     rec.onend = () => {
-      // Browser auto-ended
-      if (activeSideRef.current && transcriptRef.current.trim()) {
-        finishListening();
-      } else if (conversationActiveRef.current && activeSideRef.current) {
-        // No text captured but conversation still active — restart
+      if (ended) return;
+      ended = true;
+      recognitionRef.current = null;
+
+      if (!conversationActiveRef.current) {
         setActiveSide(null);
         activeSideRef.current = null;
-        setTranscript("");
-        setTimeout(() => startListeningForSide(side), 300);
+        return;
+      }
+
+      // If we have text, process it
+      if (activeSideRef.current && transcriptRef.current.trim()) {
+        finishListening();
+        return;
+      }
+
+      // No text — count empty restart
+      emptyRestartsRef.current += 1;
+      setActiveSide(null);
+      activeSideRef.current = null;
+      setTranscript("");
+
+      if (emptyRestartsRef.current >= MAX_EMPTY_RESTARTS) {
+        // Too many empty restarts — stop to prevent loop, wait for next auto-listen
+        emptyRestartsRef.current = 0;
+        return;
+      }
+
+      // Restart on same side with increasing delay
+      if (conversationActiveRef.current) {
+        const delay = 500 + emptyRestartsRef.current * 300;
+        autoListenTimerRef.current = setTimeout(() => {
+          if (conversationActiveRef.current) {
+            startListeningForSide(side);
+          }
+        }, delay);
       }
     };
 
@@ -217,15 +239,29 @@ export default function Conversation() {
 
     try {
       rec.start();
-      // Start no-speech timer
-      startNoSpeechTimer(side);
+      // No-speech timer: if nobody speaks, switch to other side
+      if (noSpeechTimerRef.current) clearTimeout(noSpeechTimerRef.current);
+      noSpeechTimerRef.current = setTimeout(() => {
+        if (conversationActiveRef.current && activeSideRef.current === side && !hasSpokenRef.current) {
+          stopRecognitionQuiet();
+          recognitionRef.current = null;
+          activeSideRef.current = null;
+          setActiveSide(null);
+          setTranscript("");
+          emptyRestartsRef.current = 0;
+          // Switch to other side
+          autoListenTimerRef.current = setTimeout(() => {
+            if (conversationActiveRef.current) {
+              startListeningForSide(otherSide(side));
+            }
+          }, 300);
+        }
+      }, NO_SPEECH_TIMEOUT_MS);
     } catch (e) {
       console.warn("Failed to start speech recognition:", e);
+      recognitionRef.current = null;
       setActiveSide(null);
-      if (!conversationActiveRef.current) {
-        setTextInputSide(side);
-        setShowTextInput(true);
-      }
+      activeSideRef.current = null;
     }
   }, [yourLang, theirLang]);
 
@@ -235,6 +271,7 @@ export default function Conversation() {
     prepareAudioForSafari();
     setConversationActive(true);
     conversationActiveRef.current = true;
+    emptyRestartsRef.current = 0;
     setMessages([]);
     setError(null);
     startListeningForSide("you");
@@ -250,6 +287,8 @@ export default function Conversation() {
   // ─── Finish listening + translate ───────────────────────────────────────
 
   const finishListening = async () => {
+    if (processingRef.current) return; // prevent double-processing
+
     if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
     if (noSpeechTimerRef.current) { clearTimeout(noSpeechTimerRef.current); noSpeechTimerRef.current = null; }
 
@@ -257,15 +296,15 @@ export default function Conversation() {
     if (!side) return;
 
     const text = transcriptRef.current.trim();
-    stopRecognition();
+    stopRecognitionQuiet();
+    activeSideRef.current = null;
+    setActiveSide(null);
+    setTranscript("");
+    transcriptRef.current = "";
+    hasSpokenRef.current = false;
+    emptyRestartsRef.current = 0;
 
-    if (!text) {
-      // No text — if conversation active, restart on same side
-      if (conversationActiveRef.current) {
-        setTimeout(() => startListeningForSide(side), 300);
-      }
-      return;
-    }
+    if (!text) return;
 
     await processTranslation(text, side);
   };
@@ -273,6 +312,7 @@ export default function Conversation() {
   // ─── Translate + auto-speak + auto-continue ─────────────────────────────
 
   const processTranslation = async (text: string, side: "you" | "them") => {
+    processingRef.current = true;
     setIsTranslating(true);
     setError(null);
 
@@ -305,30 +345,23 @@ export default function Conversation() {
           setPlayingId(null);
         }
       }
-
-      // Auto-continue: listen on the other side after a brief pause
-      if (conversationActiveRef.current) {
-        const nextSide = otherSide(side);
-        autoListenTimerRef.current = setTimeout(() => {
-          if (conversationActiveRef.current) {
-            startListeningForSide(nextSide);
-          }
-        }, AUTO_LISTEN_DELAY_MS);
-      }
     } catch (e: any) {
       console.error("Translation failed:", e);
       setIsTranslating(false);
       const msg = e?.message || String(e);
       setError(msg.includes("API key") ? t("apiKeyNotConfigured") : msg.slice(0, 120));
+    } finally {
+      processingRef.current = false;
+    }
 
-      // Even on error, try to continue conversation
-      if (conversationActiveRef.current) {
-        autoListenTimerRef.current = setTimeout(() => {
-          if (conversationActiveRef.current) {
-            startListeningForSide(side); // retry same side
-          }
-        }, 1000);
-      }
+    // Auto-continue after processing is done
+    if (conversationActiveRef.current) {
+      const nextSide = otherSide(side);
+      autoListenTimerRef.current = setTimeout(() => {
+        if (conversationActiveRef.current && !processingRef.current) {
+          startListeningForSide(nextSide);
+        }
+      }, AUTO_LISTEN_DELAY_MS);
     }
   };
 
@@ -491,7 +524,6 @@ export default function Conversation() {
 
       {/* Bottom controls */}
       <div className="border-t border-[#FFFFFF14] bg-[#0E2666] shrink-0">
-        {/* Language selectors */}
         <div className="grid grid-cols-2 gap-3 px-4 pt-3">
           <div className="flex flex-col items-center gap-1">
             <span className={`text-xs font-medium ${listeningYou ? "text-red-400" : "text-[#F4F4F4]/40"}`}>
@@ -525,7 +557,6 @@ export default function Conversation() {
           </div>
         </div>
 
-        {/* Single start/stop button */}
         <div className="flex flex-col items-center py-4 gap-2">
           <button
             onClick={conversationActive ? stopConversation : startConversation}
