@@ -312,16 +312,16 @@ export default function Home() {
 
       {/* Settings Modal */}
       {showSettings && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-[#0E2666] p-6 rounded-3xl max-w-md w-full flex flex-col relative border border-[#FFFFFF14] max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center gap-3 mb-6">
+        <div className="fixed inset-0 z-50 flex flex-col bg-[#010B2E]">
+          <div className="flex-1 flex flex-col w-full max-w-[430px] mx-auto overflow-hidden">
+            <div className="flex items-center gap-3 p-4 shrink-0">
               <button onClick={() => setShowSettings(false)} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
                 <ChevronLeft className="w-6 h-6" />
               </button>
               <h2 className="text-2xl font-bold">{t("settings")}</h2>
             </div>
 
-            <div className="space-y-6">
+            <div className="overflow-y-auto p-4 pt-2 space-y-6 flex-1">
               {/* System Language */}
               <div>
                 <div className="flex items-center gap-2 mb-2">
