@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Mic, Radio, Users, MessageCircleQuestion, LogOut, QrCode, X, Share2, RotateCcw } from "lucide-react";
+import { ChevronLeft, Mic, Radio, Users, MessageCircleQuestion, LogOut, QrCode, X, Share2, RotateCcw, Printer } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
@@ -185,6 +185,37 @@ export default function RoomHost() {
       await navigator.clipboard.writeText(url);
       alert(t("linkCopied"));
     }
+  };
+
+  // ─── Print QR ────────────────────────────────────────────────────────────
+
+  const handlePrintQR = () => {
+    const url = `${window.location.origin}/join?code=${roomCode}`;
+    const win = window.open("", "_blank", "width=400,height=500");
+    if (!win) return;
+    win.document.write(`
+      <html><head><title>PolyGlot AI - Room ${roomCode}</title>
+      <style>
+        body { font-family: sans-serif; text-align: center; padding: 30px; }
+        h1 { font-size: 22px; margin-bottom: 5px; }
+        .code { font-size: 36px; font-weight: 900; letter-spacing: 0.2em; font-family: monospace; margin: 15px 0; }
+        .url { font-size: 11px; color: #666; word-break: break-all; margin-top: 15px; }
+        @media print { body { padding: 10px; } }
+      </style></head><body>
+        <h1>PolyGlot AI</h1>
+        <p>Scan to join the room</p>
+        <div id="qr" style="margin:20px auto;"></div>
+        <div class="code">${roomCode}</div>
+        <div class="url">${url}</div>
+        <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"><\/script>
+        <script>
+          var qr = qrcode(0, 'M'); qr.addData('${url}'); qr.make();
+          document.getElementById('qr').innerHTML = qr.createSvgTag(6, 0);
+          setTimeout(function() { window.print(); }, 300);
+        <\/script>
+      </body></html>
+    `);
+    win.document.close();
   };
 
   // ─── Silence detection ────────────────────────────────────────────────────
@@ -450,12 +481,6 @@ export default function RoomHost() {
         >
           <QrCode className="w-5 h-5" />
         </button>
-        <button
-          onClick={handleShare}
-          className="p-2 rounded-xl bg-[#295BDB]/20 text-[#295BDB] hover:bg-[#295BDB]/30 transition-colors"
-        >
-          <Share2 className="w-5 h-5" />
-        </button>
       </div>
 
       {/* Participants by language */}
@@ -588,8 +613,23 @@ export default function RoomHost() {
               <QRCodeSVG value={`${window.location.origin}/join?code=${roomCode}`} size={200} />
             </div>
 
-            <div className="bg-[#02114A] p-3 rounded-xl w-full text-center text-sm font-mono text-[#F4F4F4]/80 break-all border border-[#FFFFFF14]">
+            <div className="bg-[#02114A] p-3 rounded-xl w-full text-center text-sm font-mono text-[#F4F4F4]/80 break-all border border-[#FFFFFF14] mb-4">
               {t("roomCode")}: <span className="text-[#295BDB] font-bold text-lg">{roomCode}</span>
+            </div>
+
+            <div className="flex gap-3 w-full">
+              <button
+                onClick={handleShare}
+                className="flex-1 flex items-center justify-center gap-2 bg-[#123182] hover:bg-[#123182]/80 text-[#F4F4F4] py-3 rounded-xl transition-colors"
+              >
+                <Share2 className="w-5 h-5" />
+              </button>
+              <button
+                onClick={handlePrintQR}
+                className="flex-1 flex items-center justify-center gap-2 bg-[#123182] hover:bg-[#123182]/80 text-[#F4F4F4] py-3 rounded-xl transition-colors"
+              >
+                <Printer className="w-5 h-5" />
+              </button>
             </div>
           </div>
         </div>
