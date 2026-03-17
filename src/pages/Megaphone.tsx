@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Mic, Volume2, VolumeX, Megaphone } from "lucide-react";
+import { ChevronLeft, Mic, Volume2, VolumeX, Megaphone, Check } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLocaleForCode } from "../lib/languages";
@@ -12,48 +12,8 @@ interface Entry {
   translatedText: string;
 }
 
-const SILENCE_TIMEOUT_MS = 2000;
-const MAX_CHUNK_LENGTH = 120; // chars — split long text into chunks for faster TTS
-
-// Split text into sentence-based chunks for streaming TTS
-function splitIntoChunks(text: string): string[] {
-  // Split on sentence boundaries (. ! ? followed by space or end)
-  const sentences = text.match(/[^.!?]+[.!?]+[\s]?|[^.!?]+$/g) || [text];
-  const chunks: string[] = [];
-  let current = "";
-
-  for (const sentence of sentences) {
-    const trimmed = sentence.trim();
-    if (!trimmed) continue;
-
-    if (current && (current.length + trimmed.length) > MAX_CHUNK_LENGTH) {
-      chunks.push(current.trim());
-      current = trimmed;
-    } else {
-      current += (current ? " " : "") + trimmed;
-    }
-  }
-  if (current.trim()) chunks.push(current.trim());
-
-  // If we only got 1 chunk and it's very long, force-split on commas
-  if (chunks.length === 1 && chunks[0].length > MAX_CHUNK_LENGTH) {
-    const parts = chunks[0].split(/,\s*/);
-    const result: string[] = [];
-    let buf = "";
-    for (const part of parts) {
-      if (buf && (buf.length + part.length) > MAX_CHUNK_LENGTH) {
-        result.push(buf.trim());
-        buf = part;
-      } else {
-        buf += (buf ? ", " : "") + part;
-      }
-    }
-    if (buf.trim()) result.push(buf.trim());
-    return result;
-  }
-
-  return chunks;
-}
+const SHORT_PAUSE_MS = 2000; // translate chunk in background
+const LONG_PAUSE_MS = 4500;  // stop and play everything
 
 export default function MegaphonePage() {
   const navigate = useNavigate();
@@ -71,19 +31,22 @@ export default function MegaphonePage() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [autoSpeak, setAutoSpeak] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [readyChunks, setReadyChunks] = useState(0);
 
   const recognitionRef = useRef<any>(null);
   const transcriptRef = useRef("");
-  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isListeningRef = useRef(false);
   const hasSpokenRef = useRef(false);
   const entryIdRef = useRef(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const wakeLockRef = useRef<any>(null);
 
-  const speechSupported =
-    typeof window !== "undefined" &&
-    !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
+  // Incremental translation refs
+  const segmentsRef = useRef<string[]>([]); // isFinal results
+  const translatedCountRef = useRef(0); // how many segments already sent
+  const translationPromisesRef = useRef<Promise<string>[]>([]);
+  const shortTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -93,54 +56,70 @@ export default function MegaphonePage() {
     isListeningRef.current = isListening;
   }, [isListening]);
 
-  // Wake Lock: keep screen on while listening or speaking
+  // Wake Lock
   const acquireWakeLock = async () => {
     try {
       if ("wakeLock" in navigator) {
         wakeLockRef.current = await (navigator as any).wakeLock.request("screen");
       }
-    } catch (e) {
-      // Wake Lock not available or denied — not critical
-    }
+    } catch {}
   };
-
   const releaseWakeLock = () => {
     if (wakeLockRef.current) {
       wakeLockRef.current.release().catch(() => {});
       wakeLockRef.current = null;
     }
   };
+  useEffect(() => () => releaseWakeLock(), []);
 
-  // Release wake lock on unmount
-  useEffect(() => {
-    return () => releaseWakeLock();
-  }, []);
+  // ─── Pause timers ──────────────────────────────────────────────────────────
 
-  const resetSilenceTimer = () => {
-    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-    silenceTimerRef.current = setTimeout(() => {
+  const clearPauseTimers = () => {
+    if (shortTimerRef.current) { clearTimeout(shortTimerRef.current); shortTimerRef.current = null; }
+    if (longTimerRef.current) { clearTimeout(longTimerRef.current); longTimerRef.current = null; }
+  };
+
+  const translatePendingSegments = () => {
+    const newSegments = segmentsRef.current.slice(translatedCountRef.current);
+    if (newSegments.length === 0) return;
+    const text = newSegments.join(" ").trim();
+    if (!text) return;
+    translatedCountRef.current = segmentsRef.current.length;
+    const promise = translateText(text, speakerLang, [targetLang])
+      .then((r) => r[targetLang] || "...")
+      .catch(() => "...");
+    translationPromisesRef.current.push(promise);
+    // Track ready count
+    promise.then(() => setReadyChunks((c) => c + 1));
+  };
+
+  const resetPauseTimers = () => {
+    clearPauseTimers();
+
+    // Short pause: translate accumulated final text in background
+    shortTimerRef.current = setTimeout(() => {
+      if (!isListeningRef.current) return;
+      translatePendingSegments();
+    }, SHORT_PAUSE_MS);
+
+    // Long pause: stop and play everything
+    longTimerRef.current = setTimeout(() => {
       if (isListeningRef.current && hasSpokenRef.current && transcriptRef.current.trim()) {
-        finishListening();
+        finishAndPlay();
       }
-    }, SILENCE_TIMEOUT_MS);
+    }, LONG_PAUSE_MS);
   };
 
-  const clearSilenceTimer = () => {
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
-    }
-  };
+  // ─── Toggle listening ──────────────────────────────────────────────────────
 
   const toggleListening = () => {
     if (isListening) {
-      prepareAudioForSafari(); // unlock audio before TTS plays
-      finishListening();
+      prepareAudioForSafari();
+      finishAndPlay();
       return;
     }
     if (isTranslating || isSpeaking) return;
 
-    // Unlock audio context on user tap (before any async)
     prepareAudioForSafari();
 
     const SpeechRecognition =
@@ -154,46 +133,54 @@ export default function MegaphonePage() {
     if (locale) rec.lang = locale;
 
     rec.onresult = (event: any) => {
-      let finalText = "";
+      const segments: string[] = [];
       let interimText = "";
       for (let i = 0; i < event.results.length; i++) {
-        const r = event.results[i][0].transcript;
-        if (event.results[i].isFinal) finalText += r;
-        else interimText += r;
+        if (event.results[i].isFinal) {
+          segments.push(event.results[i][0].transcript);
+        } else {
+          interimText += event.results[i][0].transcript;
+        }
       }
-      const combined = finalText + interimText;
+      segmentsRef.current = segments;
+      const combined = segments.join("") + interimText;
       setTranscript(combined);
       transcriptRef.current = combined;
       if (combined.trim()) {
         hasSpokenRef.current = true;
-        resetSilenceTimer();
+        resetPauseTimers();
       }
     };
 
     rec.onerror = (event: any) => {
       console.warn("Speech recognition error:", event.error);
-      clearSilenceTimer();
+      clearPauseTimers();
       setIsListening(false);
       releaseWakeLock();
     };
 
     rec.onend = () => {
       if (isListeningRef.current && transcriptRef.current.trim()) {
-        finishListening();
+        finishAndPlay();
       } else if (isListeningRef.current) {
-        clearSilenceTimer();
+        clearPauseTimers();
         setIsListening(false);
         setTranscript("");
         releaseWakeLock();
       }
     };
 
+    // Reset state
     recognitionRef.current = rec;
     isListeningRef.current = true;
     setIsListening(true);
     setTranscript("");
     transcriptRef.current = "";
     hasSpokenRef.current = false;
+    segmentsRef.current = [];
+    translatedCountRef.current = 0;
+    translationPromisesRef.current = [];
+    setReadyChunks(0);
     setError(null);
     acquireWakeLock();
 
@@ -206,104 +193,89 @@ export default function MegaphonePage() {
     }
   };
 
-  const finishListening = async () => {
-    clearSilenceTimer();
+  // ─── Finish and play ───────────────────────────────────────────────────────
+
+  const finishAndPlay = async () => {
+    clearPauseTimers();
     if (recognitionRef.current) {
       try { recognitionRef.current.stop(); } catch {}
       recognitionRef.current = null;
     }
-    const text = transcriptRef.current.trim();
+
+    const fullText = transcriptRef.current.trim();
     setIsListening(false);
     isListeningRef.current = false;
     setTranscript("");
     hasSpokenRef.current = false;
-    if (!text) {
+
+    if (!fullText) {
       releaseWakeLock();
+      resetIncrementalState();
       return;
     }
-    await processTranslation(text);
-    releaseWakeLock();
-  };
 
-  const processTranslation = async (text: string) => {
-    setIsTranslating(true);
-    setError(null);
+    // Translate any remaining final segments not yet sent
+    translatePendingSegments();
 
-    const chunks = splitIntoChunks(text);
+    // Check for remaining interim text (not finalized by speech recognition)
+    const finalJoined = segmentsRef.current.join("");
+    const remaining = fullText.substring(finalJoined.length).trim();
+    if (remaining) {
+      const promise = translateText(remaining, speakerLang, [targetLang])
+        .then((r) => r[targetLang] || "...")
+        .catch(() => "...");
+      translationPromisesRef.current.push(promise);
+    }
 
+    // If no chunks at all, translate the whole thing
+    if (translationPromisesRef.current.length === 0) {
+      const promise = translateText(fullText, speakerLang, [targetLang])
+        .then((r) => r[targetLang] || "...")
+        .catch(() => "...");
+      translationPromisesRef.current.push(promise);
+    }
+
+    // Show entry
+    entryIdRef.current += 1;
+    const entryId = entryIdRef.current;
+    setEntries((prev) => [...prev, { id: entryId, originalText: fullText, translatedText: "..." }]);
+    setIsSpeaking(true);
+
+    // Play all chunks sequentially — first ones are likely already resolved!
+    let fullTranslation = "";
     try {
-      if (chunks.length <= 1) {
-        // Short text — original single-shot flow
-        const translations = await translateText(text, speakerLang, [targetLang]);
-        const translatedText = translations[targetLang] || "...";
-        entryIdRef.current += 1;
-        setEntries((prev) => [
-          ...prev,
-          { id: entryIdRef.current, originalText: text, translatedText },
-        ]);
-        setIsTranslating(false);
-        if (autoSpeak && translatedText !== "...") {
-          setIsSpeaking(true);
-          try {
-            await playTTS(translatedText, undefined, undefined, targetLang);
-          } catch (e) {
-            console.error("TTS failed:", e);
-          } finally {
-            setIsSpeaking(false);
-          }
-        }
-      } else {
-        // Long text — pipeline: translate chunks in parallel, play sequentially
-        // Start all translations at once
-        const translationPromises = chunks.map((chunk) =>
-          translateText(chunk, speakerLang, [targetLang])
-            .then((t) => t[targetLang] || "...")
-            .catch(() => "...")
+      for (const promise of translationPromisesRef.current) {
+        const translated = await promise;
+        fullTranslation += (fullTranslation ? " " : "") + translated;
+
+        setEntries((prev) =>
+          prev.map((e) => (e.id === entryId ? { ...e, translatedText: fullTranslation } : e))
         );
 
-        // Show entry with original text, translated text builds up
-        entryIdRef.current += 1;
-        const entryId = entryIdRef.current;
-        let fullTranslation = "";
-
-        setEntries((prev) => [
-          ...prev,
-          { id: entryId, originalText: text, translatedText: "..." },
-        ]);
-        setIsTranslating(false);
-        setIsSpeaking(true);
-
-        // Play each chunk as soon as its translation is ready
-        for (let i = 0; i < translationPromises.length; i++) {
-          const translated = await translationPromises[i];
-          fullTranslation += (fullTranslation ? " " : "") + translated;
-
-          // Update the entry with accumulated translation
-          setEntries((prev) =>
-            prev.map((e) =>
-              e.id === entryId ? { ...e, translatedText: fullTranslation } : e
-            )
-          );
-
-          // Play TTS for this chunk
-          if (autoSpeak && translated !== "...") {
-            try {
-              await playTTS(translated, undefined, undefined, targetLang);
-            } catch (e) {
-              console.error("TTS chunk failed:", e);
-            }
+        if (autoSpeak && translated !== "...") {
+          try {
+            await playTTS(translated, undefined, undefined, targetLang);
+          } catch (e) {
+            console.error("TTS chunk failed:", e);
           }
         }
-
-        setIsSpeaking(false);
       }
     } catch (e: any) {
       console.error("Translation failed:", e);
-      setIsTranslating(false);
-      setIsSpeaking(false);
       const msg = e?.message || String(e);
       setError(msg.includes("API key") ? t("apiKeyNotConfigured") : msg.slice(0, 120));
     }
+
+    setIsSpeaking(false);
+    releaseWakeLock();
+    resetIncrementalState();
+  };
+
+  const resetIncrementalState = () => {
+    segmentsRef.current = [];
+    translatedCountRef.current = 0;
+    translationPromisesRef.current = [];
+    setReadyChunks(0);
   };
 
   const speakerLangObj = LANGUAGES.find((l) => l.code === speakerLang);
@@ -389,7 +361,14 @@ export default function MegaphonePage() {
         {transcript && isListening && (
           <div className="bg-[#123182]/30 rounded-2xl p-5 border border-[#FFFFFF14]/50 italic">
             <p className="text-lg text-[#F4F4F4]/80">{transcript}</p>
-            <span className="text-xs text-[#F4F4F4]/40 mt-2 block">{t("listening")}</span>
+            <div className="flex items-center gap-3 mt-2">
+              <span className="text-xs text-[#F4F4F4]/40">{t("listening")}</span>
+              {readyChunks > 0 && (
+                <span className="text-xs text-green-400 flex items-center gap-1">
+                  <Check className="w-3 h-3" /> {readyChunks} {readyChunks === 1 ? "chunk" : "chunks"}
+                </span>
+              )}
+            </div>
           </div>
         )}
 
@@ -400,11 +379,7 @@ export default function MegaphonePage() {
           </div>
         )}
 
-        {isTranslating && (
-          <div className="text-[#295BDB] animate-pulse text-sm text-center">{t("translating")}</div>
-        )}
-
-        {isSpeaking && !isTranslating && (
+        {isSpeaking && (
           <div className="text-[#295BDB] animate-pulse text-sm text-center flex items-center justify-center gap-2">
             <Volume2 className="w-4 h-4" />
             {t("speaking")}

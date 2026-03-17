@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Mic, Radio, Users, MessageCircleQuestion, LogOut, QrCode, X, Share2, RotateCcw, Printer } from "lucide-react";
+import { ChevronLeft, Mic, Radio, Users, MessageCircleQuestion, LogOut, QrCode, X, Share2, RotateCcw, Printer, Check } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
@@ -25,7 +25,8 @@ interface Msg {
   sourceLanguage?: string;
 }
 
-const SILENCE_TIMEOUT_MS = 2000;
+const SHORT_PAUSE_MS = 2000; // translate chunk in background
+const LONG_PAUSE_MS = 4000;  // stop and send everything
 
 export default function RoomHost() {
   const navigate = useNavigate();
@@ -47,13 +48,21 @@ export default function RoomHost() {
   const [rejoinCode, setRejoinCode] = useState("");
   const [rejoining, setRejoining] = useState(false);
   const [lastRoom, setLastRoom] = useState<{ code: string; sessionId: string; hostId: string } | null>(null);
+  const [readyChunks, setReadyChunks] = useState(0);
 
   const recognitionRef = useRef<any>(null);
   const transcriptRef = useRef("");
-  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isListeningRef = useRef(false);
   const hasSpokenRef = useRef(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const wakeLockRef = useRef<any>(null);
+
+  // Incremental translation refs
+  const segmentsRef = useRef<string[]>([]);
+  const translatedCountRef = useRef(0);
+  const chunkTranslationsRef = useRef<Promise<Record<string, string>>[]>([]);
+  const shortTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load last room from localStorage
   useEffect(() => {
@@ -70,6 +79,22 @@ export default function RoomHost() {
   useEffect(() => {
     isListeningRef.current = isListening;
   }, [isListening]);
+
+  // Wake Lock
+  const acquireWakeLock = async () => {
+    try {
+      if ("wakeLock" in navigator) {
+        wakeLockRef.current = await (navigator as any).wakeLock.request("screen");
+      }
+    } catch {}
+  };
+  const releaseWakeLock = () => {
+    if (wakeLockRef.current) {
+      wakeLockRef.current.release().catch(() => {});
+      wakeLockRef.current = null;
+    }
+  };
+  useEffect(() => () => releaseWakeLock(), []);
 
   // Subscribe to participants
   useEffect(() => {
@@ -113,7 +138,6 @@ export default function RoomHost() {
       setSessionId(result.sessionId);
       setRoomCode(result.roomCode);
       setHostId(result.hostId);
-      // Save to localStorage for rejoin
       const roomData = { code: result.roomCode, sessionId: result.sessionId, hostId: result.hostId };
       localStorage.setItem("polyglot_last_room", JSON.stringify(roomData));
       setLastRoom(roomData);
@@ -132,7 +156,6 @@ export default function RoomHost() {
     setRejoining(true);
     setError(null);
     try {
-      // Find session by room code
       const q = query(
         collection(db, "sessions"),
         where("roomCode", "==", codeToUse),
@@ -151,7 +174,6 @@ export default function RoomHost() {
       setRoomCode(codeToUse);
       setHostId(data.hostId);
       setSpeakerLang(data.hostLanguage || defaultSourceLanguage);
-      // Update localStorage
       const roomData = { code: codeToUse, sessionId: sessionDoc.id, hostId: data.hostId };
       localStorage.setItem("polyglot_last_room", JSON.stringify(roomData));
       setLastRoom(roomData);
@@ -177,7 +199,6 @@ export default function RoomHost() {
         await navigator.share(shareData);
       } catch (e: any) {
         if (e.name !== "AbortError") {
-          // Fallback to clipboard
           await navigator.clipboard.writeText(url);
         }
       }
@@ -218,19 +239,16 @@ export default function RoomHost() {
           var iconSize = 40;
           var x = (parseInt(w) - iconSize) / 2;
           var y = (parseInt(h) - iconSize) / 2;
-          // White background behind icon
           var rect = document.createElementNS('http://www.w3.org/2000/svg','rect');
           rect.setAttribute('x', x - 4); rect.setAttribute('y', y - 4);
           rect.setAttribute('width', iconSize + 8); rect.setAttribute('height', iconSize + 8);
           rect.setAttribute('fill', 'white'); rect.setAttribute('rx', '6');
           svg.appendChild(rect);
-          // Icon image
           var img = document.createElementNS('http://www.w3.org/2000/svg','image');
           img.setAttribute('href', '${window.location.origin}/icons/icon-192.png');
           img.setAttribute('x', x); img.setAttribute('y', y);
           img.setAttribute('width', iconSize); img.setAttribute('height', iconSize);
           svg.appendChild(img);
-          // Wait for icon to load then print
           var testImg = new Image();
           testImg.onload = function() { setTimeout(function() { window.print(); window.close(); }, 200); };
           testImg.onerror = function() { setTimeout(function() { window.print(); window.close(); }, 200); };
@@ -241,29 +259,56 @@ export default function RoomHost() {
     win.document.close();
   };
 
-  // ─── Silence detection ────────────────────────────────────────────────────
+  // ─── Pause timers & incremental translation ────────────────────────────
 
-  const resetSilenceTimer = () => {
-    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-    silenceTimerRef.current = setTimeout(() => {
-      if (isListeningRef.current && hasSpokenRef.current && transcriptRef.current.trim()) {
-        finishListening();
-      }
-    }, SILENCE_TIMEOUT_MS);
+  const clearPauseTimers = () => {
+    if (shortTimerRef.current) { clearTimeout(shortTimerRef.current); shortTimerRef.current = null; }
+    if (longTimerRef.current) { clearTimeout(longTimerRef.current); longTimerRef.current = null; }
   };
 
-  const clearSilenceTimer = () => {
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
-    }
+  const getTargetLangs = () =>
+    [...new Set(participants.map((p) => p.language))].filter((l): l is string => l !== speakerLang);
+
+  const translatePendingSegments = () => {
+    const newSegments = segmentsRef.current.slice(translatedCountRef.current);
+    if (newSegments.length === 0) return;
+    const text = newSegments.join(" ").trim();
+    if (!text) return;
+    translatedCountRef.current = segmentsRef.current.length;
+    const targetLangs = getTargetLangs();
+    if (targetLangs.length === 0) return;
+    const promise = translateText(text, speakerLang, targetLangs).catch(() => ({}));
+    chunkTranslationsRef.current.push(promise);
+    promise.then(() => setReadyChunks((c) => c + 1));
+  };
+
+  const resetPauseTimers = () => {
+    clearPauseTimers();
+
+    shortTimerRef.current = setTimeout(() => {
+      if (!isListeningRef.current) return;
+      translatePendingSegments();
+    }, SHORT_PAUSE_MS);
+
+    longTimerRef.current = setTimeout(() => {
+      if (isListeningRef.current && hasSpokenRef.current && transcriptRef.current.trim()) {
+        finishAndSend();
+      }
+    }, LONG_PAUSE_MS);
+  };
+
+  const resetIncrementalState = () => {
+    segmentsRef.current = [];
+    translatedCountRef.current = 0;
+    chunkTranslationsRef.current = [];
+    setReadyChunks(0);
   };
 
   // ─── Listening ────────────────────────────────────────────────────────────
 
   const toggleListening = () => {
     if (isListening) {
-      finishListening();
+      finishAndSend();
       return;
     }
     if (isTranslating) return;
@@ -279,34 +324,39 @@ export default function RoomHost() {
     if (locale) rec.lang = locale;
 
     rec.onresult = (event: any) => {
-      let finalText = "";
+      const segments: string[] = [];
       let interimText = "";
       for (let i = 0; i < event.results.length; i++) {
-        const r = event.results[i][0].transcript;
-        if (event.results[i].isFinal) finalText += r;
-        else interimText += r;
+        if (event.results[i].isFinal) {
+          segments.push(event.results[i][0].transcript);
+        } else {
+          interimText += event.results[i][0].transcript;
+        }
       }
-      const combined = finalText + interimText;
+      segmentsRef.current = segments;
+      const combined = segments.join("") + interimText;
       setTranscript(combined);
       transcriptRef.current = combined;
       if (combined.trim()) {
         hasSpokenRef.current = true;
-        resetSilenceTimer();
+        resetPauseTimers();
       }
     };
 
     rec.onerror = () => {
-      clearSilenceTimer();
+      clearPauseTimers();
       setIsListening(false);
+      releaseWakeLock();
     };
 
     rec.onend = () => {
       if (isListeningRef.current && transcriptRef.current.trim()) {
-        finishListening();
+        finishAndSend();
       } else if (isListeningRef.current) {
-        clearSilenceTimer();
+        clearPauseTimers();
         setIsListening(false);
         setTranscript("");
+        releaseWakeLock();
       }
     };
 
@@ -317,52 +367,83 @@ export default function RoomHost() {
     transcriptRef.current = "";
     hasSpokenRef.current = false;
     setError(null);
+    resetIncrementalState();
+    acquireWakeLock();
 
     try {
       rec.start();
     } catch {
       setIsListening(false);
+      releaseWakeLock();
     }
   };
 
-  const finishListening = async () => {
-    clearSilenceTimer();
+  // ─── Finish and send ───────────────────────────────────────────────────
+
+  const finishAndSend = async () => {
+    clearPauseTimers();
     if (recognitionRef.current) {
       try { recognitionRef.current.stop(); } catch {}
       recognitionRef.current = null;
     }
-    const text = transcriptRef.current.trim();
+    const fullText = transcriptRef.current.trim();
     setIsListening(false);
     isListeningRef.current = false;
     setTranscript("");
     hasSpokenRef.current = false;
-    if (!text || !sessionId || !hostId) return;
-    await processTranslation(text);
-  };
 
-  // ─── Translate + broadcast ────────────────────────────────────────────────
+    if (!fullText || !sessionId || !hostId) {
+      releaseWakeLock();
+      resetIncrementalState();
+      return;
+    }
 
-  const processTranslation = async (text: string) => {
     setIsTranslating(true);
     setError(null);
 
     try {
-      // Collect unique languages from participants
-      const targetLangs = [...new Set(participants.map((p) => p.language))].filter(
-        (l): l is string => l !== speakerLang,
-      );
+      const targetLangs = getTargetLangs();
 
-      // Send source text immediately so clients see something fast
-      const initialTranslations: Record<string, string> = { [speakerLang]: text };
-      const msgId = await sendMessage(sessionId!, hostId!, "BROADCAST", speakerLang, text, initialTranslations);
+      // Translate remaining segments
+      translatePendingSegments();
 
-      // Then translate and update the message with translations
-      if (targetLangs.length > 0) {
-        const translations = await translateText(text, speakerLang, targetLangs);
-        translations[speakerLang] = text;
-        // Update the message in Firestore with translations
+      // Translate remaining interim text
+      const finalJoined = segmentsRef.current.join("");
+      const remaining = fullText.substring(finalJoined.length).trim();
+      if (remaining && targetLangs.length > 0) {
+        const promise = translateText(remaining, speakerLang, targetLangs).catch(() => ({}));
+        chunkTranslationsRef.current.push(promise);
+      }
+
+      // Send source text immediately
+      const initialTranslations: Record<string, string> = { [speakerLang]: fullText };
+      const msgId = await sendMessage(sessionId, hostId, "BROADCAST", speakerLang, fullText, initialTranslations);
+
+      // Merge all pre-translated chunks into one translation object
+      if (targetLangs.length > 0 && chunkTranslationsRef.current.length > 0) {
+        const allChunkResults = await Promise.all(chunkTranslationsRef.current);
+
+        // Merge: for each target lang, concatenate all chunk translations
+        const mergedTranslations: Record<string, string> = { [speakerLang]: fullText };
+        for (const lang of targetLangs) {
+          const parts: string[] = [];
+          for (const chunkResult of allChunkResults) {
+            if (chunkResult[lang]) parts.push(chunkResult[lang]);
+          }
+          if (parts.length > 0) {
+            mergedTranslations[lang] = parts.join(" ");
+          }
+        }
+
         if (msgId) {
-          await updateDoc(doc(db, "sessions", sessionId!, "messages", msgId), { translations });
+          await updateDoc(doc(db, "sessions", sessionId, "messages", msgId), { translations: mergedTranslations });
+        }
+      } else if (targetLangs.length > 0) {
+        // No pre-translated chunks, translate full text
+        const translations = await translateText(fullText, speakerLang, targetLangs);
+        translations[speakerLang] = fullText;
+        if (msgId) {
+          await updateDoc(doc(db, "sessions", sessionId, "messages", msgId), { translations });
         }
       }
     } catch (e: any) {
@@ -371,6 +452,8 @@ export default function RoomHost() {
       setError(msg.includes("API key") ? t("apiKeyNotConfigured") : msg.slice(0, 120));
     } finally {
       setIsTranslating(false);
+      releaseWakeLock();
+      resetIncrementalState();
     }
   };
 
@@ -439,7 +522,6 @@ export default function RoomHost() {
             {creating ? "..." : t("createRoom")}
           </button>
 
-          {/* Rejoin last room */}
           {lastRoom && (
             <button
               onClick={() => handleRejoin(lastRoom.code)}
@@ -451,7 +533,6 @@ export default function RoomHost() {
             </button>
           )}
 
-          {/* Manual rejoin */}
           <div className="w-full border-t border-[#FFFFFF14] pt-4">
             <label className="text-xs text-[#F4F4F4]/40 mb-2 block">{t("rejoinByCode")}</label>
             <div className="flex gap-2">
@@ -499,7 +580,6 @@ export default function RoomHost() {
         </div>
       </header>
 
-      {/* Room code banner */}
       <div className="bg-[#0E2666] border-b border-[#FFFFFF14] p-4 flex items-center justify-center gap-3">
         <span className="text-[#F4F4F4]/40 text-sm">{t("roomCode")}:</span>
         <span className="text-4xl font-mono font-black tracking-[0.3em] text-[#295BDB]">{roomCode}</span>
@@ -511,7 +591,6 @@ export default function RoomHost() {
         </button>
       </div>
 
-      {/* Participants by language */}
       {participants.length > 0 && (
         <div className="px-4 py-3 flex flex-wrap gap-2 border-b border-[#FFFFFF14]">
           {Object.entries(langCounts).map(([lang, count]) => {
@@ -529,7 +608,6 @@ export default function RoomHost() {
         </div>
       )}
 
-      {/* Error */}
       {error && (
         <div className="mx-4 mt-3 p-3 bg-red-500/20 border border-red-500/30 rounded-xl flex items-center gap-3">
           <p className="text-sm text-red-400 flex-1">{error}</p>
@@ -537,7 +615,6 @@ export default function RoomHost() {
         </div>
       )}
 
-      {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
         {messages.length === 0 && !isListening && participants.length === 0 && (
           <div className="flex-1 flex items-center justify-center">
@@ -553,7 +630,6 @@ export default function RoomHost() {
 
         {messages.map((msg) => {
           const isQuestion = msg.type === "QUESTION";
-          // For questions, show the translation in the host's language
           const questionInHostLang = isQuestion ? (msg.translations[speakerLang] || msg.sourceText) : null;
 
           return (
@@ -586,7 +662,14 @@ export default function RoomHost() {
         {transcript && isListening && (
           <div className="bg-[#123182]/30 rounded-2xl p-4 border border-[#FFFFFF14]/50 italic">
             <p className="text-lg text-[#F4F4F4]/80">{transcript}</p>
-            <span className="text-xs text-[#F4F4F4]/40 mt-1 block">{t("listening")}</span>
+            <div className="flex items-center gap-3 mt-1">
+              <span className="text-xs text-[#F4F4F4]/40">{t("listening")}</span>
+              {readyChunks > 0 && (
+                <span className="text-xs text-green-400 flex items-center gap-1">
+                  <Check className="w-3 h-3" /> {readyChunks}
+                </span>
+              )}
+            </div>
           </div>
         )}
 
@@ -604,7 +687,6 @@ export default function RoomHost() {
         <div ref={bottomRef} />
       </div>
 
-      {/* Mic */}
       <div className="border-t border-[#FFFFFF14] bg-[#0E2666] p-6 flex flex-col items-center gap-3">
         <button
           onClick={toggleListening}
@@ -622,7 +704,6 @@ export default function RoomHost() {
         </span>
       </div>
 
-      {/* QR Code Modal */}
       {showQR && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-[#0E2666] p-8 rounded-3xl max-w-sm w-full flex flex-col items-center relative border border-[#FFFFFF14]">

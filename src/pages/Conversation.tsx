@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Mic, MicOff, Send, Volume2, VolumeX } from "lucide-react";
+import { ChevronLeft, Mic, MicOff, Send, Volume2, VolumeX, Check } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLabelForCode, getLocaleForCode } from "../lib/languages";
@@ -14,10 +14,11 @@ interface Message {
   sourceLang: string;
 }
 
-const SILENCE_TIMEOUT_MS = 2500;
+const SHORT_PAUSE_MS = 2000;  // translate chunk in background
+const LONG_PAUSE_MS = 4000;   // stop, play, switch sides
 const NO_SPEECH_TIMEOUT_MS = 5000;
 const AUTO_LISTEN_DELAY_MS = 800;
-const MAX_EMPTY_RESTARTS = 3; // max restarts without speech before pausing
+const MAX_EMPTY_RESTARTS = 3;
 
 export default function Conversation() {
   const navigate = useNavigate();
@@ -40,20 +41,27 @@ export default function Conversation() {
   const [textInputSide, setTextInputSide] = useState<"you" | "them">("you");
   const [showTextInput, setShowTextInput] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [readyChunks, setReadyChunks] = useState(0);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
   const msgIdRef = useRef(0);
   const transcriptRef = useRef("");
-  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const shortTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const noSpeechTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoListenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeSideRef = useRef<"you" | "them" | null>(null);
   const hasSpokenRef = useRef(false);
   const conversationActiveRef = useRef(false);
   const lastSideRef = useRef<"you" | "them">("you");
-  const emptyRestartsRef = useRef(0); // count consecutive empty restarts
-  const processingRef = useRef(false); // prevent concurrent processing
+  const emptyRestartsRef = useRef(0);
+  const processingRef = useRef(false);
+
+  // Incremental translation refs
+  const segmentsRef = useRef<string[]>([]);
+  const translatedCountRef = useRef(0);
+  const translationPromisesRef = useRef<Promise<string>[]>([]);
 
   const speechSupported =
     typeof window !== "undefined" &&
@@ -63,17 +71,9 @@ export default function Conversation() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  useEffect(() => {
-    transcriptRef.current = transcript;
-  }, [transcript]);
-
-  useEffect(() => {
-    activeSideRef.current = activeSide;
-  }, [activeSide]);
-
-  useEffect(() => {
-    conversationActiveRef.current = conversationActive;
-  }, [conversationActive]);
+  useEffect(() => { transcriptRef.current = transcript; }, [transcript]);
+  useEffect(() => { activeSideRef.current = activeSide; }, [activeSide]);
+  useEffect(() => { conversationActiveRef.current = conversationActive; }, [conversationActive]);
 
   useEffect(() => {
     return () => {
@@ -82,10 +82,8 @@ export default function Conversation() {
     };
   }, []);
 
-  const getRecognitionLang = (side: "you" | "them") => {
-    if (side === "you") return getLocaleForCode(yourLang);
-    return getLocaleForCode(theirLang);
-  };
+  const getRecognitionLang = (side: "you" | "them") =>
+    side === "you" ? getLocaleForCode(yourLang) : getLocaleForCode(theirLang);
 
   const otherSide = (side: "you" | "them"): "you" | "them" =>
     side === "you" ? "them" : "you";
@@ -93,23 +91,47 @@ export default function Conversation() {
   // ─── Timers ─────────────────────────────────────────────────────────────
 
   const clearAllTimers = () => {
-    if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
+    if (shortTimerRef.current) { clearTimeout(shortTimerRef.current); shortTimerRef.current = null; }
+    if (longTimerRef.current) { clearTimeout(longTimerRef.current); longTimerRef.current = null; }
     if (noSpeechTimerRef.current) { clearTimeout(noSpeechTimerRef.current); noSpeechTimerRef.current = null; }
     if (autoListenTimerRef.current) { clearTimeout(autoListenTimerRef.current); autoListenTimerRef.current = null; }
   };
 
-  const resetSilenceTimer = () => {
-    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-    silenceTimerRef.current = setTimeout(() => {
+  const translatePendingSegments = (side: "you" | "them") => {
+    const newSegments = segmentsRef.current.slice(translatedCountRef.current);
+    if (newSegments.length === 0) return;
+    const text = newSegments.join(" ").trim();
+    if (!text) return;
+    translatedCountRef.current = segmentsRef.current.length;
+    const sourceLang = side === "you" ? yourLang : theirLang;
+    const targetLang = side === "you" ? theirLang : yourLang;
+    const promise = translateText(text, sourceLang, [targetLang])
+      .then((r) => r[targetLang] || "...")
+      .catch(() => "...");
+    translationPromisesRef.current.push(promise);
+    promise.then(() => setReadyChunks((c) => c + 1));
+  };
+
+  const resetPauseTimers = (side: "you" | "them") => {
+    if (shortTimerRef.current) { clearTimeout(shortTimerRef.current); shortTimerRef.current = null; }
+    if (longTimerRef.current) { clearTimeout(longTimerRef.current); longTimerRef.current = null; }
+
+    // Short pause: translate chunk in background
+    shortTimerRef.current = setTimeout(() => {
+      if (!activeSideRef.current) return;
+      translatePendingSegments(side);
+    }, SHORT_PAUSE_MS);
+
+    // Long pause: stop, play, switch
+    longTimerRef.current = setTimeout(() => {
       if (activeSideRef.current && hasSpokenRef.current && transcriptRef.current.trim()) {
-        finishListening();
+        finishAndPlay();
       }
-    }, SILENCE_TIMEOUT_MS);
+    }, LONG_PAUSE_MS);
   };
 
   // ─── Recognition control ───────────────────────────────────────────────
 
-  // Stop without state updates (for cleanup)
   const stopRecognitionQuiet = () => {
     if (recognitionRef.current) {
       try { recognitionRef.current.abort(); } catch {}
@@ -127,15 +149,21 @@ export default function Conversation() {
     hasSpokenRef.current = false;
   };
 
+  const resetIncrementalState = () => {
+    segmentsRef.current = [];
+    translatedCountRef.current = 0;
+    translationPromisesRef.current = [];
+    setReadyChunks(0);
+  };
+
   const startListeningForSide = useCallback((side: "you" | "them") => {
     if (!conversationActiveRef.current) return;
-    if (processingRef.current) return; // don't start while processing
+    if (processingRef.current) return;
 
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) return;
 
-    // Stop any existing recognition cleanly
     stopRecognitionQuiet();
 
     const rec = new SpeechRecognition();
@@ -144,27 +172,30 @@ export default function Conversation() {
     const lang = getRecognitionLang(side);
     if (lang) rec.lang = lang;
 
-    let ended = false; // guard against double-fire
+    let ended = false;
 
     rec.onresult = (event: any) => {
-      let finalText = "";
+      const segments: string[] = [];
       let interimText = "";
       for (let i = 0; i < event.results.length; i++) {
-        const r = event.results[i][0].transcript;
-        if (event.results[i].isFinal) finalText += r;
-        else interimText += r;
+        if (event.results[i].isFinal) {
+          segments.push(event.results[i][0].transcript);
+        } else {
+          interimText += event.results[i][0].transcript;
+        }
       }
-      const combined = finalText + interimText;
+      segmentsRef.current = segments;
+      const combined = segments.join("") + interimText;
       setTranscript(combined);
       transcriptRef.current = combined;
 
       if (combined.trim()) {
         if (!hasSpokenRef.current) {
           if (noSpeechTimerRef.current) { clearTimeout(noSpeechTimerRef.current); noSpeechTimerRef.current = null; }
-          emptyRestartsRef.current = 0; // reset counter on speech
+          emptyRestartsRef.current = 0;
         }
         hasSpokenRef.current = true;
-        resetSilenceTimer();
+        resetPauseTimers(side);
       }
     };
 
@@ -184,7 +215,6 @@ export default function Conversation() {
       } else {
         setActiveSide(null);
         activeSideRef.current = null;
-        // Don't auto-restart on error — wait for next auto-listen cycle
       }
     };
 
@@ -199,25 +229,21 @@ export default function Conversation() {
         return;
       }
 
-      // If we have text, process it
       if (activeSideRef.current && transcriptRef.current.trim()) {
-        finishListening();
+        finishAndPlay();
         return;
       }
 
-      // No text — count empty restart
       emptyRestartsRef.current += 1;
       setActiveSide(null);
       activeSideRef.current = null;
       setTranscript("");
 
       if (emptyRestartsRef.current >= MAX_EMPTY_RESTARTS) {
-        // Too many empty restarts — stop to prevent loop, wait for next auto-listen
         emptyRestartsRef.current = 0;
         return;
       }
 
-      // Restart on same side with increasing delay
       if (conversationActiveRef.current) {
         const delay = 500 + emptyRestartsRef.current * 300;
         autoListenTimerRef.current = setTimeout(() => {
@@ -236,10 +262,10 @@ export default function Conversation() {
     hasSpokenRef.current = false;
     lastSideRef.current = side;
     setError(null);
+    resetIncrementalState();
 
     try {
       rec.start();
-      // No-speech timer: if nobody speaks, switch to other side
       if (noSpeechTimerRef.current) clearTimeout(noSpeechTimerRef.current);
       noSpeechTimerRef.current = setTimeout(() => {
         if (conversationActiveRef.current && activeSideRef.current === side && !hasSpokenRef.current) {
@@ -249,7 +275,6 @@ export default function Conversation() {
           setActiveSide(null);
           setTranscript("");
           emptyRestartsRef.current = 0;
-          // Switch to other side
           autoListenTimerRef.current = setTimeout(() => {
             if (conversationActiveRef.current) {
               startListeningForSide(otherSide(side));
@@ -282,20 +307,20 @@ export default function Conversation() {
     setConversationActive(false);
     conversationActiveRef.current = false;
     stopRecognition();
+    resetIncrementalState();
   };
 
-  // ─── Finish listening + translate ───────────────────────────────────────
+  // ─── Finish and play (incremental) ────────────────────────────────────
 
-  const finishListening = async () => {
-    if (processingRef.current) return; // prevent double-processing
+  const finishAndPlay = async () => {
+    if (processingRef.current) return;
 
-    if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
-    if (noSpeechTimerRef.current) { clearTimeout(noSpeechTimerRef.current); noSpeechTimerRef.current = null; }
+    clearAllTimers();
 
     const side = activeSideRef.current;
     if (!side) return;
 
-    const text = transcriptRef.current.trim();
+    const fullText = transcriptRef.current.trim();
     stopRecognitionQuiet();
     activeSideRef.current = null;
     setActiveSide(null);
@@ -304,57 +329,75 @@ export default function Conversation() {
     hasSpokenRef.current = false;
     emptyRestartsRef.current = 0;
 
-    if (!text) return;
+    if (!fullText) return;
 
-    await processTranslation(text, side);
-  };
-
-  // ─── Translate + auto-speak + auto-continue ─────────────────────────────
-
-  const processTranslation = async (text: string, side: "you" | "them") => {
     processingRef.current = true;
-    setIsTranslating(true);
     setError(null);
 
+    const sourceLang = side === "you" ? yourLang : theirLang;
+    const targetLang = side === "you" ? theirLang : yourLang;
+
+    // Translate remaining segments
+    translatePendingSegments(side);
+
+    // Translate any remaining interim text
+    const finalJoined = segmentsRef.current.join("");
+    const remaining = fullText.substring(finalJoined.length).trim();
+    if (remaining) {
+      const promise = translateText(remaining, sourceLang, [targetLang])
+        .then((r) => r[targetLang] || "...")
+        .catch(() => "...");
+      translationPromisesRef.current.push(promise);
+    }
+
+    // Fallback: if no chunks, translate everything
+    if (translationPromisesRef.current.length === 0) {
+      const promise = translateText(fullText, sourceLang, [targetLang])
+        .then((r) => r[targetLang] || "...")
+        .catch(() => "...");
+      translationPromisesRef.current.push(promise);
+    }
+
+    msgIdRef.current += 1;
+    const newId = msgIdRef.current;
+
+    setMessages((prev) => [
+      ...prev,
+      { id: newId, side, originalText: fullText, translatedText: "...", sourceLang },
+    ]);
+    setIsSpeaking(true);
+    setPlayingId(newId);
+
     try {
-      const sourceLang = side === "you" ? yourLang : theirLang;
-      const targetLang = side === "you" ? theirLang : yourLang;
+      let fullTranslation = "";
+      for (const promise of translationPromisesRef.current) {
+        const translated = await promise;
+        fullTranslation += (fullTranslation ? " " : "") + translated;
 
-      const translations = await translateText(text, sourceLang, [targetLang]);
-      const translatedText = translations[targetLang] || "...";
+        setMessages((prev) =>
+          prev.map((m) => (m.id === newId ? { ...m, translatedText: fullTranslation } : m))
+        );
 
-      msgIdRef.current += 1;
-      const newId = msgIdRef.current;
-
-      setMessages((prev) => [
-        ...prev,
-        { id: newId, side, originalText: text, translatedText, sourceLang },
-      ]);
-
-      setIsTranslating(false);
-
-      if (autoSpeak && translatedText !== "...") {
-        setIsSpeaking(true);
-        setPlayingId(newId);
-        try {
-          await playTTS(translatedText, undefined, undefined, targetLang);
-        } catch (e) {
-          console.error("TTS failed:", e);
-        } finally {
-          setIsSpeaking(false);
-          setPlayingId(null);
+        if (autoSpeak && translated !== "...") {
+          try {
+            await playTTS(translated, undefined, undefined, targetLang);
+          } catch (e) {
+            console.error("TTS failed:", e);
+          }
         }
       }
     } catch (e: any) {
       console.error("Translation failed:", e);
-      setIsTranslating(false);
       const msg = e?.message || String(e);
       setError(msg.includes("API key") ? t("apiKeyNotConfigured") : msg.slice(0, 120));
-    } finally {
-      processingRef.current = false;
     }
 
-    // Auto-continue after processing is done
+    setIsSpeaking(false);
+    setPlayingId(null);
+    processingRef.current = false;
+    resetIncrementalState();
+
+    // Auto-continue to other side
     if (conversationActiveRef.current) {
       const nextSide = otherSide(side);
       autoListenTimerRef.current = setTimeout(() => {
@@ -372,7 +415,37 @@ export default function Conversation() {
     if (!text) return;
     setTextInput("");
     setShowTextInput(false);
-    await processTranslation(text, textInputSide);
+
+    const side = textInputSide;
+    const sourceLang = side === "you" ? yourLang : theirLang;
+    const targetLang = side === "you" ? theirLang : yourLang;
+
+    processingRef.current = true;
+    setIsTranslating(true);
+    try {
+      const translations = await translateText(text, sourceLang, [targetLang]);
+      const translatedText = translations[targetLang] || "...";
+      msgIdRef.current += 1;
+      setMessages((prev) => [
+        ...prev,
+        { id: msgIdRef.current, side, originalText: text, translatedText, sourceLang },
+      ]);
+      setIsTranslating(false);
+      if (autoSpeak && translatedText !== "...") {
+        setIsSpeaking(true);
+        setPlayingId(msgIdRef.current);
+        try {
+          await playTTS(translatedText, undefined, undefined, targetLang);
+        } catch {}
+        setIsSpeaking(false);
+        setPlayingId(null);
+      }
+    } catch (e: any) {
+      setIsTranslating(false);
+      const msg = e?.message || String(e);
+      setError(msg.includes("API key") ? t("apiKeyNotConfigured") : msg.slice(0, 120));
+    }
+    processingRef.current = false;
   };
 
   const handleSpeak = async (text: string, id: number, langCode: string) => {
@@ -397,11 +470,8 @@ export default function Conversation() {
   const listeningYou = activeSide === "you";
   const listeningThem = activeSide === "them";
 
-  // ─── Render ─────────────────────────────────────────────────────────────
-
   return (
     <div className="h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans overflow-hidden">
-      {/* Header */}
       <header className="flex items-center gap-3 p-4 border-b border-[#FFFFFF14] bg-[#0E2666] shrink-0">
         <button onClick={() => { stopConversation(); navigate("/"); }} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
           <ChevronLeft className="w-6 h-6" />
@@ -418,7 +488,6 @@ export default function Conversation() {
         </button>
       </header>
 
-      {/* Error banner */}
       {error && (
         <div className="mx-4 mt-3 p-3 bg-red-500/20 border border-red-500/30 rounded-xl flex items-center gap-3 shrink-0">
           <p className="text-sm text-red-400 flex-1">{error}</p>
@@ -426,7 +495,6 @@ export default function Conversation() {
         </div>
       )}
 
-      {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
         {messages.length === 0 && !conversationActive && (
           <div className="flex-1 flex items-center justify-center">
@@ -462,19 +530,24 @@ export default function Conversation() {
           </div>
         ))}
 
-        {/* Live transcript */}
         {transcript && activeSide && (
           <div className={`flex flex-col gap-1 ${activeSide === "you" ? "items-start" : "items-end"}`}>
             <div className="bg-[#123182]/50 text-[#F4F4F4]/80 p-4 rounded-2xl max-w-[85%] border border-[#FFFFFF14]/50 italic">
               <p className="text-lg">{transcript}</p>
-              <span className="text-xs text-[#F4F4F4]/40 mt-1 block">
-                {activeSide === "you" ? t("you") : t("them")} · {t("listening")}
-              </span>
+              <div className="flex items-center gap-3 mt-1">
+                <span className="text-xs text-[#F4F4F4]/40">
+                  {activeSide === "you" ? t("you") : t("them")} · {t("listening")}
+                </span>
+                {readyChunks > 0 && (
+                  <span className="text-xs text-green-400 flex items-center gap-1">
+                    <Check className="w-3 h-3" /> {readyChunks}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         )}
 
-        {/* Listening indicator */}
         {activeSide && !transcript && (
           <div className={`flex items-center gap-2 text-[#F4F4F4]/40 text-sm ${activeSide === "them" ? "justify-end" : "justify-start"}`}>
             <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
@@ -482,11 +555,7 @@ export default function Conversation() {
           </div>
         )}
 
-        {isTranslating && (
-          <div className="text-[#295BDB] animate-pulse text-sm text-center">{t("translating")}</div>
-        )}
-
-        {isSpeaking && !isTranslating && (
+        {isSpeaking && (
           <div className="text-[#295BDB] animate-pulse text-sm text-center flex items-center justify-center gap-2">
             <Volume2 className="w-4 h-4" />
             {t("speaking")}
@@ -496,7 +565,6 @@ export default function Conversation() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Text input fallback */}
       {showTextInput && (
         <div className="border-t border-[#FFFFFF14] bg-[#0E2666] p-3 flex items-center gap-2 shrink-0">
           <span className="text-xs text-[#F4F4F4]/40 shrink-0">
@@ -522,7 +590,6 @@ export default function Conversation() {
         </div>
       )}
 
-      {/* Bottom controls */}
       <div className="border-t border-[#FFFFFF14] bg-[#0E2666] shrink-0">
         <div className="grid grid-cols-2 gap-3 px-4 pt-3">
           <div className="flex flex-col items-center gap-1">
