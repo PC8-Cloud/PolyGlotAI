@@ -3,6 +3,11 @@
 html, body, #root {
   min-height: 100vh;
   background: #010B2E;
+  overscroll-behavior: none;
+}
+
+html {
+  touch-action: manipulation;
 }
 
 .no-scrollbar::-webkit-scrollbar {
