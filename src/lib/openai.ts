@@ -115,15 +115,15 @@ export async function textToSpeech(
 // AudioContext for reliable playback (survives async gaps on Safari)
 let _audioCtx: AudioContext | null = null;
 
-// Call this synchronously inside a tap/click handler BEFORE any await
+// Call this synchronously inside a tap/click handler to create AudioContext
+// (must be created during user gesture on iOS, resume happens before playback)
 export function prepareAudioForSafari() {
   const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
   if (!AudioCtx) return;
   if (!_audioCtx) {
     _audioCtx = new AudioCtx();
-  }
-  if (_audioCtx.state === "suspended") {
-    _audioCtx.resume();
+    // Initial resume to "unlock" on user gesture — will be suspended after first playback
+    _audioCtx.resume().catch(() => {});
   }
 }
 
@@ -151,18 +151,28 @@ export async function playTTS(
     reportResponseTime(Date.now() - start);
 
     // Try AudioContext first (works reliably on Safari after unlock)
-    if (_audioCtx && _audioCtx.state === "running") {
-      try {
-        const audioData = await _audioCtx.decodeAudioData(buffer.slice(0));
-        const source = _audioCtx.createBufferSource();
-        source.buffer = audioData;
-        source.connect(_audioCtx.destination);
-        source.start();
-        return new Promise<void>((resolve) => {
-          source.onended = () => resolve();
-        });
-      } catch (decodeErr) {
-        console.warn("AudioContext decode failed, falling back to Audio element:", decodeErr);
+    if (_audioCtx) {
+      // Resume if suspended (was suspended after previous playback)
+      if (_audioCtx.state === "suspended") {
+        try { await _audioCtx.resume(); } catch {}
+      }
+      if (_audioCtx.state === "running") {
+        try {
+          const audioData = await _audioCtx.decodeAudioData(buffer.slice(0));
+          const source = _audioCtx.createBufferSource();
+          source.buffer = audioData;
+          source.connect(_audioCtx.destination);
+          source.start();
+          return new Promise<void>((resolve) => {
+            source.onended = () => {
+              // Suspend AudioContext after playback to free audio session for mic
+              if (_audioCtx) _audioCtx.suspend().catch(() => {});
+              resolve();
+            };
+          });
+        } catch (decodeErr) {
+          console.warn("AudioContext decode failed, falling back to Audio element:", decodeErr);
+        }
       }
     }
 
