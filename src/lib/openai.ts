@@ -11,28 +11,17 @@ export function getApiErrorMessage(err: any): { key: string; fallback: string } 
   const status = err?.status || err?.response?.status || 0;
   const msg = err?.message || String(err);
 
-  if (msg.includes("API key")) {
-    return { key: "apiKeyNotConfigured", fallback: "API key not configured" };
-  }
-  if (status === 401) {
-    return { key: "apiKeyInvalid", fallback: "Invalid API key. Check your key in Settings." };
+  if (msg.includes("API key") || status === 401) {
+    return { key: "apiKeyExpired", fallback: "Your API key has expired" };
   }
   if (status === 402 || status === 403 || msg.includes("insufficient_quota") || msg.includes("billing")) {
     return { key: "apiKeyExpired", fallback: "Your API key has expired" };
   }
-  if (status === 429) {
-    return { key: "apiRateLimit", fallback: "Too many requests. Wait a moment and try again." };
-  }
-  if (status === 529 || status === 503) {
-    return { key: "apiOverloaded", fallback: "OpenAI servers overloaded. Try again shortly." };
-  }
   if (!navigator.onLine) {
     return { key: "requiresInternet", fallback: "Requires internet" };
   }
-  if (msg.includes("fetch") || msg.includes("network") || msg.includes("Failed to fetch") || msg.includes("Connection")) {
-    return { key: "networkError", fallback: "Connection error. Check your internet and try again." };
-  }
-  return { key: "genericApiError", fallback: "Service temporarily unavailable. Try again." };
+  // Everything else: transient/network/overload — just say "try again"
+  return { key: "genericApiError", fallback: "Temporary error. Try again." };
 }
 
 // ─── Retry with exponential backoff for transient API errors ─────────────────
