@@ -18,7 +18,7 @@ export function getApiErrorMessage(err: any): { key: string; fallback: string } 
     return { key: "apiKeyInvalid", fallback: "Invalid API key. Check your key in Settings." };
   }
   if (status === 402 || status === 403 || msg.includes("insufficient_quota") || msg.includes("billing")) {
-    return { key: "apiCreditsExhausted", fallback: "OpenAI credit exhausted. Add credit at platform.openai.com" };
+    return { key: "apiKeyExpired", fallback: "Your API key has expired" };
   }
   if (status === 429) {
     return { key: "apiRateLimit", fallback: "Too many requests. Wait a moment and try again." };
