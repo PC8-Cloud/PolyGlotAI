@@ -48,9 +48,13 @@ export function getOpenAIClient(): OpenAI {
 
 function getClient(): OpenAI {
   const storeKey = useUserStore.getState().openaiApiKey;
-  const viteKey = (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_OPENAI_API_KEY) || "";
-  const processKey = (typeof process !== "undefined" && (process as any).env?.OPENAI_API_KEY) || "";
-  const apiKey = storeKey || viteKey || processKey || "";
+  // Vite replaces these at build time — must use exact syntax for replacement to work
+  let envKey = "";
+  try { envKey = import.meta.env.VITE_OPENAI_API_KEY || ""; } catch {}
+  if (!envKey) {
+    try { envKey = process.env.OPENAI_API_KEY || ""; } catch {}
+  }
+  const apiKey = storeKey || envKey || "";
 
   if (!apiKey) {
     throw new Error("API key not configured");

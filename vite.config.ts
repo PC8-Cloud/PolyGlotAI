@@ -6,7 +6,7 @@ import {defineConfig, loadEnv} from 'vite';
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
   // Use process.env (Vercel) or loadEnv (.env files for local dev)
-  const apiKey = process.env.OPENAI_API_KEY || env.OPENAI_API_KEY || '';
+  const apiKey = process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY || env.OPENAI_API_KEY || '';
   return {
     plugins: [react(), tailwindcss()],
     define: {
