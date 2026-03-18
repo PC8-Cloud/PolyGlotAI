@@ -59,11 +59,12 @@ export function getOpenAIClient(): OpenAI {
 
 function getClient(): OpenAI {
   const storeKey = useUserStore.getState().openaiApiKey;
-  const envKey = (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_OPENAI_API_KEY) || "";
-  const apiKey = storeKey || envKey || "";
+  const viteKey = (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_OPENAI_API_KEY) || "";
+  const processKey = (typeof process !== "undefined" && (process as any).env?.OPENAI_API_KEY) || "";
+  const apiKey = storeKey || viteKey || processKey || "";
 
   if (!apiKey) {
-    throw new Error("API key not configured. Go to Settings and enter your OpenAI API key.");
+    throw new Error("API key not configured");
   }
 
   // Recreate client if key changed
