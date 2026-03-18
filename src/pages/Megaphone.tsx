@@ -40,6 +40,7 @@ export default function MegaphonePage() {
   const entryIdRef = useRef(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const wakeLockRef = useRef<any>(null);
+  const processingRef = useRef(false);
 
   // Incremental translation refs
   const segmentsRef = useRef<string[]>([]); // isFinal results
@@ -118,7 +119,7 @@ export default function MegaphonePage() {
       finishAndPlay();
       return;
     }
-    if (isTranslating || isSpeaking) return;
+    if (isTranslating || isSpeaking || processingRef.current) return;
 
     prepareAudioForSafari();
 
@@ -196,21 +197,29 @@ export default function MegaphonePage() {
   // ─── Finish and play ───────────────────────────────────────────────────────
 
   const finishAndPlay = async () => {
+    if (processingRef.current) return; // prevent double-fire
+    processingRef.current = true;
+
     clearPauseTimers();
+
+    // Immediately mark as not listening to prevent onend re-entry
+    isListeningRef.current = false;
+    setIsListening(false);
+
     if (recognitionRef.current) {
       try { recognitionRef.current.stop(); } catch {}
       recognitionRef.current = null;
     }
 
     const fullText = transcriptRef.current.trim();
-    setIsListening(false);
-    isListeningRef.current = false;
     setTranscript("");
+    transcriptRef.current = "";
     hasSpokenRef.current = false;
 
     if (!fullText) {
       releaseWakeLock();
       resetIncrementalState();
+      processingRef.current = false;
       return;
     }
 
@@ -269,6 +278,7 @@ export default function MegaphonePage() {
     setIsSpeaking(false);
     releaseWakeLock();
     resetIncrementalState();
+    processingRef.current = false;
   };
 
   const resetIncrementalState = () => {

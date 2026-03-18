@@ -56,6 +56,7 @@ export default function RoomHost() {
   const hasSpokenRef = useRef(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const wakeLockRef = useRef<any>(null);
+  const processingRef = useRef(false);
 
   // Incremental translation refs
   const segmentsRef = useRef<string[]>([]);
@@ -311,7 +312,7 @@ export default function RoomHost() {
       finishAndSend();
       return;
     }
-    if (isTranslating) return;
+    if (isTranslating || processingRef.current) return;
 
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -381,20 +382,28 @@ export default function RoomHost() {
   // ─── Finish and send ───────────────────────────────────────────────────
 
   const finishAndSend = async () => {
+    if (processingRef.current) return; // prevent double-fire
+    processingRef.current = true;
+
     clearPauseTimers();
+
+    // Immediately mark as not listening to prevent onend re-entry
+    isListeningRef.current = false;
+    setIsListening(false);
+
     if (recognitionRef.current) {
       try { recognitionRef.current.stop(); } catch {}
       recognitionRef.current = null;
     }
     const fullText = transcriptRef.current.trim();
-    setIsListening(false);
-    isListeningRef.current = false;
     setTranscript("");
+    transcriptRef.current = "";
     hasSpokenRef.current = false;
 
     if (!fullText || !sessionId || !hostId) {
       releaseWakeLock();
       resetIncrementalState();
+      processingRef.current = false;
       return;
     }
 
@@ -454,6 +463,7 @@ export default function RoomHost() {
       setIsTranslating(false);
       releaseWakeLock();
       resetIncrementalState();
+      processingRef.current = false;
     }
   };
 
