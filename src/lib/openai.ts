@@ -5,6 +5,54 @@ import { isConnectionSlow, isOnline as isOnlineCheck, reportResponseTime, canUse
 let client: OpenAI | null = null;
 let currentKey: string = "";
 
+// ─── User-friendly API error messages ────────────────────────────────────────
+
+export function getApiErrorMessage(err: any): { key: string; fallback: string } {
+  const status = err?.status || err?.response?.status || 0;
+  const msg = err?.message || String(err);
+
+  if (msg.includes("API key")) {
+    return { key: "apiKeyNotConfigured", fallback: "API key not configured" };
+  }
+  if (status === 401) {
+    return { key: "apiKeyInvalid", fallback: "Invalid API key. Check your key in Settings." };
+  }
+  if (status === 402 || status === 403 || msg.includes("insufficient_quota") || msg.includes("billing")) {
+    return { key: "apiCreditsExhausted", fallback: "OpenAI credit exhausted. Add credit at platform.openai.com" };
+  }
+  if (status === 429) {
+    return { key: "apiRateLimit", fallback: "Too many requests. Wait a moment and try again." };
+  }
+  if (status === 529 || status === 503) {
+    return { key: "apiOverloaded", fallback: "OpenAI servers overloaded. Try again shortly." };
+  }
+  if (!navigator.onLine) {
+    return { key: "requiresInternet", fallback: "Requires internet" };
+  }
+  if (msg.includes("fetch") || msg.includes("network") || msg.includes("Failed to fetch") || msg.includes("Connection")) {
+    return { key: "networkError", fallback: "Connection error. Check your internet and try again." };
+  }
+  return { key: "genericApiError", fallback: "Service temporarily unavailable. Try again." };
+}
+
+// ─── Retry with exponential backoff for transient API errors ─────────────────
+
+async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      const status = err?.status || err?.response?.status || 0;
+      const isTransient = [429, 500, 502, 503, 529].includes(status);
+      if (!isTransient || attempt === maxRetries) throw err;
+      const delay = Math.min(1000 * 2 ** attempt, 8000);
+      console.warn(`API ${status}, retry ${attempt + 1}/${maxRetries} in ${delay}ms`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw new Error("Unreachable");
+}
+
 export function getOpenAIClient(): OpenAI {
   return getClient();
 }
@@ -43,11 +91,13 @@ export async function transcribeAudio(
 ): Promise<string> {
   const file = new File([audioBlob], "audio.webm", { type: audioBlob.type });
 
-  const response = await getClient().audio.transcriptions.create({
-    model: getModels().transcribe,
-    file,
-    ...(language && language !== "auto" ? { language } : {}),
-  });
+  const response = await withRetry(() =>
+    getClient().audio.transcriptions.create({
+      model: getModels().transcribe,
+      file,
+      ...(language && language !== "auto" ? { language } : {}),
+    })
+  );
 
   return response.text;
 }
@@ -62,22 +112,24 @@ export async function translateText(
   if (!text.trim() || targetLanguages.length === 0) return {};
 
   const start = Date.now();
-  const response = await getClient().chat.completions.create({
-    model: getModels().text,
-    temperature: 0.3,
-    max_tokens: 1024,
-    response_format: { type: "json_object" },
-    messages: [
-      {
-        role: "system",
-        content: `Translator. Return JSON: {langCode: translation}. Natural, not literal.`,
-      },
-      {
-        role: "user",
-        content: `${sourceLanguage} → ${targetLanguages.join(", ")}:\n"${text}"`,
-      },
-    ],
-  });
+  const response = await withRetry(() =>
+    getClient().chat.completions.create({
+      model: getModels().text,
+      temperature: 0.3,
+      max_tokens: 1024,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: `Translator. Return JSON: {langCode: translation}. Natural, not literal.`,
+        },
+        {
+          role: "user",
+          content: `${sourceLanguage} → ${targetLanguages.join(", ")}:\n"${text}"`,
+        },
+      ],
+    })
+  );
 
   reportResponseTime(Date.now() - start);
 
@@ -102,13 +154,15 @@ export async function textToSpeech(
   voice: TTSVoice = "nova",
   speed: number = 1.0,
 ): Promise<ArrayBuffer> {
-  const response = await getClient().audio.speech.create({
-    model: getModels().tts,
-    voice,
-    input: text,
-    speed,
-    response_format: isSafari ? "mp3" : "opus",
-  });
+  const response = await withRetry(() =>
+    getClient().audio.speech.create({
+      model: getModels().tts,
+      voice,
+      input: text,
+      speed,
+      response_format: isSafari ? "mp3" : "opus",
+    })
+  );
 
   return response.arrayBuffer();
 }
@@ -229,30 +283,32 @@ export async function analyzeImage(
   uiLanguage?: string,
 ): Promise<ImageAnalysisResult> {
   const nameLang = uiLanguage && uiLanguage !== "en" ? uiLanguage : "English";
-  const response = await getClient().chat.completions.create({
-    model: getModels().text,
-    temperature: 0.3,
-    response_format: { type: "json_object" },
-    messages: [
-      {
-        role: "system",
-        content: `You identify objects in images and provide translations. Return a JSON object with: "objectName" (name of the object in ${nameLang}), "translation" (in the target language), "pronunciation" (phonetic guide for the translation).`,
-      },
-      {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: `What is the main object in this image? Give its name in ${nameLang} and translate it to ${targetLanguage}.`,
-          },
-          {
-            type: "image_url",
-            image_url: { url: `data:image/jpeg;base64,${imageBase64}` },
-          },
-        ],
-      },
-    ],
-  });
+  const response = await withRetry(() =>
+    getClient().chat.completions.create({
+      model: getModels().text,
+      temperature: 0.3,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: `You identify objects in images and provide translations. Return a JSON object with: "objectName" (name of the object in ${nameLang}), "translation" (in the target language), "pronunciation" (phonetic guide for the translation).`,
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `What is the main object in this image? Give its name in ${nameLang} and translate it to ${targetLanguage}.`,
+            },
+            {
+              type: "image_url",
+              image_url: { url: `data:image/jpeg;base64,${imageBase64}` },
+            },
+          ],
+        },
+      ],
+    })
+  );
 
   try {
     return JSON.parse(response.choices[0].message.content || "{}");

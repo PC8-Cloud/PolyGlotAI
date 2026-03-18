@@ -4,7 +4,7 @@ import { ChevronLeft, Mic, MicOff, Send, Volume2, VolumeX, Check } from "lucide-
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLabelForCode, getLocaleForCode } from "../lib/languages";
-import { translateText, playTTS, prepareAudioForSafari } from "../lib/openai";
+import { translateText, playTTS, prepareAudioForSafari, getApiErrorMessage } from "../lib/openai";
 
 interface Message {
   id: number;
@@ -388,8 +388,8 @@ export default function Conversation() {
       }
     } catch (e: any) {
       console.error("Translation failed:", e);
-      const msg = e?.message || String(e);
-      setError(msg.includes("API key") ? t("apiKeyNotConfigured") : msg.slice(0, 120));
+      const { key, fallback } = getApiErrorMessage(e);
+      setError((t as any)[key] || fallback);
     }
 
     setIsSpeaking(false);
@@ -442,8 +442,8 @@ export default function Conversation() {
       }
     } catch (e: any) {
       setIsTranslating(false);
-      const msg = e?.message || String(e);
-      setError(msg.includes("API key") ? t("apiKeyNotConfigured") : msg.slice(0, 120));
+      const { key, fallback } = getApiErrorMessage(e);
+      setError((t as any)[key] || fallback);
     }
     processingRef.current = false;
   };

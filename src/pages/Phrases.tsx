@@ -13,7 +13,7 @@ import {
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES } from "../lib/languages";
-import { translateText, playTTS, prepareAudioForSafari } from "../lib/openai";
+import { translateText, playTTS, prepareAudioForSafari, getApiErrorMessage } from "../lib/openai";
 import { savePhraseTranslations, getPhraseTranslation, isOnline } from "../lib/offline";
 
 interface Phrase {
@@ -190,12 +190,8 @@ export default function Phrases() {
       handleSpeak(translated);
     } catch (e: any) {
       console.error("Translation failed:", e);
-      const msg = e?.message || String(e);
-      if (msg.includes("API key")) {
-        setError(t("apiKeyNotConfigured"));
-      } else {
-        setError(msg.slice(0, 100));
-      }
+      const { key, fallback } = getApiErrorMessage(e);
+      setError((t as any)[key] || fallback);
     } finally {
       setLoadingPhrase(null);
     }

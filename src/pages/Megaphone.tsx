@@ -4,7 +4,7 @@ import { ChevronLeft, Mic, Volume2, VolumeX, Megaphone, Check } from "lucide-rea
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLocaleForCode } from "../lib/languages";
-import { translateText, playTTS, prepareAudioForSafari } from "../lib/openai";
+import { translateText, playTTS, prepareAudioForSafari, getApiErrorMessage } from "../lib/openai";
 
 interface Entry {
   id: number;
@@ -271,8 +271,8 @@ export default function MegaphonePage() {
       }
     } catch (e: any) {
       console.error("Translation failed:", e);
-      const msg = e?.message || String(e);
-      setError(msg.includes("API key") ? t("apiKeyNotConfigured") : msg.slice(0, 120));
+      const { key, fallback } = getApiErrorMessage(e);
+      setError((t as any)[key] || fallback);
     }
 
     setIsSpeaking(false);

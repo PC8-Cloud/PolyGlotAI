@@ -5,7 +5,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLocaleForCode } from "../lib/languages";
-import { translateText } from "../lib/openai";
+import { translateText, getApiErrorMessage } from "../lib/openai";
 import { createRoom, sendMessage } from "../lib/firebase-helpers";
 import { db } from "../firebase";
 import { collection, doc, getDoc, onSnapshot, orderBy, query, updateDoc, where, getDocs, limit } from "firebase/firestore";
@@ -457,8 +457,8 @@ export default function RoomHost() {
       }
     } catch (e: any) {
       console.error("Translation/broadcast failed:", e);
-      const msg = e?.message || String(e);
-      setError(msg.includes("API key") ? t("apiKeyNotConfigured") : msg.slice(0, 120));
+      const { key, fallback } = getApiErrorMessage(e);
+      setError((t as any)[key] || fallback);
     } finally {
       setIsTranslating(false);
       releaseWakeLock();

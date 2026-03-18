@@ -21,6 +21,7 @@ import MegaphonePage from "./pages/Megaphone";
 import RoomHost from "./pages/RoomHost";
 import RoomJoin from "./pages/RoomJoin";
 import Paywall from "./pages/Paywall";
+import NetworkCheck from "./components/NetworkCheck";
 
 function AutoTranslate() {
   const { uiLanguage } = useUserStore();
@@ -99,6 +100,7 @@ export default function App() {
       <AutoTranslate />
       <div className="min-h-screen bg-[#010B2E] flex items-start justify-center">
         <div className="w-full max-w-[430px] min-h-screen relative shadow-2xl shadow-black/50 overflow-x-hidden">
+      <NetworkCheck />
       <BrowserRouter>
         <BackgroundReset onReset={() => setShowSplash(true)} />
         <Routes>
