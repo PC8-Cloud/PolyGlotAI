@@ -155,7 +155,10 @@ export default function Phrases() {
   const [playingPhrase, setPlayingPhrase] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const busyRef = React.useRef(false);
+
   const handlePhraseClick = async (phrase: string) => {
+    if (busyRef.current) return; // prevent overlapping API calls
     prepareAudioForSafari(); // unlock audio on user tap
     const key = `${phrase}__${targetLang}`;
 
@@ -180,6 +183,7 @@ export default function Phrases() {
 
     setLoadingPhrase(phrase);
     setError(null);
+    busyRef.current = true;
     try {
       const result = await translateText(phrase, "en", [targetLang]);
       const translated = result[targetLang] || "...";
@@ -187,13 +191,14 @@ export default function Phrases() {
       // Cache for offline use
       savePhraseTranslations({ [key]: translated });
       // Speak immediately after translating
-      handleSpeak(translated);
+      await handleSpeak(translated);
     } catch (e: any) {
       console.error("Translation failed:", e);
-      const { key, fallback } = getApiErrorMessage(e);
-      setError((t as any)[key] || fallback);
+      const { key: errKey, fallback } = getApiErrorMessage(e);
+      setError((t as any)[errKey] || fallback);
     } finally {
       setLoadingPhrase(null);
+      busyRef.current = false;
     }
   };
 
