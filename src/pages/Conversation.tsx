@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Mic, MicOff, Send, Volume2, VolumeX, Check } from "lucide-react";
+import { ChevronLeft, Mic, MicOff, Send, Volume2, VolumeX, ArrowRightLeft } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
-import { LANGUAGES, getLabelForCode, getLocaleForCode } from "../lib/languages";
-import { translateText, playTTS, prepareAudioForSafari, getApiErrorMessage } from "../lib/openai";
+import { LANGUAGES, getLabelForCode } from "../lib/languages";
+import { translateText, playTTS, prepareAudioForSafari, getApiErrorMessage, transcribeAudioDetectLang } from "../lib/openai";
 
 interface Message {
   id: number;
@@ -14,11 +14,9 @@ interface Message {
   sourceLang: string;
 }
 
-const SHORT_PAUSE_MS = 2000;  // translate chunk in background
-const LONG_PAUSE_MS = 4000;   // stop, play, switch sides
-const NO_SPEECH_TIMEOUT_MS = 5000;
-const AUTO_LISTEN_DELAY_MS = 800;
-const MAX_EMPTY_RESTARTS = 3;
+// Silence detection
+const SILENCE_TIMEOUT = 2.0; // seconds of silence before auto-stop
+const SILENCE_THRESHOLD = 0.015;
 
 export default function Conversation() {
   const navigate = useNavigate();
@@ -30,422 +28,281 @@ export default function Conversation() {
     defaultSourceLanguage === "en" ? "it" : "en",
   );
   const [messages, setMessages] = useState<Message[]>([]);
-  const [activeSide, setActiveSide] = useState<"you" | "them" | null>(null);
-  const [transcript, setTranscript] = useState("");
-  const [isTranslating, setIsTranslating] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const [playingId, setPlayingId] = useState<number | null>(null);
+  const [chatState, setChatState] = useState<"idle" | "listening" | "transcribing" | "translating" | "speaking">("idle");
   const [autoSpeak, setAutoSpeak] = useState(true);
+  const [playingId, setPlayingId] = useState<number | null>(null);
   const [conversationActive, setConversationActive] = useState(false);
   const [textInput, setTextInput] = useState("");
   const [textInputSide, setTextInputSide] = useState<"you" | "them">("you");
   const [showTextInput, setShowTextInput] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [readyChunks, setReadyChunks] = useState(0);
+  const [liveLevel, setLiveLevel] = useState(0); // mic audio level for visual feedback
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const recognitionRef = useRef<any>(null);
   const msgIdRef = useRef(0);
-  const transcriptRef = useRef("");
-  const shortTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const longTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const noSpeechTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const autoListenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const activeSideRef = useRef<"you" | "them" | null>(null);
-  const hasSpokenRef = useRef(false);
   const conversationActiveRef = useRef(false);
-  const lastSideRef = useRef<"you" | "them">("you");
-  const emptyRestartsRef = useRef(0);
   const processingRef = useRef(false);
+  const yourLangRef = useRef(yourLang);
+  const theirLangRef = useRef(theirLang);
+  const autoSpeakRef = useRef(autoSpeak);
 
-  // Incremental translation refs
-  const segmentsRef = useRef<string[]>([]);
-  const translatedCountRef = useRef(0);
-  const translationPromisesRef = useRef<Promise<string>[]>([]);
-
-  const speechSupported =
-    typeof window !== "undefined" &&
-    !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
+  // MediaRecorder refs
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animFrameRef = useRef<number>(0);
+  const audioCtxRef = useRef<AudioContext | null>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, chatState]);
 
-  useEffect(() => { transcriptRef.current = transcript; }, [transcript]);
-  useEffect(() => { activeSideRef.current = activeSide; }, [activeSide]);
+  useEffect(() => { yourLangRef.current = yourLang; }, [yourLang]);
+  useEffect(() => { theirLangRef.current = theirLang; }, [theirLang]);
+  useEffect(() => { autoSpeakRef.current = autoSpeak; }, [autoSpeak]);
   useEffect(() => { conversationActiveRef.current = conversationActive; }, [conversationActive]);
 
   useEffect(() => {
-    return () => {
-      clearAllTimers();
-      stopRecognitionQuiet();
-    };
+    return () => { stopListening(); };
   }, []);
 
-  const getRecognitionLang = (side: "you" | "them") =>
-    side === "you" ? getLocaleForCode(yourLang) : getLocaleForCode(theirLang);
+  // ─── Language matching ──────────────────────────────────────────────────
 
-  const otherSide = (side: "you" | "them"): "you" | "them" =>
-    side === "you" ? "them" : "you";
+  /** Map Whisper detected language code to "you" or "them" */
+  const detectSide = (detectedLang: string): "you" | "them" => {
+    const dl = detectedLang.toLowerCase().trim();
+    const yourCode = yourLangRef.current.toLowerCase();
+    const theirCode = theirLangRef.current.toLowerCase();
 
-  // ─── Timers ─────────────────────────────────────────────────────────────
+    // Direct match
+    if (dl === yourCode || dl.startsWith(yourCode) || yourCode.startsWith(dl)) return "you";
+    if (dl === theirCode || dl.startsWith(theirCode) || theirCode.startsWith(dl)) return "them";
 
-  const clearAllTimers = () => {
-    if (shortTimerRef.current) { clearTimeout(shortTimerRef.current); shortTimerRef.current = null; }
-    if (longTimerRef.current) { clearTimeout(longTimerRef.current); longTimerRef.current = null; }
-    if (noSpeechTimerRef.current) { clearTimeout(noSpeechTimerRef.current); noSpeechTimerRef.current = null; }
-    if (autoListenTimerRef.current) { clearTimeout(autoListenTimerRef.current); autoListenTimerRef.current = null; }
+    // Whisper returns full language names sometimes (e.g., "english", "italian")
+    const yourLabel = (LANGUAGES.find((l) => l.code === yourLangRef.current)?.label || "").toLowerCase();
+    const theirLabel = (LANGUAGES.find((l) => l.code === theirLangRef.current)?.label || "").toLowerCase();
+    if (dl.includes(yourLabel) || yourLabel.includes(dl)) return "you";
+    if (dl.includes(theirLabel) || theirLabel.includes(dl)) return "them";
+
+    // Fallback: default to "you"
+    return "you";
   };
 
-  const translatePendingSegments = (side: "you" | "them") => {
-    const newSegments = segmentsRef.current.slice(translatedCountRef.current);
-    if (newSegments.length === 0) return;
-    const text = newSegments.join(" ").trim();
-    if (!text) return;
-    translatedCountRef.current = segmentsRef.current.length;
-    const sourceLang = side === "you" ? yourLang : theirLang;
-    const targetLang = side === "you" ? theirLang : yourLang;
-    const promise = translateText(text, sourceLang, [targetLang])
-      .then((r) => r[targetLang] || "...")
-      .catch(() => "...");
-    translationPromisesRef.current.push(promise);
-    promise.then(() => setReadyChunks((c) => c + 1));
-  };
+  // ─── Silence detection ────────────────────────────────────────────────
 
-  const resetPauseTimers = (side: "you" | "them") => {
-    if (shortTimerRef.current) { clearTimeout(shortTimerRef.current); shortTimerRef.current = null; }
-    if (longTimerRef.current) { clearTimeout(longTimerRef.current); longTimerRef.current = null; }
+  const startSilenceDetection = useCallback((analyser: AnalyserNode) => {
+    const dataArray = new Uint8Array(analyser.fftSize);
+    let silenceStart: number | null = null;
 
-    // Short pause: translate chunk in background
-    shortTimerRef.current = setTimeout(() => {
-      if (!activeSideRef.current) return;
-      translatePendingSegments(side);
-    }, SHORT_PAUSE_MS);
-
-    // Long pause: stop, play, switch
-    longTimerRef.current = setTimeout(() => {
-      if (activeSideRef.current && hasSpokenRef.current && transcriptRef.current.trim()) {
-        finishAndPlay();
+    const check = () => {
+      analyser.getByteTimeDomainData(dataArray);
+      let sum = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        const v = (dataArray[i] - 128) / 128;
+        sum += v * v;
       }
-    }, LONG_PAUSE_MS);
-  };
+      const rms = Math.sqrt(sum / dataArray.length);
+      setLiveLevel(rms);
 
-  // ─── Recognition control ───────────────────────────────────────────────
-
-  const stopRecognitionQuiet = () => {
-    if (recognitionRef.current) {
-      try { recognitionRef.current.abort(); } catch {}
-      try { recognitionRef.current.stop(); } catch {}
-      recognitionRef.current = null;
-    }
-  };
-
-  const stopRecognition = () => {
-    stopRecognitionQuiet();
-    activeSideRef.current = null;
-    setActiveSide(null);
-    setTranscript("");
-    transcriptRef.current = "";
-    hasSpokenRef.current = false;
-  };
-
-  const resetIncrementalState = () => {
-    segmentsRef.current = [];
-    translatedCountRef.current = 0;
-    translationPromisesRef.current = [];
-    setReadyChunks(0);
-  };
-
-  const startListeningForSide = useCallback((side: "you" | "them") => {
-    if (!conversationActiveRef.current) return;
-    if (processingRef.current) return;
-
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
-
-    stopRecognitionQuiet();
-
-    const rec = new SpeechRecognition();
-    rec.continuous = true;
-    rec.interimResults = true;
-    const lang = getRecognitionLang(side);
-    if (lang) rec.lang = lang;
-
-    let ended = false;
-
-    rec.onresult = (event: any) => {
-      const segments: string[] = [];
-      let interimText = "";
-      for (let i = 0; i < event.results.length; i++) {
-        if (event.results[i].isFinal) {
-          segments.push(event.results[i][0].transcript);
-        } else {
-          interimText += event.results[i][0].transcript;
+      if (rms < SILENCE_THRESHOLD) {
+        if (!silenceStart) silenceStart = Date.now();
+        else if ((Date.now() - silenceStart) / 1000 > SILENCE_TIMEOUT) {
+          stopListening();
+          return;
         }
-      }
-      segmentsRef.current = segments;
-      const combined = segments.join("") + interimText;
-      setTranscript(combined);
-      transcriptRef.current = combined;
-
-      if (combined.trim()) {
-        if (!hasSpokenRef.current) {
-          if (noSpeechTimerRef.current) { clearTimeout(noSpeechTimerRef.current); noSpeechTimerRef.current = null; }
-          emptyRestartsRef.current = 0;
-        }
-        hasSpokenRef.current = true;
-        resetPauseTimers(side);
-      }
-    };
-
-    rec.onerror = (event: any) => {
-      if (ended) return;
-      ended = true;
-      console.warn("Speech recognition error:", event.error);
-      clearAllTimers();
-      recognitionRef.current = null;
-
-      if (event.error === "not-allowed" || event.error === "service-not-available") {
-        setConversationActive(false);
-        conversationActiveRef.current = false;
-        setActiveSide(null);
-        setTextInputSide(side);
-        setShowTextInput(true);
       } else {
-        setActiveSide(null);
-        activeSideRef.current = null;
+        silenceStart = null;
       }
+
+      animFrameRef.current = requestAnimationFrame(check);
     };
+    check();
+  }, []);
 
-    rec.onend = () => {
-      if (ended) return;
-      ended = true;
-      recognitionRef.current = null;
+  // ─── Start listening ──────────────────────────────────────────────────
 
-      if (!conversationActiveRef.current) {
-        setActiveSide(null);
-        activeSideRef.current = null;
-        return;
-      }
-
-      if (activeSideRef.current && transcriptRef.current.trim()) {
-        finishAndPlay();
-        return;
-      }
-
-      emptyRestartsRef.current += 1;
-      setActiveSide(null);
-      activeSideRef.current = null;
-      setTranscript("");
-
-      if (emptyRestartsRef.current >= MAX_EMPTY_RESTARTS) {
-        emptyRestartsRef.current = 0;
-        return;
-      }
-
-      if (conversationActiveRef.current) {
-        const delay = 500 + emptyRestartsRef.current * 300;
-        autoListenTimerRef.current = setTimeout(() => {
-          if (conversationActiveRef.current) {
-            startListeningForSide(side);
-          }
-        }, delay);
-      }
-    };
-
-    recognitionRef.current = rec;
-    activeSideRef.current = side;
-    setActiveSide(side);
-    setTranscript("");
-    transcriptRef.current = "";
-    hasSpokenRef.current = false;
-    lastSideRef.current = side;
-    setError(null);
-    resetIncrementalState();
+  const startListening = useCallback(async () => {
+    if (!conversationActiveRef.current || processingRef.current) return;
+    setChatState("listening");
+    setLiveLevel(0);
 
     try {
-      rec.start();
-      if (noSpeechTimerRef.current) clearTimeout(noSpeechTimerRef.current);
-      noSpeechTimerRef.current = setTimeout(() => {
-        if (conversationActiveRef.current && activeSideRef.current === side && !hasSpokenRef.current) {
-          stopRecognitionQuiet();
-          recognitionRef.current = null;
-          activeSideRef.current = null;
-          setActiveSide(null);
-          setTranscript("");
-          emptyRestartsRef.current = 0;
-          autoListenTimerRef.current = setTimeout(() => {
-            if (conversationActiveRef.current) {
-              startListeningForSide(otherSide(side));
-            }
-          }, 300);
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      audioCtxRef.current = audioCtx;
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 2048;
+      source.connect(analyser);
+      analyserRef.current = analyser;
+
+      const recorder = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = async () => {
+        cancelAnimationFrame(animFrameRef.current);
+        audioCtx.close().catch(() => {});
+        stream.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+        audioCtxRef.current = null;
+        setLiveLevel(0);
+
+        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        if (blob.size < 1000) {
+          // Too short — re-listen
+          if (conversationActiveRef.current && !processingRef.current) {
+            startListening();
+          } else {
+            setChatState("idle");
+          }
+          return;
         }
-      }, NO_SPEECH_TIMEOUT_MS);
+
+        // Transcribe with language detection
+        processingRef.current = true;
+        setChatState("transcribing");
+        try {
+          const { text, language: detectedLang } = await transcribeAudioDetectLang(blob);
+
+          if (!text.trim() || !conversationActiveRef.current) {
+            processingRef.current = false;
+            if (conversationActiveRef.current) startListening();
+            else setChatState("idle");
+            return;
+          }
+
+          const side = detectSide(detectedLang);
+          await processMessage(side, text.trim());
+        } catch (e: any) {
+          const { key, fallback } = getApiErrorMessage(e);
+          setError((t as any)[key] || fallback);
+          processingRef.current = false;
+          if (conversationActiveRef.current) startListening();
+          else setChatState("idle");
+        }
+      };
+
+      recorder.start();
+      mediaRecorderRef.current = recorder;
+      startSilenceDetection(analyser);
     } catch (e) {
-      console.warn("Failed to start speech recognition:", e);
-      recognitionRef.current = null;
-      setActiveSide(null);
-      activeSideRef.current = null;
+      console.error("Mic access failed:", e);
+      setChatState("idle");
+      // Fall back to text input
+      setShowTextInput(true);
     }
-  }, [yourLang, theirLang]);
+  }, [startSilenceDetection]);
 
-  // ─── Start / Stop conversation ──────────────────────────────────────────
+  // ─── Stop listening ───────────────────────────────────────────────────
 
-  const startConversation = () => {
-    prepareAudioForSafari();
-    setConversationActive(true);
-    conversationActiveRef.current = true;
-    emptyRestartsRef.current = 0;
-    setMessages([]);
-    setError(null);
-    startListeningForSide("you");
-  };
-
-  const stopConversation = () => {
-    clearAllTimers();
-    setConversationActive(false);
-    conversationActiveRef.current = false;
-    stopRecognition();
-    resetIncrementalState();
-  };
-
-  // ─── Finish and play (incremental) ────────────────────────────────────
-
-  const finishAndPlay = async () => {
-    if (processingRef.current) return;
-
-    clearAllTimers();
-
-    const side = activeSideRef.current;
-    if (!side) return;
-
-    const fullText = transcriptRef.current.trim();
-    stopRecognitionQuiet();
-    activeSideRef.current = null;
-    setActiveSide(null);
-    setTranscript("");
-    transcriptRef.current = "";
-    hasSpokenRef.current = false;
-    emptyRestartsRef.current = 0;
-
-    if (!fullText) return;
-
-    processingRef.current = true;
-    setError(null);
-
-    const sourceLang = side === "you" ? yourLang : theirLang;
-    const targetLang = side === "you" ? theirLang : yourLang;
-
-    // Translate remaining segments
-    translatePendingSegments(side);
-
-    // Translate any remaining interim text
-    const finalJoined = segmentsRef.current.join("");
-    const remaining = fullText.substring(finalJoined.length).trim();
-    if (remaining) {
-      const promise = translateText(remaining, sourceLang, [targetLang])
-        .then((r) => r[targetLang] || "...")
-        .catch(() => "...");
-      translationPromisesRef.current.push(promise);
+  const stopListening = useCallback(() => {
+    cancelAnimationFrame(animFrameRef.current);
+    if (mediaRecorderRef.current?.state === "recording") {
+      mediaRecorderRef.current.stop();
     }
-
-    // Fallback: if no chunks, translate everything
-    if (translationPromisesRef.current.length === 0) {
-      const promise = translateText(fullText, sourceLang, [targetLang])
-        .then((r) => r[targetLang] || "...")
-        .catch(() => "...");
-      translationPromisesRef.current.push(promise);
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
     }
+    if (audioCtxRef.current) {
+      audioCtxRef.current.close().catch(() => {});
+    }
+    setLiveLevel(0);
+  }, []);
+
+  // ─── Process a message (translate + speak + continue) ─────────────────
+
+  const processMessage = async (side: "you" | "them", text: string) => {
+    const sourceLang = side === "you" ? yourLangRef.current : theirLangRef.current;
+    const targetLang = side === "you" ? theirLangRef.current : yourLangRef.current;
 
     msgIdRef.current += 1;
     const newId = msgIdRef.current;
 
     setMessages((prev) => [
       ...prev,
-      { id: newId, side, originalText: fullText, translatedText: "...", sourceLang },
+      { id: newId, side, originalText: text, translatedText: "...", sourceLang },
     ]);
-    setIsSpeaking(true);
-    setPlayingId(newId);
+
+    setChatState("translating");
+    setError(null);
 
     try {
-      let fullTranslation = "";
-      for (const promise of translationPromisesRef.current) {
-        const translated = await promise;
-        fullTranslation += (fullTranslation ? " " : "") + translated;
+      const translations = await translateText(text, sourceLang, [targetLang]);
+      const translatedText = translations[targetLang] || "...";
 
-        setMessages((prev) =>
-          prev.map((m) => (m.id === newId ? { ...m, translatedText: fullTranslation } : m))
-        );
+      setMessages((prev) =>
+        prev.map((m) => (m.id === newId ? { ...m, translatedText } : m))
+      );
 
-        if (autoSpeak && translated !== "...") {
-          try {
-            await playTTS(translated, undefined, undefined, targetLang);
-          } catch (e) {
-            console.error("TTS failed:", e);
-          }
+      // Auto-speak translation
+      if (autoSpeakRef.current && translatedText !== "...") {
+        setChatState("speaking");
+        setPlayingId(newId);
+        try {
+          await playTTS(translatedText, undefined, undefined, targetLang);
+        } catch (e) {
+          console.error("TTS failed:", e);
         }
+        setPlayingId(null);
       }
     } catch (e: any) {
-      console.error("Translation failed:", e);
       const { key, fallback } = getApiErrorMessage(e);
       setError((t as any)[key] || fallback);
     }
 
-    setIsSpeaking(false);
-    setPlayingId(null);
     processingRef.current = false;
-    resetIncrementalState();
 
-    // Auto-continue to other side
+    // Continue listening
     if (conversationActiveRef.current) {
-      const nextSide = otherSide(side);
-      autoListenTimerRef.current = setTimeout(() => {
-        if (conversationActiveRef.current && !processingRef.current) {
-          startListeningForSide(nextSide);
-        }
-      }, AUTO_LISTEN_DELAY_MS);
+      startListening();
+    } else {
+      setChatState("idle");
     }
   };
 
-  // ─── Text input fallback ──────────────────────────────────────────────
+  // ─── Start / Stop conversation ────────────────────────────────────────
+
+  const startConversation = () => {
+    prepareAudioForSafari();
+    setConversationActive(true);
+    conversationActiveRef.current = true;
+    setMessages([]);
+    setError(null);
+    startListening();
+  };
+
+  const stopConversation = () => {
+    setConversationActive(false);
+    conversationActiveRef.current = false;
+    processingRef.current = false;
+    stopListening();
+    setChatState("idle");
+  };
+
+  // ─── Swap languages ──────────────────────────────────────────────────
+
+  const swapLanguages = () => {
+    setYourLang(theirLang);
+    setTheirLang(yourLang);
+  };
+
+  // ─── Text input fallback ─────────────────────────────────────────────
 
   const handleTextSubmit = async () => {
     const text = textInput.trim();
     if (!text) return;
     setTextInput("");
-    setShowTextInput(false);
 
     const side = textInputSide;
-    const sourceLang = side === "you" ? yourLang : theirLang;
-    const targetLang = side === "you" ? theirLang : yourLang;
-
     processingRef.current = true;
-    setIsTranslating(true);
-    try {
-      const translations = await translateText(text, sourceLang, [targetLang]);
-      const translatedText = translations[targetLang] || "...";
-      msgIdRef.current += 1;
-      setMessages((prev) => [
-        ...prev,
-        { id: msgIdRef.current, side, originalText: text, translatedText, sourceLang },
-      ]);
-      setIsTranslating(false);
-      if (autoSpeak && translatedText !== "...") {
-        setIsSpeaking(true);
-        setPlayingId(msgIdRef.current);
-        try {
-          await playTTS(translatedText, undefined, undefined, targetLang);
-        } catch {}
-        setIsSpeaking(false);
-        setPlayingId(null);
-      }
-    } catch (e: any) {
-      setIsTranslating(false);
-      const { key, fallback } = getApiErrorMessage(e);
-      setError((t as any)[key] || fallback);
-    }
-    processingRef.current = false;
+    prepareAudioForSafari();
+    await processMessage(side, text);
   };
 
   const handleSpeak = async (text: string, id: number, langCode: string) => {
@@ -466,9 +323,8 @@ export default function Conversation() {
     label: `${l.flag} ${l.label}`,
   }));
 
-  const busy = isTranslating || isSpeaking;
-  const listeningYou = activeSide === "you";
-  const listeningThem = activeSide === "them";
+  const isListening = chatState === "listening";
+  const busy = chatState === "translating" || chatState === "speaking" || chatState === "transcribing";
 
   return (
     <div className="h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans overflow-hidden">
@@ -482,7 +338,6 @@ export default function Conversation() {
           className={`p-2 rounded-xl transition-colors ${
             autoSpeak ? "bg-[#295BDB]/20 text-[#295BDB]" : "bg-[#123182] text-[#F4F4F4]/40"
           }`}
-          title={autoSpeak ? t("autoSpeakOn") : t("autoSpeakOff")}
         >
           {autoSpeak ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
         </button>
@@ -495,10 +350,10 @@ export default function Conversation() {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 min-h-0">
         {messages.length === 0 && !conversationActive && (
           <div className="flex-1 flex items-center justify-center">
-            <p className="text-[#F4F4F4]/30 text-sm text-center px-8">{t("tapToSpeak")}</p>
+            <p className="text-[#F4F4F4]/30 text-sm text-center px-8">{t("conversationAutoDetect")}</p>
           </div>
         )}
 
@@ -530,32 +385,29 @@ export default function Conversation() {
           </div>
         ))}
 
-        {transcript && activeSide && (
-          <div className={`flex flex-col gap-1 ${activeSide === "you" ? "items-start" : "items-end"}`}>
-            <div className="bg-[#123182]/50 text-[#F4F4F4]/80 p-4 rounded-2xl max-w-[85%] border border-[#FFFFFF14]/50 italic">
-              <p className="text-lg">{transcript}</p>
-              <div className="flex items-center gap-3 mt-1">
-                <span className="text-xs text-[#F4F4F4]/40">
-                  {activeSide === "you" ? t("you") : t("them")} · {t("listening")}
-                </span>
-                {readyChunks > 0 && (
-                  <span className="text-xs text-green-400 flex items-center gap-1">
-                    <Check className="w-3 h-3" /> {readyChunks}
-                  </span>
-                )}
-              </div>
-            </div>
+        {/* Status indicators */}
+        {chatState === "listening" && (
+          <div className="flex items-center justify-center gap-3 py-2">
+            <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse" />
+            <span className="text-sm text-[#F4F4F4]/40">{t("listeningBoth")}</span>
           </div>
         )}
 
-        {activeSide && !transcript && (
-          <div className={`flex items-center gap-2 text-[#F4F4F4]/40 text-sm ${activeSide === "them" ? "justify-end" : "justify-start"}`}>
-            <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-            {activeSide === "you" ? t("you") : t("them")} · {t("listening")}
+        {chatState === "transcribing" && (
+          <div className="flex items-center justify-center gap-3 py-2">
+            <div className="w-3 h-3 rounded-full bg-amber-500 animate-pulse" />
+            <span className="text-sm text-amber-400">{t("learnTranscribing")}</span>
           </div>
         )}
 
-        {isSpeaking && (
+        {chatState === "translating" && (
+          <div className="flex items-center justify-center gap-3 py-2">
+            <div className="w-3 h-3 rounded-full bg-[#295BDB] animate-pulse" />
+            <span className="text-sm text-[#295BDB]">{t("translating")}</span>
+          </div>
+        )}
+
+        {chatState === "speaking" && (
           <div className="text-[#295BDB] animate-pulse text-sm text-center flex items-center justify-center gap-2">
             <Volume2 className="w-4 h-4" />
             {t("speaking")}
@@ -565,74 +417,98 @@ export default function Conversation() {
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Text input fallback */}
       {showTextInput && (
-        <div className="border-t border-[#FFFFFF14] bg-[#0E2666] p-3 flex items-center gap-2 shrink-0">
-          <span className="text-xs text-[#F4F4F4]/40 shrink-0">
-            {textInputSide === "you" ? t("you") : t("them")}
-          </span>
-          <input
-            type="text"
-            value={textInput}
-            onChange={(e) => setTextInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleTextSubmit()}
-            placeholder={t("typeMessage")}
-            className="flex-1 bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-4 py-2.5 text-[#F4F4F4] outline-none focus:ring-2 focus:ring-[#295BDB] text-sm"
-            autoFocus
-          />
-          <button
-            onClick={handleTextSubmit}
-            disabled={!textInput.trim()}
-            className="p-2.5 rounded-xl bg-[#295BDB] hover:bg-[#295BDB]/80 disabled:opacity-40 transition-colors"
-          >
-            <Send className="w-4 h-4" />
-          </button>
-          <button onClick={() => setShowTextInput(false)} className="text-xs text-[#F4F4F4]/40 hover:text-[#F4F4F4]">✕</button>
+        <div className="border-t border-[#FFFFFF14] bg-[#0E2666] p-3 shrink-0">
+          <div className="flex items-center gap-2 mb-2">
+            <button
+              onClick={() => setTextInputSide("you")}
+              className={`flex-1 text-xs py-1.5 rounded-lg font-medium transition-colors ${
+                textInputSide === "you" ? "bg-[#295BDB] text-[#F4F4F4]" : "bg-[#123182] text-[#F4F4F4]/40"
+              }`}
+            >
+              {t("you")}
+            </button>
+            <button
+              onClick={() => setTextInputSide("them")}
+              className={`flex-1 text-xs py-1.5 rounded-lg font-medium transition-colors ${
+                textInputSide === "them" ? "bg-[#295BDB] text-[#F4F4F4]" : "bg-[#123182] text-[#F4F4F4]/40"
+              }`}
+            >
+              {t("them")}
+            </button>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={textInput}
+              onChange={(e) => setTextInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleTextSubmit()}
+              placeholder={t("typeMessage")}
+              className="flex-1 bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-4 py-2.5 text-[#F4F4F4] outline-none focus:ring-2 focus:ring-[#295BDB] text-sm"
+              autoFocus
+            />
+            <button
+              onClick={handleTextSubmit}
+              disabled={!textInput.trim()}
+              className="p-2.5 rounded-xl bg-[#295BDB] hover:bg-[#295BDB]/80 disabled:opacity-40 transition-colors"
+            >
+              <Send className="w-4 h-4" />
+            </button>
+            <button onClick={() => setShowTextInput(false)} className="text-xs text-[#F4F4F4]/40 hover:text-[#F4F4F4]">✕</button>
+          </div>
         </div>
       )}
 
       <div className="border-t border-[#FFFFFF14] bg-[#0E2666] shrink-0">
-        <div className="grid grid-cols-2 gap-3 px-4 pt-3">
-          <div className="flex flex-col items-center gap-1">
-            <span className={`text-xs font-medium ${listeningYou ? "text-red-400" : "text-[#F4F4F4]/40"}`}>
-              {t("you")} {listeningYou && "●"}
-            </span>
-            <select
-              value={yourLang}
-              onChange={(e) => setYourLang(e.target.value)}
-              disabled={conversationActive}
-              className="w-full bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-3 py-2 text-sm text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-center disabled:opacity-60"
-            >
-              {langOptions.map((l) => (
-                <option key={l.code} value={l.code}>{l.label}</option>
-              ))}
-            </select>
-          </div>
-          <div className="flex flex-col items-center gap-1">
-            <span className={`text-xs font-medium ${listeningThem ? "text-red-400" : "text-[#F4F4F4]/40"}`}>
-              {t("them")} {listeningThem && "●"}
-            </span>
-            <select
-              value={theirLang}
-              onChange={(e) => setTheirLang(e.target.value)}
-              disabled={conversationActive}
-              className="w-full bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-3 py-2 text-sm text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-center disabled:opacity-60"
-            >
-              {langOptions.map((l) => (
-                <option key={l.code} value={l.code}>{l.label}</option>
-              ))}
-            </select>
-          </div>
+        {/* Language row */}
+        <div className="flex items-center gap-2 px-4 pt-3">
+          <select
+            value={yourLang}
+            onChange={(e) => setYourLang(e.target.value)}
+            disabled={conversationActive}
+            className="flex-1 min-w-0 bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-3 py-2 text-sm text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-center disabled:opacity-60 truncate"
+          >
+            {langOptions.map((l) => (
+              <option key={l.code} value={l.code}>{l.label}</option>
+            ))}
+          </select>
+          <button
+            onClick={swapLanguages}
+            disabled={conversationActive}
+            className="p-2 bg-[#123182] rounded-xl text-[#F4F4F4]/60 hover:bg-[#295BDB] hover:text-[#F4F4F4] transition-colors shrink-0 disabled:opacity-40"
+          >
+            <ArrowRightLeft className="w-4 h-4" />
+          </button>
+          <select
+            value={theirLang}
+            onChange={(e) => setTheirLang(e.target.value)}
+            disabled={conversationActive}
+            className="flex-1 min-w-0 bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-3 py-2 text-sm text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-center disabled:opacity-60 truncate"
+          >
+            {langOptions.map((l) => (
+              <option key={l.code} value={l.code}>{l.label}</option>
+            ))}
+          </select>
         </div>
 
-        <div className="flex flex-col items-center py-4 gap-2">
+        {/* Mic button + keyboard toggle */}
+        <div className="flex items-center justify-center gap-4 py-4">
+          <button
+            onClick={() => setShowTextInput(!showTextInput)}
+            className="p-3 rounded-xl bg-[#123182] text-[#F4F4F4]/40 hover:text-[#F4F4F4] hover:bg-[#295BDB] transition-colors"
+          >
+            <Send className="w-5 h-5" />
+          </button>
+
           <button
             onClick={conversationActive ? stopConversation : startConversation}
             disabled={busy && !conversationActive}
             className={`w-20 h-20 rounded-full flex items-center justify-center transition-all shadow-xl select-none ${
               conversationActive
-                ? "bg-red-500 ring-4 ring-red-500/30 animate-pulse scale-105"
+                ? "bg-red-500 ring-4 ring-red-500/30 scale-105"
                 : "bg-[#295BDB] ring-4 ring-[#295BDB]/20 hover:scale-105"
-            }`}
+            } ${isListening ? "animate-pulse" : ""}`}
           >
             {conversationActive ? (
               <MicOff className="w-8 h-8" />
@@ -640,10 +516,13 @@ export default function Conversation() {
               <Mic className="w-8 h-8" />
             )}
           </button>
-          <span className="text-xs text-[#F4F4F4]/40">
-            {conversationActive ? t("stopConversation") : t("startConversation")}
-          </span>
+
+          <div className="w-[52px]" /> {/* spacer for symmetry */}
         </div>
+
+        <p className="text-xs text-[#F4F4F4]/30 text-center pb-3">
+          {conversationActive ? t("stopConversation") : t("startConversation")}
+        </p>
       </div>
     </div>
   );

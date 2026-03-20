@@ -47,6 +47,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         type: filePart.contentType || "audio/webm",
       });
 
+      const detectLangPart = parts.find((p) => p.name === "detect_language");
+      const detectLang = detectLangPart?.data?.toString() === "true";
+
+      if (detectLang) {
+        // Use verbose_json to get detected language
+        const response = await client.audio.transcriptions.create({
+          model,
+          file,
+          response_format: "verbose_json",
+        } as any);
+        return res.json({ text: (response as any).text, language: (response as any).language });
+      }
+
       const response = await client.audio.transcriptions.create({
         model,
         file,

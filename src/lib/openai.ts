@@ -97,6 +97,31 @@ export async function transcribeAudio(
   return data.text;
 }
 
+/** Transcribe audio AND detect language (for conversation auto-detect) */
+export async function transcribeAudioDetectLang(
+  audioBlob: Blob,
+): Promise<{ text: string; language: string }> {
+  const formData = new FormData();
+  formData.append("file", audioBlob, "audio.webm");
+  formData.append("model", getModels().transcribe);
+  formData.append("detect_language", "true");
+
+  const response = await withRetry(async () => {
+    const res = await fetch("/api/transcribe", {
+      method: "POST",
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Transcription failed", status: res.status }));
+      throw new ApiError(err.error || "Transcription failed", err.status || res.status);
+    }
+    return res;
+  });
+
+  const data = await response.json();
+  return { text: data.text || "", language: data.language || "" };
+}
+
 // ─── Translation ────────────────────────────────────────────────────────────
 
 export async function translateText(
