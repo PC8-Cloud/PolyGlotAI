@@ -183,18 +183,38 @@ export async function textToSpeech(
   return response.arrayBuffer();
 }
 
-// AudioContext for reliable playback (survives async gaps on Safari)
-let _audioCtx: AudioContext | null = null;
+// ─── Audio playback engine (iOS/Android compatible) ─────────────────────────
 
-// Call this synchronously inside a tap/click handler to create AudioContext
-// (must be created during user gesture on iOS, resume happens before playback)
+let _audioCtx: AudioContext | null = null;
+// Pre-warmed Audio element — created on user gesture, reused for playback
+let _warmAudio: HTMLAudioElement | null = null;
+
+// Call this synchronously inside EVERY tap/click handler to unlock audio on iOS.
+// Creates AudioContext + warms an Audio element with a silent data URI.
 export function prepareAudioForSafari() {
+  // AudioContext
   const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-  if (!AudioCtx) return;
-  if (!_audioCtx) {
+  if (AudioCtx && !_audioCtx) {
     _audioCtx = new AudioCtx();
-    // Initial resume to "unlock" on user gesture — will be suspended after first playback
+  }
+  if (_audioCtx?.state === "suspended") {
     _audioCtx.resume().catch(() => {});
+  }
+
+  // Warm an HTMLAudioElement on user gesture (iOS requires .play() in gesture)
+  if (!_warmAudio) {
+    _warmAudio = new Audio();
+    // Tiny silent MP3 (1 frame) — just to unlock playback
+    _warmAudio.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRwLHAAAAAAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRwLHAAAAAAAAAAAAAAAAAAAA";
+    _warmAudio.load();
+    _warmAudio.play().catch(() => {});
+  }
+}
+
+// Suspend AudioContext to release audio session (call before recording)
+export function suspendAudioForMic() {
+  if (_audioCtx?.state === "running") {
+    _audioCtx.suspend().catch(() => {});
   }
 }
 
@@ -204,7 +224,6 @@ export async function playTTS(
   speed: number = 1.0,
   langCode?: string,
 ): Promise<void> {
-  // Use voice and speed from store if not explicitly provided
   const state = useUserStore.getState();
   const selectedVoice = (voice || state.ttsVoice || "nova") as TTSVoice;
   const selectedSpeed = speed !== 1.0 ? speed : (state.ttsSpeed || 1.0);
@@ -221,9 +240,8 @@ export async function playTTS(
     const buffer = await textToSpeech(text, selectedVoice, selectedSpeed);
     reportResponseTime(Date.now() - start);
 
-    // Try AudioContext first (works reliably on Safari after unlock)
+    // Strategy 1: AudioContext (best for iOS — stays unlocked after initial gesture)
     if (_audioCtx) {
-      // Resume if suspended (was suspended after previous playback)
       if (_audioCtx.state === "suspended") {
         try { await _audioCtx.resume(); } catch {}
       }
@@ -235,23 +253,21 @@ export async function playTTS(
           source.connect(_audioCtx.destination);
           source.start();
           return new Promise<void>((resolve) => {
-            source.onended = () => {
-              // Suspend AudioContext after playback to free audio session for mic
-              if (_audioCtx) _audioCtx.suspend().catch(() => {});
-              resolve();
-            };
+            source.onended = () => resolve();
           });
         } catch (decodeErr) {
-          console.warn("AudioContext decode failed, falling back to Audio element:", decodeErr);
+          console.warn("AudioContext decode failed, trying Audio element:", decodeErr);
         }
       }
     }
 
-    // Fallback: HTMLAudioElement
+    // Strategy 2: HTMLAudioElement with blob URL
     const mimeType = isSafari ? "audio/mpeg" : "audio/ogg; codecs=opus";
     const blob = new Blob([buffer], { type: mimeType });
     const url = URL.createObjectURL(blob);
-    const audio = new Audio();
+
+    // Reuse the pre-warmed Audio element if available (already unlocked on iOS)
+    const audio = _warmAudio || new Audio();
     audio.src = url;
 
     return new Promise((resolve, reject) => {
@@ -277,7 +293,6 @@ export async function playTTS(
       });
     });
   } catch (e) {
-    // Fallback to local TTS on any error
     if (canUseLocalTTS()) {
       return playLocalTTS(text, langCode);
     }
