@@ -68,6 +68,39 @@ const TOPICS: { id: Topic; labelKey: string; icon: any }[] = [
 const SILENCE_TIMEOUT = 2.0;
 const SILENCE_THRESHOLD = 0.015; // audio level below this = silence
 
+// ─── Voice commands (multilingual) ───────────────────────────────────────────
+
+type VoiceCommand = "stop" | "repeat" | "slower" | "faster" | "help" | null;
+
+const VOICE_COMMANDS: Record<string, VoiceCommand> = {
+  // Stop / Pause
+  stop: "stop", ferma: "stop", basta: "stop", pausa: "stop", pause: "stop",
+  arrête: "stop", "arrêter": "stop", parar: "stop", para: "stop", stopp: "stop", halt: "stop",
+  // Repeat
+  ripeti: "repeat", repeat: "repeat", "répète": "repeat", "répéter": "repeat",
+  repite: "repeat", repetir: "repeat", wiederhole: "repeat", wiederholen: "repeat",
+  ancora: "repeat", "again": "repeat", "once more": "repeat",
+  // Slower
+  "più lento": "slower", slower: "slower", "plus lent": "slower",
+  "más lento": "slower", langsamer: "slower", lento: "slower",
+  // Faster
+  "più veloce": "faster", faster: "faster", "plus vite": "faster",
+  "más rápido": "faster", schneller: "faster", veloce: "faster",
+  // Help
+  aiuto: "help", help: "help", aide: "help", ayuda: "help", hilfe: "help",
+};
+
+function detectVoiceCommand(text: string): VoiceCommand {
+  const normalized = text.toLowerCase().trim().replace(/[.!?,;]+$/, "").trim();
+  // Exact match first
+  if (VOICE_COMMANDS[normalized]) return VOICE_COMMANDS[normalized];
+  // Check if starts with a command word (for phrases like "stop please")
+  for (const [key, cmd] of Object.entries(VOICE_COMMANDS)) {
+    if (normalized.startsWith(key)) return cmd;
+  }
+  return null;
+}
+
 // ─── System prompt builder ───────────────────────────────────────────────────
 
 function buildSystemPrompt(nativeLang: string, targetLang: string, level: Level, topic: Topic): string {
@@ -136,6 +169,9 @@ export default function Learn() {
   const [error, setError] = useState<string | null>(null);
   const [autoMode, setAutoMode] = useState(true); // hands-free auto-listen
 
+  // Speed ref (can be changed by voice commands)
+  const currentSpeedRef = useRef(LEVEL_SPEED[level]);
+
   // Refs
   const chatEndRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -151,6 +187,7 @@ export default function Learn() {
 
   // Keep refs in sync
   useEffect(() => { autoModeRef.current = autoMode; }, [autoMode]);
+  useEffect(() => { currentSpeedRef.current = LEVEL_SPEED[level]; }, [level]);
   useEffect(() => { apiMessagesRef.current = apiMessages; }, [apiMessages]);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
 
@@ -236,6 +273,12 @@ export default function Learn() {
         try {
           const text = await transcribeAudio(blob, targetLang);
           if (text.trim() && !cancelledRef.current) {
+            // Check for voice commands first
+            const cmd = detectVoiceCommand(text);
+            if (cmd) {
+              handleVoiceCommand(cmd);
+              return;
+            }
             sendUserMessage(text.trim());
           } else if (autoModeRef.current && !cancelledRef.current) {
             startListening();
@@ -313,7 +356,7 @@ export default function Learn() {
       // Speak tutor reply, then auto-listen
       setChatState("speaking");
       try {
-        await playTTS(data.text, undefined, LEVEL_SPEED[level], targetLang);
+        await playTTS(data.text, undefined, currentSpeedRef.current, targetLang);
       } catch (e) {
         console.error("TTS error:", e);
       }
@@ -371,7 +414,7 @@ export default function Learn() {
       // Speak, then auto-listen
       setChatState("speaking");
       try {
-        await playTTS(data.text, undefined, LEVEL_SPEED[level], targetLang);
+        await playTTS(data.text, undefined, currentSpeedRef.current, targetLang);
       } catch (e) {
         console.error("TTS error:", e);
       }
@@ -419,6 +462,61 @@ export default function Learn() {
     setAutoMode(true);
     prepareAudioForSafari();
     startListening();
+  };
+
+  // ─── Replay last tutor message ─────────────────────────────────────────────
+
+  const replayLastTutor = async () => {
+    const lastTutor = [...messagesRef.current].reverse().find((m) => m.role === "tutor");
+    if (!lastTutor) return;
+    setChatState("speaking");
+    try {
+      await playTTS(lastTutor.text, undefined, LEVEL_SPEED[level], targetLang);
+    } catch (e) {
+      console.error("TTS replay error:", e);
+    }
+    if (autoModeRef.current && !cancelledRef.current) {
+      startListening();
+    } else {
+      setChatState("idle");
+    }
+  };
+
+  // ─── Handle voice command ──────────────────────────────────────────────────
+
+  const handleVoiceCommand = (cmd: VoiceCommand): boolean => {
+    if (!cmd) return false;
+    switch (cmd) {
+      case "stop":
+        pauseConversation();
+        return true;
+      case "repeat":
+        replayLastTutor();
+        return true;
+      case "slower":
+        // Decrease speed by 0.1, min 0.7
+        currentSpeedRef.current = Math.max(0.7, currentSpeedRef.current - 0.1);
+        replayLastTutor();
+        return true;
+      case "faster":
+        // Increase speed by 0.1, max 1.3
+        currentSpeedRef.current = Math.min(1.3, currentSpeedRef.current + 0.1);
+        replayLastTutor();
+        return true;
+      case "help":
+        // Show available commands
+        const helpMsg: ChatMessage = {
+          role: "tutor",
+          text: "",
+          translation: "",
+          hint: "🎤 \"Stop/Ferma\" · \"Ripeti/Repeat\" · \"Più lento/Slower\" · \"Più veloce/Faster\"",
+        };
+        setMessages((prev) => [...prev, helpMsg]);
+        if (autoModeRef.current && !cancelledRef.current) startListening();
+        else setChatState("idle");
+        return true;
+    }
+    return false;
   };
 
   // ─── Manual mic toggle ────────────────────────────────────────────────────
@@ -613,7 +711,7 @@ export default function Learn() {
                   onClick={() => {
                     prepareAudioForSafari();
                     setChatState("speaking");
-                    playTTS(msg.text, undefined, LEVEL_SPEED[level], targetLang)
+                    playTTS(msg.text, undefined, currentSpeedRef.current, targetLang)
                       .catch(() => {})
                       .finally(() => setChatState("idle"));
                   }}
