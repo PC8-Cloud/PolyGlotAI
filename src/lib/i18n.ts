@@ -1359,37 +1359,15 @@ export async function translateUIToLanguage(langCode: string, langLabel: string)
     const chunkSize = 40;
     const result: Record<string, string> = {};
 
-    const { getOpenAIClient } = await import("./openai");
-    const client = getOpenAIClient();
+    const { translateUIChunk } = await import("./openai");
 
     for (let i = 0; i < allKeys.length; i += chunkSize) {
       const chunk = allKeys.slice(i, i + chunkSize);
       const sourceObj: Record<string, string> = {};
       for (const k of chunk) sourceObj[k] = enKeys[k];
 
-      const chatResponse = await client.chat.completions.create({
-        model: "gpt-4o",
-        temperature: 0.3,
-        response_format: { type: "json_object" },
-        messages: [
-          {
-            role: "system",
-            content: `You are a professional translator. Translate JSON values from English to ${langLabel}. Keep keys unchanged. Return ONLY the translated JSON object.`,
-          },
-          {
-            role: "user",
-            content: JSON.stringify(sourceObj),
-          },
-        ],
-      });
-
-      try {
-        const parsed = JSON.parse(chatResponse.choices[0].message.content || "{}");
-        Object.assign(result, parsed);
-      } catch {
-        // If parsing fails, keep English fallback for this chunk
-        Object.assign(result, sourceObj);
-      }
+      const parsed = await translateUIChunk(sourceObj, langLabel);
+      Object.assign(result, parsed);
     }
 
     saveCachedTranslations(langCode, result);

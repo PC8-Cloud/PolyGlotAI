@@ -1,17 +1,11 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig, loadEnv} from 'vite';
+import {defineConfig} from 'vite';
 
-export default defineConfig(({mode}) => {
-  const env = loadEnv(mode, '.', '');
-  // Use process.env (Vercel) or loadEnv (.env files for local dev)
-  const apiKey = process.env.VITE_OPENAI_API_KEY || process.env.OPENAI_API_KEY || env.OPENAI_API_KEY || '';
+export default defineConfig(() => {
   return {
     plugins: [react(), tailwindcss()],
-    define: {
-      'process.env.OPENAI_API_KEY': JSON.stringify(apiKey),
-    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
@@ -19,8 +13,15 @@ export default defineConfig(({mode}) => {
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
+      // Do not modify — file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
+      // Proxy API calls to Vercel dev server in local development
+      proxy: {
+        '/api': {
+          target: 'http://localhost:3001',
+          changeOrigin: true,
+        },
+      },
     },
   };
 });

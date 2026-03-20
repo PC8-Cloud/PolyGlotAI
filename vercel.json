@@ -1,5 +1,23 @@
 {
   "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/:path*" },
     { "source": "/(.*)", "destination": "/index.html" }
-  ]
+  ],
+  "functions": {
+    "api/transcribe.ts": {
+      "maxDuration": 30
+    },
+    "api/tts.ts": {
+      "maxDuration": 30
+    },
+    "api/translate.ts": {
+      "maxDuration": 15
+    },
+    "api/translate-ui.ts": {
+      "maxDuration": 15
+    },
+    "api/analyze-image.ts": {
+      "maxDuration": 30
+    }
+  }
 }

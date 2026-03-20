@@ -1,9 +1,5 @@
-import OpenAI from "openai";
 import { useUserStore } from "./store";
 import { isConnectionSlow, isOnline as isOnlineCheck, reportResponseTime, canUseLocalTTS, playLocalTTS } from "./offline";
-
-let client: OpenAI | null = null;
-let currentKey: string = "";
 
 // ─── User-friendly API error messages ────────────────────────────────────────
 
@@ -24,7 +20,7 @@ export function getApiErrorMessage(err: any): { key: string; fallback: string } 
   return { key: "genericApiError", fallback: "Temporary error. Try again." };
 }
 
-// ─── Retry with exponential backoff for transient API errors ─────────────────
+// ─── Retry with exponential backoff for transient errors ─────────────────────
 
 async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -42,30 +38,27 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
   throw new Error("Unreachable");
 }
 
-export function getOpenAIClient(): OpenAI {
-  return getClient();
+// ─── API fetch helper ────────────────────────────────────────────────────────
+
+class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
 }
 
-function getClient(): OpenAI {
-  const storeKey = useUserStore.getState().openaiApiKey;
-  // Vite replaces these at build time — must use exact syntax for replacement to work
-  let envKey = "";
-  try { envKey = import.meta.env.VITE_OPENAI_API_KEY || ""; } catch {}
-  if (!envKey) {
-    try { envKey = process.env.OPENAI_API_KEY || ""; } catch {}
+async function apiFetch(endpoint: string, body: any): Promise<Response> {
+  const res = await fetch(`/api/${endpoint}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: "Request failed", status: res.status }));
+    throw new ApiError(err.error || "Request failed", err.status || res.status);
   }
-  const apiKey = storeKey || envKey || "";
-
-  if (!apiKey) {
-    throw new Error("API key not configured");
-  }
-
-  // Recreate client if key changed
-  if (!client || apiKey !== currentKey) {
-    currentKey = apiKey;
-    client = new OpenAI({ apiKey, dangerouslyAllowBrowser: true });
-  }
-  return client;
+  return res;
 }
 
 function getModels() {
@@ -83,17 +76,25 @@ export async function transcribeAudio(
   audioBlob: Blob,
   language?: string,
 ): Promise<string> {
-  const file = new File([audioBlob], "audio.webm", { type: audioBlob.type });
+  const formData = new FormData();
+  formData.append("file", audioBlob, "audio.webm");
+  if (language && language !== "auto") formData.append("language", language);
+  formData.append("model", getModels().transcribe);
 
-  const response = await withRetry(() =>
-    getClient().audio.transcriptions.create({
-      model: getModels().transcribe,
-      file,
-      ...(language && language !== "auto" ? { language } : {}),
-    })
-  );
+  const response = await withRetry(async () => {
+    const res = await fetch("/api/transcribe", {
+      method: "POST",
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Transcription failed", status: res.status }));
+      throw new ApiError(err.error || "Transcription failed", err.status || res.status);
+    }
+    return res;
+  });
 
-  return response.text;
+  const data = await response.json();
+  return data.text;
 }
 
 // ─── Translation ────────────────────────────────────────────────────────────
@@ -107,31 +108,42 @@ export async function translateText(
 
   const start = Date.now();
   const response = await withRetry(() =>
-    getClient().chat.completions.create({
+    apiFetch("translate", {
+      text,
+      sourceLanguage,
+      targetLanguages,
       model: getModels().text,
-      temperature: 0.3,
-      max_tokens: 1024,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content: `Translator. Return JSON: {langCode: translation}. Natural, not literal.`,
-        },
-        {
-          role: "user",
-          content: `${sourceLanguage} → ${targetLanguages.join(", ")}:\n"${text}"`,
-        },
-      ],
     })
   );
 
   reportResponseTime(Date.now() - start);
 
   try {
-    return JSON.parse(response.choices[0].message.content || "{}");
+    return await response.json();
   } catch {
     console.error("Translation parse error");
     return {};
+  }
+}
+
+// ─── UI Translation (for i18n dynamic translations) ─────────────────────────
+
+export async function translateUIChunk(
+  sourceObj: Record<string, string>,
+  targetLanguage: string,
+): Promise<Record<string, string>> {
+  const response = await withRetry(() =>
+    apiFetch("translate-ui", {
+      sourceObj,
+      targetLanguage,
+      model: "gpt-4o",
+    })
+  );
+
+  try {
+    return await response.json();
+  } catch {
+    return sourceObj; // fallback to English
   }
 }
 
@@ -148,15 +160,25 @@ export async function textToSpeech(
   voice: TTSVoice = "nova",
   speed: number = 1.0,
 ): Promise<ArrayBuffer> {
-  const response = await withRetry(() =>
-    getClient().audio.speech.create({
-      model: getModels().tts,
-      voice,
-      input: text,
-      speed,
-      response_format: isSafari ? "mp3" : "opus",
-    })
-  );
+  const format = isSafari ? "mp3" : "opus";
+  const response = await withRetry(async () => {
+    const res = await fetch("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text,
+        voice,
+        speed,
+        format,
+        model: getModels().tts,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "TTS failed", status: res.status }));
+      throw new ApiError(err.error || "TTS failed", err.status || res.status);
+    }
+    return res;
+  });
 
   return response.arrayBuffer();
 }
@@ -276,36 +298,17 @@ export async function analyzeImage(
   targetLanguage: string,
   uiLanguage?: string,
 ): Promise<ImageAnalysisResult> {
-  const nameLang = uiLanguage && uiLanguage !== "en" ? uiLanguage : "English";
   const response = await withRetry(() =>
-    getClient().chat.completions.create({
+    apiFetch("analyze-image", {
+      imageBase64,
+      targetLanguage,
+      uiLanguage,
       model: getModels().text,
-      temperature: 0.3,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content: `You identify objects in images and provide translations. Return a JSON object with: "objectName" (name of the object in ${nameLang}), "translation" (in the target language), "pronunciation" (phonetic guide for the translation).`,
-        },
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: `What is the main object in this image? Give its name in ${nameLang} and translate it to ${targetLanguage}.`,
-            },
-            {
-              type: "image_url",
-              image_url: { url: `data:image/jpeg;base64,${imageBase64}` },
-            },
-          ],
-        },
-      ],
     })
   );
 
   try {
-    return JSON.parse(response.choices[0].message.content || "{}");
+    return await response.json();
   } catch {
     return { objectName: "Unknown", translation: "..." };
   }
