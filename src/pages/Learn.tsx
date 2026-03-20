@@ -104,6 +104,15 @@ RULES:
 - Start by greeting and beginning the lesson`;
 }
 
+// TTS speed per level — slower for beginners
+const LEVEL_SPEED: Record<Level, number> = {
+  molto_base: 0.8,
+  base: 0.85,
+  intermedio: 1.0,
+  alto: 1.0,
+  madrelingua: 1.0,
+};
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function Learn() {
@@ -305,7 +314,7 @@ export default function Learn() {
       // Speak tutor reply, then auto-listen
       setChatState("speaking");
       try {
-        await playTTS(data.text, undefined, undefined, targetLang);
+        await playTTS(data.text, undefined, LEVEL_SPEED[level], targetLang);
       } catch (e) {
         console.error("TTS error:", e);
       }
@@ -363,7 +372,7 @@ export default function Learn() {
       // Speak, then auto-listen
       setChatState("speaking");
       try {
-        await playTTS(data.text, undefined, undefined, targetLang);
+        await playTTS(data.text, undefined, LEVEL_SPEED[level], targetLang);
       } catch (e) {
         console.error("TTS error:", e);
       }
@@ -593,7 +602,7 @@ export default function Learn() {
                   onClick={() => {
                     prepareAudioForSafari();
                     setChatState("speaking");
-                    playTTS(msg.text, undefined, undefined, targetLang)
+                    playTTS(msg.text, undefined, LEVEL_SPEED[level], targetLang)
                       .catch(() => {})
                       .finally(() => setChatState("idle"));
                   }}
