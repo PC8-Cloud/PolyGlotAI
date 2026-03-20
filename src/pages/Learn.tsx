@@ -108,8 +108,8 @@ Rules:
 - For "phonetic": write how to pronounce the ${targetLang} word using ${nativeLang} sounds/letters so the learner can read it and approximate the pronunciation
 - Keep the phonetic simple and readable
 
-Respond ONLY with a valid JSON array, no other text:
-[{"word": "word in ${targetLang}", "translation": "translation in ${nativeLang}", "phonetic": "pronunciation in ${nativeLang} sounds"}]`;
+Respond ONLY with a valid JSON object containing a "words" array:
+{"words": [{"word": "word in ${targetLang}", "translation": "translation in ${nativeLang}", "phonetic": "pronunciation in ${nativeLang} sounds"}]}`;
 }
 
 function normalizedSimilarity(a: string, b: string): number {
@@ -707,9 +707,12 @@ export default function Learn() {
 
       const data = await res.json();
       let words: VocabWord[];
-      if (Array.isArray(data)) {
+      if (Array.isArray(data?.words)) {
+        words = data.words;
+      } else if (Array.isArray(data)) {
         words = data;
       } else if (typeof data.text === "string") {
+        // Fallback: model returned text instead of structured JSON
         const match = data.text.match(/\[[\s\S]*\]/);
         if (match) words = JSON.parse(match[0]);
         else throw new Error("Could not parse vocabulary");
