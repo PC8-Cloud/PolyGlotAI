@@ -619,7 +619,7 @@ export default function Learn() {
             <select
               value={nativeLang}
               onChange={(e) => setNativeLang(e.target.value)}
-              className="flex-1 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl px-3 py-3 text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-sm"
+              className="flex-1 min-w-0 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl px-3 py-3 text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-sm truncate"
             >
               {LANGUAGES.map((l) => (
                 <option key={l.code} value={l.code}>{l.flag} {l.label}</option>
@@ -631,7 +631,7 @@ export default function Learn() {
             <select
               value={targetLang}
               onChange={(e) => setTargetLang(e.target.value)}
-              className="flex-1 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl px-3 py-3 text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-sm"
+              className="flex-1 min-w-0 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl px-3 py-3 text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-sm truncate"
             >
               {LANGUAGES.filter((l) => l.code !== nativeLang).map((l) => (
                 <option key={l.code} value={l.code}>{l.flag} {l.label}</option>
