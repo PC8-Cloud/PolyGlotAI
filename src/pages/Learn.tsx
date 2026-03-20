@@ -153,6 +153,7 @@ RULES:
 - Keep responses concise — this is a SPOKEN conversation
 - Ask questions to keep the conversation going
 - Start by greeting and beginning the lesson
+- In your FIRST message only, briefly mention in the "hint" field that voice commands are available: repeat, slower, faster, stop (in ${nativeLang})
 ${isBeginnerLevel ? `
 TEACHER MODE (because the user is a beginner):
 - If the user sends "[NO_RESPONSE]", it means they stayed silent. Respond in ${nativeLang} in the "translation" field, encouraging them. Ask if they need help. Suggest what they could say. In "text" give them the exact phrase to repeat.
@@ -199,6 +200,7 @@ export default function Learn() {
   const currentSpeedRef = useRef(LEVEL_SPEED[level]);
 
   // Refs
+  const chatContainerRef = useRef<HTMLDivElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -220,9 +222,15 @@ export default function Learn() {
   useEffect(() => { messagesRef.current = messages; }, [messages]);
   useEffect(() => { levelRef.current = level; }, [level]);
 
-  // Auto-scroll
+  // Auto-scroll only if user is near the bottom (not reading old messages)
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const container = chatContainerRef.current;
+    if (!container) return;
+    const threshold = 150; // px from bottom
+    const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
+    if (isNearBottom) {
+      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages, chatState]);
 
   const nativeLangLabel = LANGUAGES.find((l) => l.code === nativeLang)?.label || nativeLang;
@@ -731,7 +739,16 @@ export default function Learn() {
       )}
 
       {/* Messages — only this area scrolls */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
+      <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
+        {/* Voice commands tip card */}
+        <div className="bg-[#123182]/50 border border-[#FFFFFF14] rounded-2xl p-3 flex items-start gap-2.5">
+          <Mic className="w-4 h-4 text-[#295BDB] shrink-0 mt-0.5" />
+          <div className="text-xs text-[#F4F4F4]/50 leading-relaxed space-y-0.5">
+            <p className="text-[#F4F4F4]/70 font-medium">{t("learnVoiceCommandsTitle")}</p>
+            <p>🔁 <b>Ripeti / Repeat</b> · 🐢 <b>Più lento / Slower</b> · 🐇 <b>Più veloce / Faster</b> · 🛑 <b>Stop / Ferma</b> · ❓ <b>Aiuto / Help</b></p>
+          </div>
+        </div>
+
         {messages.map((msg, idx) => {
           if (msg.role === "tutor") {
             return (
