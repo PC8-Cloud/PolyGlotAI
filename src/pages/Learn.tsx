@@ -17,8 +17,7 @@ import {
   ArrowRightLeft,
   Mic,
   MicOff,
-  Pause,
-  Play,
+  Square,
 } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
@@ -402,19 +401,24 @@ export default function Learn() {
     setChatState("idle");
   };
 
-  // ─── Toggle auto mode ─────────────────────────────────────────────────────
+  // ─── Pause / Resume conversation ─────────────────────────────────────────
 
-  const toggleAutoMode = () => {
-    if (autoMode) {
-      // Turning off — stop listening if active
-      setAutoMode(false);
-      if (chatState === "listening") stopListening();
-    } else {
-      // Turning on — start listening if idle
-      setAutoMode(true);
-      prepareAudioForSafari();
-      if (chatState === "idle") startListening();
+  const pauseConversation = () => {
+    cancelledRef.current = true;
+    setAutoMode(false);
+    stopListening();
+    // Stop any playing audio
+    if (typeof window !== "undefined") {
+      document.querySelectorAll("audio").forEach((a) => { a.pause(); a.currentTime = 0; });
     }
+    setChatState("idle");
+  };
+
+  const resumeConversation = () => {
+    cancelledRef.current = false;
+    setAutoMode(true);
+    prepareAudioForSafari();
+    startListening();
   };
 
   // ─── Manual mic toggle ────────────────────────────────────────────────────
@@ -424,6 +428,7 @@ export default function Learn() {
     if (chatState === "listening") {
       stopListening();
     } else if (chatState === "idle") {
+      cancelledRef.current = false;
       startListening();
     }
   };
@@ -551,18 +556,24 @@ export default function Learn() {
             {t(LEVELS.find((l) => l.id === level)?.labelKey as any)} · {t(TOPICS.find((tp) => tp.id === topic)?.labelKey as any)}
           </p>
         </div>
-        {/* Auto-mode toggle */}
-        <button
-          onClick={toggleAutoMode}
-          className={`p-2 rounded-lg transition-colors ${
-            autoMode
-              ? "bg-green-500/20 text-green-400"
-              : "text-[#F4F4F4]/40 hover:text-[#F4F4F4]"
-          }`}
-          title={autoMode ? "Auto-listen ON" : "Auto-listen OFF"}
-        >
-          {autoMode ? <Play className="w-5 h-5" /> : <Pause className="w-5 h-5" />}
-        </button>
+        {/* Stop / Resume */}
+        {(autoMode || chatState !== "idle") ? (
+          <button
+            onClick={pauseConversation}
+            className="px-3 py-1.5 rounded-xl bg-red-500/20 border border-red-500/30 text-red-400 text-xs font-bold flex items-center gap-1.5 hover:bg-red-500/30 transition-colors"
+          >
+            <Square className="w-3.5 h-3.5 fill-current" />
+            {t("learnStop")}
+          </button>
+        ) : (
+          <button
+            onClick={resumeConversation}
+            className="px-3 py-1.5 rounded-xl bg-green-500/20 border border-green-500/30 text-green-400 text-xs font-bold flex items-center gap-1.5 hover:bg-green-500/30 transition-colors"
+          >
+            <Mic className="w-3.5 h-3.5" />
+            {t("learnResume")}
+          </button>
+        )}
         <button onClick={resetLesson} className="p-2 rounded-lg text-[#F4F4F4]/40 hover:text-[#F4F4F4] hover:bg-[#123182]">
           <RotateCcw className="w-5 h-5" />
         </button>
