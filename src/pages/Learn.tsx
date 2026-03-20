@@ -14,11 +14,14 @@ import {
   Briefcase,
   Heart,
   Utensils,
+  ArrowRightLeft,
+  Mic,
+  MicOff,
 } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES } from "../lib/languages";
-import { playTTS, prepareAudioForSafari, getApiErrorMessage } from "../lib/openai";
+import { playTTS, prepareAudioForSafari, getApiErrorMessage, transcribeAudio } from "../lib/openai";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -128,6 +131,10 @@ export default function Learn() {
   const [speaking, setSpeaking] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const [recording, setRecording] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -135,6 +142,53 @@ export default function Learn() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
+
+  // ─── Voice recording ──────────────────────────────────────────────────────
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        if (blob.size < 1000) return; // too short, ignore
+
+        setLoading(true);
+        try {
+          const text = await transcribeAudio(blob, targetLang);
+          if (text.trim()) {
+            setInput(text);
+            // Auto-send after transcription
+            sendMessageWithText(text);
+          }
+        } catch (e: any) {
+          const { fallback } = getApiErrorMessage(e);
+          setError(fallback);
+          setLoading(false);
+        }
+      };
+
+      recorder.start();
+      mediaRecorderRef.current = recorder;
+      setRecording(true);
+    } catch (e) {
+      console.error("Mic access failed:", e);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current?.state === "recording") {
+      mediaRecorderRef.current.stop();
+    }
+    setRecording(false);
+  };
 
   // ─── Start lesson ──────────────────────────────────────────────────────────
 
@@ -186,20 +240,19 @@ export default function Learn() {
 
   // ─── Send message ─────────────────────────────────────────────────────────
 
-  const sendMessage = async () => {
-    const text = input.trim();
-    if (!text || loading) return;
+  const sendMessageWithText = async (msgText: string) => {
+    if (!msgText.trim() || loading) return;
 
     prepareAudioForSafari();
     setInput("");
     setError(null);
 
-    const userMsg: ChatMessage = { role: "user", text };
+    const userMsg: ChatMessage = { role: "user", text: msgText.trim() };
     setMessages((prev) => [...prev, userMsg]);
 
     const newApiMessages = [
       ...apiMessages,
-      { role: "user", content: text },
+      { role: "user", content: msgText.trim() },
     ];
     setApiMessages(newApiMessages);
     setLoading(true);
@@ -237,6 +290,8 @@ export default function Learn() {
     }
   };
 
+  const sendMessage = () => sendMessageWithText(input);
+
   // ─── TTS ──────────────────────────────────────────────────────────────────
 
   const speakText = async (text: string, idx: number) => {
@@ -260,7 +315,17 @@ export default function Learn() {
     setError(null);
   };
 
+  // ─── Swap languages ─────────────────────────────────────────────────────
+
+  const swapLanguages = () => {
+    setNativeLang(targetLang);
+    setTargetLang(nativeLang);
+  };
+
   // ─── Render: Setup Phase ──────────────────────────────────────────────────
+
+  const nativeFlag = LANGUAGES.find((l) => l.code === nativeLang)?.flag || "";
+  const targetFlagSetup = LANGUAGES.find((l) => l.code === targetLang)?.flag || "";
 
   if (phase === "setup") {
     return (
@@ -273,27 +338,29 @@ export default function Learn() {
         </header>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-5 max-w-sm mx-auto w-full">
-          {/* Native language */}
-          <div>
-            <label className="block text-sm font-medium text-[#F4F4F4]/60 mb-2">{t("learnMyLanguage")}</label>
+          {/* Language row: native → target with swap */}
+          <div className="flex items-center gap-2">
             <select
               value={nativeLang}
               onChange={(e) => setNativeLang(e.target.value)}
-              className="w-full bg-[#0E2666] border border-[#FFFFFF14] rounded-xl px-4 py-3 text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none"
+              className="flex-1 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl px-3 py-3 text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-sm"
             >
               {LANGUAGES.map((l) => (
                 <option key={l.code} value={l.code}>{l.flag} {l.label}</option>
               ))}
             </select>
-          </div>
 
-          {/* Target language */}
-          <div>
-            <label className="block text-sm font-medium text-[#F4F4F4]/60 mb-2">{t("learnTargetLanguage")}</label>
+            <button
+              onClick={swapLanguages}
+              className="p-2.5 bg-[#295BDB] rounded-xl text-[#F4F4F4] hover:bg-[#295BDB]/80 transition-colors shrink-0"
+            >
+              <ArrowRightLeft className="w-5 h-5" />
+            </button>
+
             <select
               value={targetLang}
               onChange={(e) => setTargetLang(e.target.value)}
-              className="w-full bg-[#0E2666] border border-[#FFFFFF14] rounded-xl px-4 py-3 text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none"
+              className="flex-1 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl px-3 py-3 text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-sm"
             >
               {LANGUAGES.filter((l) => l.code !== nativeLang).map((l) => (
                 <option key={l.code} value={l.code}>{l.flag} {l.label}</option>
@@ -301,25 +368,18 @@ export default function Learn() {
             </select>
           </div>
 
-          {/* Level */}
+          {/* Level — dropdown */}
           <div>
             <label className="block text-sm font-medium text-[#F4F4F4]/60 mb-2">{t("learnLevel")}</label>
-            <div className="space-y-2">
+            <select
+              value={level}
+              onChange={(e) => setLevel(e.target.value as Level)}
+              className="w-full bg-[#0E2666] border border-[#FFFFFF14] rounded-xl px-4 py-3 text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-sm"
+            >
               {LEVELS.map((lv) => (
-                <button
-                  key={lv.id}
-                  onClick={() => setLevel(lv.id)}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors border ${
-                    level === lv.id
-                      ? "bg-[#295BDB]/20 border-[#295BDB] text-[#295BDB]"
-                      : "bg-[#0E2666] border-[#FFFFFF14] text-[#F4F4F4]/60 hover:border-[#FFFFFF30]"
-                  }`}
-                >
-                  <span className="text-lg">{lv.emoji}</span>
-                  <span>{t(lv.labelKey as any)}</span>
-                </button>
+                <option key={lv.id} value={lv.id}>{lv.emoji} {t(lv.labelKey as any)}</option>
               ))}
-            </div>
+            </select>
           </div>
 
           {/* Topic */}
@@ -469,6 +529,23 @@ export default function Learn() {
           }}
           className="flex items-center gap-2"
         >
+          {/* Mic button */}
+          <button
+            type="button"
+            onTouchStart={(e) => { e.preventDefault(); prepareAudioForSafari(); startRecording(); }}
+            onTouchEnd={(e) => { e.preventDefault(); stopRecording(); }}
+            onMouseDown={() => { prepareAudioForSafari(); startRecording(); }}
+            onMouseUp={() => stopRecording()}
+            disabled={loading}
+            className={`p-3 rounded-xl transition-colors shrink-0 ${
+              recording
+                ? "bg-red-500 text-[#F4F4F4] animate-pulse"
+                : "bg-[#123182] text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#295BDB]"
+            } disabled:opacity-30`}
+          >
+            {recording ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+          </button>
+
           <input
             ref={inputRef}
             value={input}
