@@ -243,6 +243,28 @@ export function suspendAudioForMic() {
   }
 }
 
+/** Stop all audio playback immediately (for background/visibility change) */
+export function stopAllAudio() {
+  // Stop AudioContext sources
+  if (_audioCtx?.state === "running") {
+    _audioCtx.suspend().catch(() => {});
+  }
+  // Stop HTMLAudioElement
+  if (_warmAudio) {
+    _warmAudio.pause();
+    _warmAudio.currentTime = 0;
+  }
+  // Stop any other audio elements on the page
+  document.querySelectorAll("audio").forEach((a) => {
+    a.pause();
+    a.currentTime = 0;
+  });
+  // Cancel speechSynthesis if running
+  if (typeof speechSynthesis !== "undefined") {
+    speechSynthesis.cancel();
+  }
+}
+
 export async function playTTS(
   text: string,
   voice?: TTSVoice,

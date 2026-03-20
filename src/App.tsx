@@ -8,6 +8,7 @@ import { BrowserRouter, Routes, Route, useNavigate } from "react-router-dom";
 import { AuthProvider } from "./components/AuthProvider";
 import { useUserStore } from "./lib/store";
 import { useAutoTranslateUI } from "./lib/i18n";
+import { stopAllAudio } from "./lib/openai";
 import Home from "./pages/Home";
 import SessionHost from "./pages/SessionHost";
 import SessionJoin from "./pages/SessionJoin";
@@ -46,6 +47,8 @@ function BackgroundReset({ onReset }: { onReset: () => void }) {
     const handleVisibility = () => {
       if (document.visibilityState === "hidden") {
         hiddenAtRef.current = Date.now();
+        // Immediately stop all audio when going to background
+        stopAllAudio();
       } else if (document.visibilityState === "visible" && hiddenAtRef.current) {
         const away = Date.now() - hiddenAtRef.current;
         // If away for more than 30 seconds, reset to splash + home
