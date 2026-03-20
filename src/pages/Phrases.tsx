@@ -155,10 +155,27 @@ export default function Phrases() {
   const [playingPhrase, setPlayingPhrase] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const busyRef = React.useRef(false);
+  const busyTranslateRef = React.useRef(false);
+  const busySpeakRef = React.useRef(false);
+
+  const handleSpeak = async (text: string) => {
+    if (busySpeakRef.current) return;
+    busySpeakRef.current = true;
+    prepareAudioForSafari();
+    setPlayingPhrase(text);
+    try {
+      await playTTS(text, undefined, undefined, targetLang);
+    } catch (e: any) {
+      console.error("TTS failed:", e);
+      const { key: errKey, fallback } = getApiErrorMessage(e);
+      setError((t as any)[errKey] || fallback);
+    } finally {
+      setPlayingPhrase(null);
+      busySpeakRef.current = false;
+    }
+  };
 
   const handlePhraseClick = async (phrase: string) => {
-    if (busyRef.current) return; // prevent overlapping API calls
     prepareAudioForSafari(); // unlock audio on user tap
     const key = `${phrase}__${targetLang}`;
 
@@ -181,36 +198,24 @@ export default function Phrases() {
       return;
     }
 
+    if (busyTranslateRef.current) return;
+    busyTranslateRef.current = true;
     setLoadingPhrase(phrase);
     setError(null);
-    busyRef.current = true;
     try {
       const result = await translateText(phrase, "en", [targetLang]);
       const translated = result[targetLang] || "...";
       setTranslations((prev) => ({ ...prev, [key]: translated }));
-      // Cache for offline use
       savePhraseTranslations({ [key]: translated });
-      // Speak immediately after translating
-      await handleSpeak(translated);
+      // Speak right after translation — don't await, let it play
+      handleSpeak(translated);
     } catch (e: any) {
       console.error("Translation failed:", e);
       const { key: errKey, fallback } = getApiErrorMessage(e);
       setError((t as any)[errKey] || fallback);
     } finally {
       setLoadingPhrase(null);
-      busyRef.current = false;
-    }
-  };
-
-  const handleSpeak = async (text: string) => {
-    prepareAudioForSafari();
-    setPlayingPhrase(text);
-    try {
-      await playTTS(text, undefined, undefined, targetLang);
-    } catch (e) {
-      console.error("TTS failed:", e);
-    } finally {
-      setPlayingPhrase(null);
+      busyTranslateRef.current = false;
     }
   };
 
