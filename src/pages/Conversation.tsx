@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Mic, MicOff, Send, Volume2, VolumeX, ArrowRightLeft } from "lucide-react";
+import { ChevronLeft, Mic, MicOff, Send, Volume2, VolumeX, ArrowRightLeft, Check, CheckCheck } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLabelForCode } from "../lib/languages";
 import { translateText, playTTS, prepareAudioForSafari, getApiErrorMessage, transcribeAudioDetectLang } from "../lib/openai";
+
+type MsgStatus = "sent" | "translated" | "playing" | "done";
 
 interface Message {
   id: number;
@@ -12,6 +14,7 @@ interface Message {
   originalText: string;
   translatedText: string;
   sourceLang: string;
+  status: MsgStatus;
 }
 
 // Silence detection
@@ -226,7 +229,7 @@ export default function Conversation() {
 
     setMessages((prev) => [
       ...prev,
-      { id: newId, side, originalText: text, translatedText: "...", sourceLang },
+      { id: newId, side, originalText: text, translatedText: "...", sourceLang, status: "sent" },
     ]);
 
     setChatState("translating");
@@ -237,13 +240,16 @@ export default function Conversation() {
       const translatedText = translations[targetLang] || "...";
 
       setMessages((prev) =>
-        prev.map((m) => (m.id === newId ? { ...m, translatedText } : m))
+        prev.map((m) => (m.id === newId ? { ...m, translatedText, status: "translated" } : m))
       );
 
       // Auto-speak translation
       if (autoSpeakRef.current && translatedText !== "...") {
         setChatState("speaking");
         setPlayingId(newId);
+        setMessages((prev) =>
+          prev.map((m) => (m.id === newId ? { ...m, status: "playing" } : m))
+        );
         try {
           await playTTS(translatedText, undefined, undefined, targetLang);
         } catch (e) {
@@ -251,6 +257,11 @@ export default function Conversation() {
         }
         setPlayingId(null);
       }
+
+      // Mark as done
+      setMessages((prev) =>
+        prev.map((m) => (m.id === newId ? { ...m, status: "done" } : m))
+      );
     } catch (e: any) {
       const { key, fallback } = getApiErrorMessage(e);
       setError((t as any)[key] || fallback);
@@ -371,7 +382,24 @@ export default function Conversation() {
               }`}
             >
               <p className="text-lg font-medium">{msg.translatedText}</p>
-              <p className="text-sm opacity-60 mt-1">{msg.originalText}</p>
+              <div className="flex items-end justify-between gap-2 mt-1">
+                <p className="text-sm opacity-60">{msg.originalText}</p>
+                {/* WhatsApp-style checkmarks */}
+                <span className="shrink-0">
+                  {msg.status === "sent" && (
+                    <Check className="w-4 h-4 text-[#F4F4F4]/40" />
+                  )}
+                  {msg.status === "translated" && (
+                    <CheckCheck className="w-4 h-4 text-[#F4F4F4]/40" />
+                  )}
+                  {msg.status === "playing" && (
+                    <CheckCheck className="w-4 h-4 text-[#5BF0F0]" />
+                  )}
+                  {msg.status === "done" && (
+                    <CheckCheck className="w-4 h-4 text-[#5BF0F0]" />
+                  )}
+                </span>
+              </div>
             </div>
             <button
               onClick={() => handleSpeak(msg.translatedText, msg.id, msg.side === "you" ? theirLang : yourLang)}
@@ -385,25 +413,13 @@ export default function Conversation() {
           </div>
         ))}
 
-        {/* Status indicators */}
-        {chatState === "listening" && (
+        {/* Listening indicator */}
+        {(chatState === "listening" || chatState === "transcribing") && (
           <div className="flex items-center justify-center gap-3 py-2">
-            <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse" />
-            <span className="text-sm text-[#F4F4F4]/40">{t("listeningBoth")}</span>
-          </div>
-        )}
-
-        {chatState === "transcribing" && (
-          <div className="flex items-center justify-center gap-3 py-2">
-            <div className="w-3 h-3 rounded-full bg-amber-500 animate-pulse" />
-            <span className="text-sm text-amber-400">{t("learnTranscribing")}</span>
-          </div>
-        )}
-
-        {chatState === "translating" && (
-          <div className="flex items-center justify-center gap-3 py-2">
-            <div className="w-3 h-3 rounded-full bg-[#295BDB] animate-pulse" />
-            <span className="text-sm text-[#295BDB]">{t("translating")}</span>
+            <div className={`w-3 h-3 rounded-full animate-pulse ${chatState === "listening" ? "bg-red-500" : "bg-amber-500"}`} />
+            <span className="text-sm text-[#F4F4F4]/40">
+              {chatState === "listening" ? t("listeningBoth") : t("learnTranscribing")}
+            </span>
           </div>
         )}
 
