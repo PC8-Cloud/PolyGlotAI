@@ -105,9 +105,24 @@ function detectVoiceCommand(text: string): VoiceCommand {
 
 function buildSystemPrompt(nativeLang: string, targetLang: string, level: Level, topic: Topic): string {
   const levelDesc: Record<Level, string> = {
-    molto_base: "The user is an absolute beginner. Use only the most basic words (hello, yes, no, thank you, numbers 1-10). Keep sentences to 2-4 words max. Always provide translation. Be very patient and encouraging. Introduce one new word at a time.",
-    base: "The user is a beginner. Use simple present tense, common vocabulary (greetings, food, directions, numbers). Keep sentences short (3-7 words). Always translate. Gently introduce basic grammar.",
-    intermedio: "The user is intermediate. Use varied tenses, richer vocabulary, idiomatic expressions. Sentences can be longer. Explain nuances. Challenge them with questions that require forming their own sentences.",
+    molto_base: `The user is an absolute beginner. You are their patient, warm teacher.
+- Use only the most basic words (hello, yes, no, thank you, numbers 1-10). 2-4 words max.
+- Always provide translation.
+- Introduce ONE new word at a time. Ask them to repeat it.
+- If they say it wrong, gently correct them: say the correct version, explain the pronunciation in ${nativeLang}, and ask them to try again.
+- If they say it right, praise them enthusiastically and move to the next word.
+- Give them simple choices: "Do you want to say A or B?" to help them form answers.
+- Speak to them in ${nativeLang} for explanations, but always give the ${targetLang} phrase to practice.`,
+
+    base: `The user is a beginner. You are a supportive teacher guiding them step by step.
+- Use simple present tense, common vocabulary (greetings, food, directions, numbers). 3-7 words.
+- Always translate. Gently introduce basic grammar.
+- When they make mistakes, ALWAYS correct them: explain the rule briefly in ${nativeLang}, give the correct sentence, and ask them to repeat.
+- If their sentence structure is wrong, show them the right pattern.
+- Suggest how to say things better. Give alternatives.
+- Ask follow-up questions that require them to use what they just learned.`,
+
+    intermedio: "The user is intermediate. Use varied tenses, richer vocabulary, idiomatic expressions. Sentences can be longer. Explain nuances. Challenge them with questions that require forming their own sentences. Correct errors and explain why.",
     alto: "The user is advanced. Use complex grammar, subjunctive, conditionals, idioms, slang. Discuss abstract topics. Point out subtle errors. Push them toward native-like expression.",
     madrelingua: "The user is near-native. Speak completely naturally as you would to a native speaker. Use colloquialisms, humor, cultural references. Only correct very subtle errors. Discuss any topic in depth.",
   };
@@ -123,17 +138,28 @@ function buildSystemPrompt(nativeLang: string, targetLang: string, level: Level,
     daily: "Talk about daily routines, weather, family, hobbies, plans for the day.",
   };
 
+  const isBeginnerLevel = level === "molto_base" || level === "base";
+
   return `You are a friendly language tutor teaching ${targetLang} to a ${nativeLang} speaker.
 LEVEL: ${levelDesc[level]}
 TOPIC: ${topicDesc[topic]}
+
+RESPONSE FORMAT — respond ONLY in valid JSON:
+{"text": "your message in ${targetLang}", "translation": "translation in ${nativeLang}", "correction": "correction of user's error in ${nativeLang} or null", "hint": "tip in ${nativeLang} or null"}
+
 RULES:
-- Respond ONLY in valid JSON: {"text": "your message in ${targetLang}", "translation": "translation in ${nativeLang}", "correction": "correction of user's error or null", "hint": "tip or null"}
 - "text" must be in ${targetLang}, "translation" in ${nativeLang}
-- If the user made errors, put correction in ${nativeLang} explaining what was wrong
-- Be encouraging and conversational
-- Keep responses concise — this is a spoken conversation, not a written one
+- If the user made errors, put the FULL correction in ${nativeLang}: what was wrong, the correct version, and why
+- Keep responses concise — this is a SPOKEN conversation
 - Ask questions to keep the conversation going
-- Start by greeting and beginning the lesson`;
+- Start by greeting and beginning the lesson
+${isBeginnerLevel ? `
+TEACHER MODE (because the user is a beginner):
+- If the user sends "[NO_RESPONSE]", it means they stayed silent. Respond in ${nativeLang} in the "translation" field, encouraging them. Ask if they need help. Suggest what they could say. In "text" give them the exact phrase to repeat.
+- If their answer is very wrong or nonsensical, don't just continue — stop, explain in ${nativeLang} what they should have said, give the correct phrase in ${targetLang}, and ask them to try again.
+- Be like a real teacher: patient but insistent. Don't let mistakes slide. Make them practice until they get it right.
+- Celebrate small victories! When they say something correctly, be enthusiastic.
+- Use "hint" field often to explain grammar rules, pronunciation tips, or cultural context in ${nativeLang}.` : ''}`;
 }
 
 // TTS speed per level — slower for beginners
@@ -184,12 +210,15 @@ export default function Learn() {
   const apiMessagesRef = useRef(apiMessages);
   const messagesRef = useRef(messages);
   const cancelledRef = useRef(false);
+  const silenceCyclesRef = useRef(0); // counts consecutive silence cycles for [NO_RESPONSE]
+  const levelRef = useRef(level);
 
   // Keep refs in sync
   useEffect(() => { autoModeRef.current = autoMode; }, [autoMode]);
   useEffect(() => { currentSpeedRef.current = LEVEL_SPEED[level]; }, [level]);
   useEffect(() => { apiMessagesRef.current = apiMessages; }, [apiMessages]);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
+  useEffect(() => { levelRef.current = level; }, [level]);
 
   // Auto-scroll
   useEffect(() => {
@@ -262,11 +291,23 @@ export default function Learn() {
 
         const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
         if (blob.size < 1000 || cancelledRef.current) {
-          // Too short — go back to listening if auto mode
-          if (autoModeRef.current && !cancelledRef.current) startListening();
+          if (cancelledRef.current) { setChatState("idle"); return; }
+          // Silence detected — increment counter
+          silenceCyclesRef.current += 1;
+          const isTeacherLevel = levelRef.current === "molto_base" || levelRef.current === "base";
+          // After 2 consecutive silence cycles in teacher mode, send [NO_RESPONSE]
+          if (isTeacherLevel && silenceCyclesRef.current >= 2) {
+            silenceCyclesRef.current = 0;
+            sendUserMessage("[NO_RESPONSE]");
+            return;
+          }
+          // Otherwise just re-listen
+          if (autoModeRef.current) startListening();
           else setChatState("idle");
           return;
         }
+        // User spoke — reset silence counter
+        silenceCyclesRef.current = 0;
 
         // Transcribe
         setChatState("transcribing");
@@ -324,8 +365,12 @@ export default function Learn() {
     setInput("");
     setError(null);
 
+    const isNoResponse = text === "[NO_RESPONSE]";
     const userMsg: ChatMessage = { role: "user", text };
-    setMessages((prev) => [...prev, userMsg]);
+    // Don't show [NO_RESPONSE] in chat UI
+    if (!isNoResponse) {
+      setMessages((prev) => [...prev, userMsg]);
+    }
 
     const newApiMessages = [...apiMessagesRef.current, { role: "user", content: text }];
     setApiMessages(newApiMessages);
