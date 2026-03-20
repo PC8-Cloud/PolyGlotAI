@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ChevronLeft,
@@ -17,6 +17,8 @@ import {
   ArrowRightLeft,
   Mic,
   MicOff,
+  Pause,
+  Play,
 } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
@@ -26,11 +28,11 @@ import { playTTS, prepareAudioForSafari, getApiErrorMessage, transcribeAudio } f
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface ChatMessage {
-  role: "tutor" | "user" | "system";
-  text: string;           // target language text
-  translation?: string;   // native language translation
-  correction?: string;    // correction of user's message (if any)
-  hint?: string;          // hint/suggestion for the user
+  role: "tutor" | "user";
+  text: string;
+  translation?: string;
+  correction?: string;
+  hint?: string;
 }
 
 interface TutorResponse {
@@ -42,6 +44,7 @@ interface TutorResponse {
 
 type Level = "molto_base" | "base" | "intermedio" | "alto" | "madrelingua";
 type Topic = "free" | "greetings" | "restaurant" | "directions" | "shopping" | "work" | "travel" | "daily";
+type ChatState = "idle" | "speaking" | "listening" | "transcribing" | "thinking";
 
 const LEVELS: { id: Level; labelKey: string; emoji: string }[] = [
   { id: "molto_base", labelKey: "learnLevelVeryBasic", emoji: "🌱" },
@@ -62,15 +65,14 @@ const TOPICS: { id: Topic; labelKey: string; icon: any }[] = [
   { id: "daily", labelKey: "learnTopicDaily", icon: Lightbulb },
 ];
 
+// Silence detection threshold (seconds of silence before auto-stop)
+const SILENCE_TIMEOUT = 2.0;
+const SILENCE_THRESHOLD = 0.015; // audio level below this = silence
+
 // ─── System prompt builder ───────────────────────────────────────────────────
 
-function buildSystemPrompt(
-  nativeLang: string,
-  targetLang: string,
-  level: Level,
-  topic: Topic,
-): string {
-  const levelDescriptions: Record<Level, string> = {
+function buildSystemPrompt(nativeLang: string, targetLang: string, level: Level, topic: Topic): string {
+  const levelDesc: Record<Level, string> = {
     molto_base: "The user is an absolute beginner. Use only the most basic words (hello, yes, no, thank you, numbers 1-10). Keep sentences to 2-4 words max. Always provide translation. Be very patient and encouraging. Introduce one new word at a time.",
     base: "The user is a beginner. Use simple present tense, common vocabulary (greetings, food, directions, numbers). Keep sentences short (3-7 words). Always translate. Gently introduce basic grammar.",
     intermedio: "The user is intermediate. Use varied tenses, richer vocabulary, idiomatic expressions. Sentences can be longer. Explain nuances. Challenge them with questions that require forming their own sentences.",
@@ -78,7 +80,7 @@ function buildSystemPrompt(
     madrelingua: "The user is near-native. Speak completely naturally as you would to a native speaker. Use colloquialisms, humor, cultural references. Only correct very subtle errors. Discuss any topic in depth.",
   };
 
-  const topicContext: Record<Topic, string> = {
+  const topicDesc: Record<Topic, string> = {
     free: "Have a natural, free-flowing conversation. Choose interesting topics.",
     greetings: "Focus on greetings, introductions, polite expressions, and small talk.",
     restaurant: "Simulate ordering food, asking about the menu, dietary needs, paying the bill.",
@@ -90,21 +92,16 @@ function buildSystemPrompt(
   };
 
   return `You are a friendly language tutor teaching ${targetLang} to a ${nativeLang} speaker.
-
-LEVEL: ${levelDescriptions[level]}
-
-TOPIC: ${topicContext[topic]}
-
+LEVEL: ${levelDesc[level]}
+TOPIC: ${topicDesc[topic]}
 RULES:
-- Respond ONLY in valid JSON with this exact format:
-  {"text": "your message in ${targetLang}", "translation": "translation in ${nativeLang}", "correction": "correction of user's last message if it had errors, or null", "hint": "a helpful tip or suggestion for the user, or null"}
-- Your "text" field must be in ${targetLang}
-- Your "translation" field must be in ${nativeLang}
-- If the user made a grammar/vocabulary error, put the corrected version in "correction" and explain briefly in ${nativeLang}
-- Add "hint" only when useful (grammar tip, cultural note, vocabulary expansion)
-- Be encouraging and conversational, not like a textbook
-- Adapt your complexity strictly to the level described above
-- Start the conversation proactively — greet the user and begin the lesson`;
+- Respond ONLY in valid JSON: {"text": "your message in ${targetLang}", "translation": "translation in ${nativeLang}", "correction": "correction of user's error or null", "hint": "tip or null"}
+- "text" must be in ${targetLang}, "translation" in ${nativeLang}
+- If the user made errors, put correction in ${nativeLang} explaining what was wrong
+- Be encouraging and conversational
+- Keep responses concise — this is a spoken conversation, not a written one
+- Ask questions to keep the conversation going
+- Start by greeting and beginning the lesson`;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -114,7 +111,7 @@ export default function Learn() {
   const { uiLanguage, defaultSourceLanguage } = useUserStore();
   const t = useTranslation(uiLanguage);
 
-  // Setup state
+  // Setup
   const [phase, setPhase] = useState<"setup" | "chat">("setup");
   const [nativeLang, setNativeLang] = useState(uiLanguage || "it");
   const [targetLang, setTargetLang] = useState(
@@ -123,86 +120,224 @@ export default function Learn() {
   const [level, setLevel] = useState<Level>("base");
   const [topic, setTopic] = useState<Topic>("free");
 
-  // Chat state
+  // Chat
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [apiMessages, setApiMessages] = useState<any[]>([]);
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [speaking, setSpeaking] = useState<number | null>(null);
+  const [chatState, setChatState] = useState<ChatState>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [autoMode, setAutoMode] = useState(true); // hands-free auto-listen
 
-  const [recording, setRecording] = useState(false);
+  // Refs
+  const chatEndRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const silenceTimerRef = useRef<any>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animFrameRef = useRef<number>(0);
+  const streamRef = useRef<MediaStream | null>(null);
+  const autoModeRef = useRef(autoMode);
+  const apiMessagesRef = useRef(apiMessages);
+  const messagesRef = useRef(messages);
+  const cancelledRef = useRef(false);
 
-  const chatEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  // Keep refs in sync
+  useEffect(() => { autoModeRef.current = autoMode; }, [autoMode]);
+  useEffect(() => { apiMessagesRef.current = apiMessages; }, [apiMessages]);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
 
-  // Auto-scroll to bottom
+  // Auto-scroll
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
+  }, [messages, chatState]);
 
-  // ─── Voice recording ──────────────────────────────────────────────────────
+  const nativeLangLabel = LANGUAGES.find((l) => l.code === nativeLang)?.label || nativeLang;
+  const targetLangLabel = LANGUAGES.find((l) => l.code === targetLang)?.label || targetLang;
 
-  const startRecording = async () => {
+  // ─── Silence detection ─────────────────────────────────────────────────────
+
+  const startSilenceDetection = useCallback((analyser: AnalyserNode) => {
+    const dataArray = new Uint8Array(analyser.fftSize);
+    let silenceStart: number | null = null;
+
+    const check = () => {
+      analyser.getByteTimeDomainData(dataArray);
+      // Calculate RMS level
+      let sum = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        const v = (dataArray[i] - 128) / 128;
+        sum += v * v;
+      }
+      const rms = Math.sqrt(sum / dataArray.length);
+
+      if (rms < SILENCE_THRESHOLD) {
+        if (!silenceStart) silenceStart = Date.now();
+        else if ((Date.now() - silenceStart) / 1000 > SILENCE_TIMEOUT) {
+          // Silence detected — stop recording
+          stopListening();
+          return;
+        }
+      } else {
+        silenceStart = null; // reset on speech
+      }
+
+      animFrameRef.current = requestAnimationFrame(check);
+    };
+    check();
+  }, []);
+
+  // ─── Start listening ───────────────────────────────────────────────────────
+
+  const startListening = useCallback(async () => {
+    if (cancelledRef.current) return;
+    setChatState("listening");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+
+      // Set up analyser for silence detection
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 2048;
+      source.connect(analyser);
+      analyserRef.current = analyser;
+
+      // Start recording
       const recorder = new MediaRecorder(stream);
       audioChunksRef.current = [];
-
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) audioChunksRef.current.push(e.data);
       };
-
       recorder.onstop = async () => {
+        cancelAnimationFrame(animFrameRef.current);
+        audioCtx.close().catch(() => {});
         stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-        if (blob.size < 1000) return; // too short, ignore
+        streamRef.current = null;
 
-        setLoading(true);
+        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        if (blob.size < 1000 || cancelledRef.current) {
+          // Too short — go back to listening if auto mode
+          if (autoModeRef.current && !cancelledRef.current) startListening();
+          else setChatState("idle");
+          return;
+        }
+
+        // Transcribe
+        setChatState("transcribing");
         try {
           const text = await transcribeAudio(blob, targetLang);
-          if (text.trim()) {
-            setInput(text);
-            // Auto-send after transcription
-            sendMessageWithText(text);
+          if (text.trim() && !cancelledRef.current) {
+            sendUserMessage(text.trim());
+          } else if (autoModeRef.current && !cancelledRef.current) {
+            startListening();
+          } else {
+            setChatState("idle");
           }
         } catch (e: any) {
           const { fallback } = getApiErrorMessage(e);
           setError(fallback);
-          setLoading(false);
+          setChatState("idle");
         }
       };
 
       recorder.start();
       mediaRecorderRef.current = recorder;
-      setRecording(true);
+
+      // Start silence detection
+      startSilenceDetection(analyser);
     } catch (e) {
       console.error("Mic access failed:", e);
+      setChatState("idle");
     }
-  };
+  }, [targetLang, startSilenceDetection]);
 
-  const stopRecording = () => {
+  // ─── Stop listening ────────────────────────────────────────────────────────
+
+  const stopListening = useCallback(() => {
+    cancelAnimationFrame(animFrameRef.current);
     if (mediaRecorderRef.current?.state === "recording") {
       mediaRecorderRef.current.stop();
     }
-    setRecording(false);
-  };
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+    }
+  }, []);
+
+  // ─── Send user message & get tutor reply ───────────────────────────────────
+
+  const sendUserMessage = useCallback(async (text: string) => {
+    if (!text || cancelledRef.current) return;
+
+    prepareAudioForSafari();
+    setInput("");
+    setError(null);
+
+    const userMsg: ChatMessage = { role: "user", text };
+    setMessages((prev) => [...prev, userMsg]);
+
+    const newApiMessages = [...apiMessagesRef.current, { role: "user", content: text }];
+    setApiMessages(newApiMessages);
+    setChatState("thinking");
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: newApiMessages }),
+      });
+      if (!res.ok) throw { status: res.status, message: "Chat failed" };
+
+      const data: TutorResponse = await res.json();
+      if (cancelledRef.current) return;
+
+      const tutorMsg: ChatMessage = {
+        role: "tutor",
+        text: data.text,
+        translation: data.translation,
+        correction: data.correction || undefined,
+        hint: data.hint || undefined,
+      };
+
+      setMessages((prev) => [...prev, tutorMsg]);
+      setApiMessages((prev) => [...prev, { role: "assistant", content: JSON.stringify(data) }]);
+
+      // Speak tutor reply, then auto-listen
+      setChatState("speaking");
+      try {
+        await playTTS(data.text, undefined, undefined, targetLang);
+      } catch (e) {
+        console.error("TTS error:", e);
+      }
+
+      if (cancelledRef.current) return;
+
+      // After speaking, auto-listen if enabled
+      if (autoModeRef.current) {
+        startListening();
+      } else {
+        setChatState("idle");
+      }
+    } catch (e: any) {
+      const { fallback } = getApiErrorMessage(e);
+      setError(fallback);
+      setChatState("idle");
+    }
+  }, [targetLang, startListening]);
 
   // ─── Start lesson ──────────────────────────────────────────────────────────
 
-  const nativeLangLabel = LANGUAGES.find((l) => l.code === nativeLang)?.label || nativeLang;
-  const targetLangLabel = LANGUAGES.find((l) => l.code === targetLang)?.label || targetLang;
-
   const startLesson = async () => {
+    prepareAudioForSafari();
+    cancelledRef.current = false;
+
     const systemPrompt = buildSystemPrompt(nativeLangLabel, targetLangLabel, level, topic);
     const initMessages = [{ role: "system" as const, content: systemPrompt }];
 
     setPhase("chat");
     setMessages([]);
     setApiMessages(initMessages);
-    setLoading(true);
+    setChatState("thinking");
     setError(null);
 
     try {
@@ -221,111 +356,87 @@ export default function Learn() {
         hint: data.hint || undefined,
       };
 
+      const fullApiMessages = [...initMessages, { role: "assistant" as const, content: JSON.stringify(data) }];
       setMessages([tutorMsg]);
-      setApiMessages([
-        ...initMessages,
-        { role: "assistant", content: JSON.stringify(data) },
-      ]);
+      setApiMessages(fullApiMessages);
 
-      // Auto-speak the first message
-      prepareAudioForSafari();
-      speakText(data.text, 0);
+      // Speak, then auto-listen
+      setChatState("speaking");
+      try {
+        await playTTS(data.text, undefined, undefined, targetLang);
+      } catch (e) {
+        console.error("TTS error:", e);
+      }
+
+      if (autoModeRef.current && !cancelledRef.current) {
+        startListening();
+      } else {
+        setChatState("idle");
+      }
     } catch (e: any) {
       const { fallback } = getApiErrorMessage(e);
       setError(fallback);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // ─── Send message ─────────────────────────────────────────────────────────
-
-  const sendMessageWithText = async (msgText: string) => {
-    if (!msgText.trim() || loading) return;
-
-    prepareAudioForSafari();
-    setInput("");
-    setError(null);
-
-    const userMsg: ChatMessage = { role: "user", text: msgText.trim() };
-    setMessages((prev) => [...prev, userMsg]);
-
-    const newApiMessages = [
-      ...apiMessages,
-      { role: "user", content: msgText.trim() },
-    ];
-    setApiMessages(newApiMessages);
-    setLoading(true);
-
-    try {
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: newApiMessages }),
-      });
-      if (!res.ok) throw { status: res.status, message: "Chat failed" };
-
-      const data: TutorResponse = await res.json();
-      const tutorMsg: ChatMessage = {
-        role: "tutor",
-        text: data.text,
-        translation: data.translation,
-        correction: data.correction || undefined,
-        hint: data.hint || undefined,
-      };
-
-      setMessages((prev) => [...prev, tutorMsg]);
-      setApiMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: JSON.stringify(data) },
-      ]);
-
-      // Auto-speak tutor reply
-      speakText(data.text, messages.length + 1);
-    } catch (e: any) {
-      const { fallback } = getApiErrorMessage(e);
-      setError(fallback);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const sendMessage = () => sendMessageWithText(input);
-
-  // ─── TTS ──────────────────────────────────────────────────────────────────
-
-  const speakText = async (text: string, idx: number) => {
-    setSpeaking(idx);
-    try {
-      await playTTS(text, undefined, undefined, targetLang);
-    } catch (e) {
-      console.error("TTS error:", e);
-    } finally {
-      setSpeaking(null);
+      setChatState("idle");
     }
   };
 
   // ─── Reset ────────────────────────────────────────────────────────────────
 
   const resetLesson = () => {
+    cancelledRef.current = true;
+    stopListening();
     setPhase("setup");
     setMessages([]);
     setApiMessages([]);
     setInput("");
     setError(null);
+    setChatState("idle");
   };
 
-  // ─── Swap languages ─────────────────────────────────────────────────────
+  // ─── Toggle auto mode ─────────────────────────────────────────────────────
+
+  const toggleAutoMode = () => {
+    if (autoMode) {
+      // Turning off — stop listening if active
+      setAutoMode(false);
+      if (chatState === "listening") stopListening();
+    } else {
+      // Turning on — start listening if idle
+      setAutoMode(true);
+      prepareAudioForSafari();
+      if (chatState === "idle") startListening();
+    }
+  };
+
+  // ─── Manual mic toggle ────────────────────────────────────────────────────
+
+  const toggleMic = () => {
+    prepareAudioForSafari();
+    if (chatState === "listening") {
+      stopListening();
+    } else if (chatState === "idle") {
+      startListening();
+    }
+  };
+
+  // ─── Swap languages ───────────────────────────────────────────────────────
 
   const swapLanguages = () => {
     setNativeLang(targetLang);
     setTargetLang(nativeLang);
   };
 
-  // ─── Render: Setup Phase ──────────────────────────────────────────────────
+  // ─── Status label & color ─────────────────────────────────────────────────
 
-  const nativeFlag = LANGUAGES.find((l) => l.code === nativeLang)?.flag || "";
-  const targetFlagSetup = LANGUAGES.find((l) => l.code === targetLang)?.flag || "";
+  const statusConfig: Record<ChatState, { label: string; color: string; pulse: boolean }> = {
+    idle: { label: "", color: "bg-[#123182]", pulse: false },
+    speaking: { label: t("learnSpeaking"), color: "bg-[#295BDB]", pulse: true },
+    listening: { label: t("learnListening"), color: "bg-green-500", pulse: true },
+    transcribing: { label: t("learnTranscribing"), color: "bg-amber-500", pulse: true },
+    thinking: { label: t("learnThinking"), color: "bg-[#295BDB]", pulse: true },
+  };
+
+  // ─── Render: Setup Phase ──────────────────────────────────────────────────
 
   if (phase === "setup") {
     return (
@@ -338,7 +449,7 @@ export default function Learn() {
         </header>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-5 max-w-sm mx-auto w-full">
-          {/* Language row: native → target with swap */}
+          {/* Language row */}
           <div className="flex items-center gap-2">
             <select
               value={nativeLang}
@@ -349,14 +460,9 @@ export default function Learn() {
                 <option key={l.code} value={l.code}>{l.flag} {l.label}</option>
               ))}
             </select>
-
-            <button
-              onClick={swapLanguages}
-              className="p-2.5 bg-[#295BDB] rounded-xl text-[#F4F4F4] hover:bg-[#295BDB]/80 transition-colors shrink-0"
-            >
+            <button onClick={swapLanguages} className="p-2.5 bg-[#295BDB] rounded-xl text-[#F4F4F4] hover:bg-[#295BDB]/80 transition-colors shrink-0">
               <ArrowRightLeft className="w-5 h-5" />
             </button>
-
             <select
               value={targetLang}
               onChange={(e) => setTargetLang(e.target.value)}
@@ -368,7 +474,7 @@ export default function Learn() {
             </select>
           </div>
 
-          {/* Level — dropdown */}
+          {/* Level dropdown */}
           <div>
             <label className="block text-sm font-medium text-[#F4F4F4]/60 mb-2">{t("learnLevel")}</label>
             <select
@@ -382,7 +488,7 @@ export default function Learn() {
             </select>
           </div>
 
-          {/* Topic */}
+          {/* Topics */}
           <div>
             <label className="block text-sm font-medium text-[#F4F4F4]/60 mb-2">{t("learnTopic")}</label>
             <div className="grid grid-cols-2 gap-2">
@@ -406,7 +512,7 @@ export default function Learn() {
             </div>
           </div>
 
-          {/* Start button */}
+          {/* Start */}
           <button
             onClick={startLesson}
             className="w-full bg-[#295BDB] hover:bg-[#295BDB]/80 text-[#F4F4F4] font-bold py-4 rounded-2xl transition-colors text-lg shadow-lg"
@@ -421,6 +527,7 @@ export default function Learn() {
   // ─── Render: Chat Phase ───────────────────────────────────────────────────
 
   const targetFlag = LANGUAGES.find((l) => l.code === targetLang)?.flag || "";
+  const { label: statusLabel, color: statusColor, pulse: statusPulse } = statusConfig[chatState];
 
   return (
     <div className="min-h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans">
@@ -435,10 +542,19 @@ export default function Learn() {
             {t(LEVELS.find((l) => l.id === level)?.labelKey as any)} · {t(TOPICS.find((tp) => tp.id === topic)?.labelKey as any)}
           </p>
         </div>
+        {/* Auto-mode toggle */}
         <button
-          onClick={resetLesson}
-          className="p-2 rounded-lg text-[#F4F4F4]/40 hover:text-[#F4F4F4] hover:bg-[#123182]"
+          onClick={toggleAutoMode}
+          className={`p-2 rounded-lg transition-colors ${
+            autoMode
+              ? "bg-green-500/20 text-green-400"
+              : "text-[#F4F4F4]/40 hover:text-[#F4F4F4]"
+          }`}
+          title={autoMode ? "Auto-listen ON" : "Auto-listen OFF"}
         >
+          {autoMode ? <Play className="w-5 h-5" /> : <Pause className="w-5 h-5" />}
+        </button>
+        <button onClick={resetLesson} className="p-2 rounded-lg text-[#F4F4F4]/40 hover:text-[#F4F4F4] hover:bg-[#123182]">
           <RotateCcw className="w-5 h-5" />
         </button>
       </header>
@@ -457,20 +573,15 @@ export default function Learn() {
           if (msg.role === "tutor") {
             return (
               <div key={idx} className="max-w-[85%]">
-                {/* Correction of user's previous message */}
                 {msg.correction && (
                   <div className="mb-2 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2">
                     <p className="text-xs text-amber-400 font-medium mb-1">✏️ {t("learnCorrection")}</p>
                     <p className="text-sm text-amber-300">{msg.correction}</p>
                   </div>
                 )}
-
-                {/* Tutor message bubble */}
                 <div className="bg-[#0E2666] rounded-2xl rounded-tl-md p-3 border border-[#FFFFFF14]">
                   <p className="text-[15px] leading-relaxed">{msg.text}</p>
                   <p className="text-xs text-[#F4F4F4]/40 mt-1.5 italic">{msg.translation}</p>
-
-                  {/* Hint */}
                   {msg.hint && (
                     <div className="mt-2 pt-2 border-t border-[#FFFFFF14] flex items-start gap-1.5">
                       <Lightbulb className="w-3.5 h-3.5 text-yellow-400 shrink-0 mt-0.5" />
@@ -478,26 +589,21 @@ export default function Learn() {
                     </div>
                   )}
                 </div>
-
-                {/* Speaker button */}
                 <button
                   onClick={() => {
                     prepareAudioForSafari();
-                    speakText(msg.text, idx);
+                    setChatState("speaking");
+                    playTTS(msg.text, undefined, undefined, targetLang)
+                      .catch(() => {})
+                      .finally(() => setChatState("idle"));
                   }}
-                  className={`mt-1 p-1.5 rounded-lg transition-colors ${
-                    speaking === idx
-                      ? "text-[#295BDB] animate-pulse"
-                      : "text-[#F4F4F4]/30 hover:text-[#F4F4F4]/60"
-                  }`}
+                  className="mt-1 p-1.5 rounded-lg transition-colors text-[#F4F4F4]/30 hover:text-[#F4F4F4]/60"
                 >
                   <Volume2 className="w-4 h-4" />
                 </button>
               </div>
             );
           }
-
-          // User message
           return (
             <div key={idx} className="flex justify-end">
               <div className="max-w-[85%] bg-[#295BDB] rounded-2xl rounded-tr-md p-3">
@@ -507,12 +613,20 @@ export default function Learn() {
           );
         })}
 
-        {/* Loading indicator */}
-        {loading && (
+        {/* Status indicator in chat */}
+        {chatState !== "idle" && (
           <div className="max-w-[85%]">
-            <div className="bg-[#0E2666] rounded-2xl rounded-tl-md p-4 border border-[#FFFFFF14] flex items-center gap-3">
-              <Loader2 className="w-4 h-4 animate-spin text-[#295BDB]" />
-              <span className="text-sm text-[#F4F4F4]/40">{t("learnThinking")}</span>
+            <div className={`rounded-2xl rounded-tl-md p-4 border border-[#FFFFFF14] flex items-center gap-3 ${
+              chatState === "listening" ? "bg-green-500/10 border-green-500/20" : "bg-[#0E2666]"
+            }`}>
+              {chatState === "listening" ? (
+                <div className="w-4 h-4 rounded-full bg-green-500 animate-pulse" />
+              ) : (
+                <Loader2 className="w-4 h-4 animate-spin text-[#295BDB]" />
+              )}
+              <span className={`text-sm ${chatState === "listening" ? "text-green-400" : "text-[#F4F4F4]/40"}`}>
+                {statusLabel}
+              </span>
             </div>
           </div>
         )}
@@ -520,49 +634,62 @@ export default function Learn() {
         <div ref={chatEndRef} />
       </div>
 
-      {/* Input bar */}
-      <div className="shrink-0 p-3 border-t border-[#FFFFFF14] bg-[#0E2666]">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            sendMessage();
-          }}
-          className="flex items-center gap-2"
-        >
-          {/* Mic button */}
+      {/* Bottom bar — big mic button + text input */}
+      <div className="shrink-0 border-t border-[#FFFFFF14] bg-[#0E2666]">
+        {/* Status strip */}
+        {chatState !== "idle" && (
+          <div className={`px-4 py-1.5 text-center text-xs font-medium ${
+            chatState === "listening" ? "bg-green-500/20 text-green-400" :
+            chatState === "speaking" ? "bg-[#295BDB]/20 text-[#295BDB]" :
+            "bg-amber-500/20 text-amber-400"
+          } ${statusPulse ? "animate-pulse" : ""}`}>
+            {statusLabel}
+          </div>
+        )}
+
+        <div className="p-3 flex items-center gap-2">
+          {/* Big mic button */}
           <button
             type="button"
-            onTouchStart={(e) => { e.preventDefault(); prepareAudioForSafari(); startRecording(); }}
-            onTouchEnd={(e) => { e.preventDefault(); stopRecording(); }}
-            onMouseDown={() => { prepareAudioForSafari(); startRecording(); }}
-            onMouseUp={() => stopRecording()}
-            disabled={loading}
-            className={`p-3 rounded-xl transition-colors shrink-0 ${
-              recording
-                ? "bg-red-500 text-[#F4F4F4] animate-pulse"
+            onClick={toggleMic}
+            disabled={chatState === "thinking" || chatState === "transcribing" || chatState === "speaking"}
+            className={`p-4 rounded-2xl transition-all shrink-0 ${
+              chatState === "listening"
+                ? "bg-green-500 text-[#F4F4F4] shadow-lg shadow-green-500/30 scale-110"
                 : "bg-[#123182] text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#295BDB]"
             } disabled:opacity-30`}
           >
-            {recording ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+            {chatState === "listening" ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
           </button>
 
-          <input
-            ref={inputRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={t("learnTypePlaceholder")}
-            disabled={loading}
-            className="flex-1 bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-4 py-3 text-[#F4F4F4] placeholder-[#F4F4F4]/30 focus:ring-2 focus:ring-[#295BDB] outline-none text-sm"
-            autoComplete="off"
-          />
-          <button
-            type="submit"
-            disabled={!input.trim() || loading}
-            className="p-3 bg-[#295BDB] rounded-xl text-[#F4F4F4] disabled:opacity-30 hover:bg-[#295BDB]/80 transition-colors shrink-0"
+          {/* Text input (alternative to voice) */}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (input.trim()) {
+                prepareAudioForSafari();
+                sendUserMessage(input.trim());
+              }
+            }}
+            className="flex-1 flex items-center gap-2"
           >
-            <Send className="w-5 h-5" />
-          </button>
-        </form>
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder={t("learnTypePlaceholder")}
+              disabled={chatState !== "idle"}
+              className="flex-1 bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-4 py-3 text-[#F4F4F4] placeholder-[#F4F4F4]/30 focus:ring-2 focus:ring-[#295BDB] outline-none text-sm disabled:opacity-30"
+              autoComplete="off"
+            />
+            <button
+              type="submit"
+              disabled={!input.trim() || chatState !== "idle"}
+              className="p-3 bg-[#295BDB] rounded-xl text-[#F4F4F4] disabled:opacity-30 hover:bg-[#295BDB]/80 transition-colors shrink-0"
+            >
+              <Send className="w-5 h-5" />
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   );
