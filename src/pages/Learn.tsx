@@ -687,9 +687,9 @@ export default function Learn() {
   const { label: statusLabel, color: statusColor, pulse: statusPulse } = statusConfig[chatState];
 
   return (
-    <div className="min-h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans">
-      {/* Header */}
-      <header className="flex items-center gap-3 p-4 border-b border-[#FFFFFF14] bg-[#0E2666] shrink-0">
+    <div className="h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans overflow-hidden">
+      {/* Header — fixed at top */}
+      <header className="flex items-center gap-3 p-4 border-b border-[#FFFFFF14] bg-[#0E2666] shrink-0 z-10">
         <button onClick={resetLesson} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
           <ChevronLeft className="w-6 h-6" />
         </button>
@@ -724,14 +724,14 @@ export default function Learn() {
 
       {/* Error */}
       {error && (
-        <div className="mx-4 mt-3 p-3 bg-red-500/20 border border-red-500/30 rounded-xl flex items-center gap-3">
+        <div className="mx-4 mt-3 p-3 bg-red-500/20 border border-red-500/30 rounded-xl flex items-center gap-3 shrink-0">
           <p className="text-sm text-red-400 flex-1">{error}</p>
           <button onClick={() => setError(null)} className="text-red-400 text-xs">✕</button>
         </div>
       )}
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+      {/* Messages — only this area scrolls */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
         {messages.map((msg, idx) => {
           if (msg.role === "tutor") {
             return (
