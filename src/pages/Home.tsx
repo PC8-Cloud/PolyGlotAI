@@ -176,55 +176,57 @@ export default function Home() {
     }
   };
 
-  const btnClass = "flex flex-col items-center justify-center bg-[#123182] hover:bg-[#295BDB] active:bg-[#0E2666] rounded-2xl p-6 transition-all aspect-square shadow-lg hover:scale-[1.03] border border-[#FFFFFF14]";
+  const btnClass = "flex flex-col items-center justify-center bg-[#123182] hover:bg-[#295BDB] active:bg-[#0E2666] rounded-2xl p-4 transition-all aspect-square shadow-lg hover:scale-[1.03] border border-[#FFFFFF14]";
 
   return (
     <div className="min-h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col items-center justify-center p-6 font-sans relative">
-      {/* Settings gear icon — top right */}
-      <button
-        onClick={() => {
-          setTempSource(defaultSourceLanguage);
-          setTempTargets(defaultTargetLanguages);
-          setShowSettings(true);
-        }}
-        className="absolute top-5 right-5 p-2.5 rounded-full bg-[#123182] border border-[#FFFFFF14] text-[#F4F4F4] hover:bg-[#295BDB] transition-colors"
-      >
-        <Settings className="w-5 h-5" />
-      </button>
-
       <div className="w-full max-w-md">
-        <div className="grid grid-cols-2 gap-5">
+        <div className="grid grid-cols-2 gap-4">
           <button onClick={() => navigate("/camera")} className={btnClass}>
-            <Camera className="w-12 h-12 mb-3" />
+            <Camera className="w-10 h-10 mb-2" />
             <span className="text-sm font-medium text-center leading-tight">{t("camera")}</span>
           </button>
 
           <button onClick={() => navigate("/conversation")} className={btnClass}>
-            <MessagesSquare className="w-12 h-12 mb-3" />
+            <MessagesSquare className="w-10 h-10 mb-2" />
             <span className="text-sm font-medium text-center leading-tight">{t("conversation")}</span>
           </button>
 
           <button onClick={() => navigate("/converter")} className={btnClass}>
-            <Coins className="w-12 h-12 mb-3" />
+            <Coins className="w-10 h-10 mb-2" />
             <span className="text-sm font-medium text-center leading-tight">{t("convertUnits")}</span>
           </button>
 
           <button onClick={() => navigate("/phrases")} className={btnClass}>
-            <MessageSquarePlus className="w-12 h-12 mb-3" />
+            <MessageSquarePlus className="w-10 h-10 mb-2" />
             <span className="text-sm font-medium text-center leading-tight">{t("usefulPhrases")}</span>
           </button>
 
           <button onClick={() => navigate("/learn")} className={btnClass}>
-            <GraduationCap className="w-12 h-12 mb-3" />
+            <GraduationCap className="w-10 h-10 mb-2" />
             <span className="text-sm font-medium text-center leading-tight">{t("learn")}</span>
           </button>
 
+          <button onClick={() => navigate("/group")} className={btnClass}>
+            <Users className="w-10 h-10 mb-2" />
+            <span className="text-sm font-medium text-center leading-tight">{t("groupTranslation")}</span>
+          </button>
+
+          <button onClick={() => setShowOffline(true)} className={btnClass}>
+            <WifiOff className="w-10 h-10 mb-2" />
+            <span className="text-sm font-medium text-center leading-tight">{t("offlineFunctions")}</span>
+          </button>
+
           <button
-            onClick={() => navigate("/group")}
+            onClick={() => {
+              setTempSource(defaultSourceLanguage);
+              setTempTargets(defaultTargetLanguages);
+              setShowSettings(true);
+            }}
             className={btnClass}
           >
-            <Users className="w-12 h-12 mb-3" />
-            <span className="text-sm font-medium text-center leading-tight">{t("groupTranslation")}</span>
+            <Settings className="w-10 h-10 mb-2" />
+            <span className="text-sm font-medium text-center leading-tight">{t("settings")}</span>
           </button>
         </div>
       </div>
