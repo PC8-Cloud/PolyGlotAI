@@ -392,8 +392,23 @@ export default function Learn() {
       });
       if (!res.ok) throw { status: res.status, message: "Chat failed" };
 
-      const data: TutorResponse = await res.json();
+      const raw = await res.json();
       if (cancelledRef.current) return;
+
+      // Normalize: sometimes model returns slightly different shapes
+      const data: TutorResponse = {
+        text: raw.text || "",
+        translation: raw.translation || "",
+        correction: raw.correction || undefined,
+        hint: raw.hint || undefined,
+      };
+
+      // Skip empty responses
+      if (!data.text && !data.translation) {
+        if (autoModeRef.current) startListening();
+        else setChatState("idle");
+        return;
+      }
 
       const tutorMsg: ChatMessage = {
         role: "tutor",
@@ -452,7 +467,13 @@ export default function Learn() {
       });
       if (!res.ok) throw { status: res.status, message: "Chat failed" };
 
-      const data: TutorResponse = await res.json();
+      const raw = await res.json();
+      const data: TutorResponse = {
+        text: raw.text || "",
+        translation: raw.translation || "",
+        correction: raw.correction || undefined,
+        hint: raw.hint || undefined,
+      };
       const tutorMsg: ChatMessage = {
         role: "tutor",
         text: data.text,

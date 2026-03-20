@@ -19,7 +19,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
 
     const content = response.choices[0].message.content || "{}";
-    res.json(JSON.parse(content));
+    try {
+      res.json(JSON.parse(content));
+    } catch {
+      // Model didn't return valid JSON — wrap the raw text as a fallback response
+      res.json({ text: content, translation: "", correction: null, hint: null });
+    }
   } catch (err: any) {
     const status = err?.status || 500;
     res.status(status).json({ error: err?.message || "Chat failed", status });
