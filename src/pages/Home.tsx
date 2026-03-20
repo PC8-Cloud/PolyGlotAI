@@ -226,11 +226,6 @@ export default function Home() {
             <Users className="w-12 h-12 mb-3" />
             <span className="text-sm font-medium text-center leading-tight">{t("groupTranslation")}</span>
           </button>
-
-          <button onClick={() => setShowOffline(true)} className={btnClass}>
-            <WifiOff className="w-12 h-12 mb-3" />
-            <span className="text-sm font-medium text-center leading-tight">{t("offlineFunctions")}</span>
-          </button>
         </div>
       </div>
 
