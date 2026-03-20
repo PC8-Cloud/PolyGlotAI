@@ -242,80 +242,74 @@ export default function Home() {
               <h2 className="text-2xl font-bold">{t("offlineFunctions")}</h2>
             </div>
 
-            <div className="overflow-y-auto p-4 pt-2 space-y-3 flex-1">
-              {/* Offline Phrases */}
-              <div className="bg-[#0A1628] p-4">
-                <div className="flex items-center gap-4">
-                  <span className="text-2xl">💬</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-[#F4F4F4]">{t("offlinePhrases")}</p>
-                    <p className="text-xs text-[#F4F4F4]/40 mt-0.5">
-                      {cachedPhraseLangs.length > 0
-                        ? `${cachedPhraseLangs.length} ${t("languagesAvailable")}`
-                        : t("downloadPhrases")}
-                    </p>
+            <div className="overflow-y-auto p-4 pt-2 space-y-4 flex-1">
+              {/* Explanation */}
+              <p className="text-sm text-[#F4F4F4]/50 leading-relaxed">
+                {t("offlineExplanation")}
+              </p>
+
+              {/* Phrases card */}
+              <div className="bg-[#0E2666] rounded-2xl p-4 border border-[#FFFFFF14] space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-[#295BDB]/20 flex items-center justify-center shrink-0">
+                    <MessageSquarePlus className="w-5 h-5 text-[#295BDB]" />
                   </div>
-                  {downloadingPhrases ? (
-                    <div className="flex items-center gap-2 shrink-0">
-                      <Loader2 className="w-4 h-4 text-[#295BDB] animate-spin" />
-                      <span className="text-xs text-[#295BDB]">{downloadProgress}</span>
-                    </div>
-                  ) : cachedPhraseLangs.length > 0 ? (
-                    <Check className="w-5 h-5 text-green-400 shrink-0" />
-                  ) : null}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-[#F4F4F4]">{t("offlinePhrases")}</p>
+                    <p className="text-xs text-[#F4F4F4]/40 mt-0.5">{t("offlinePhrasesDesc")}</p>
+                  </div>
                 </div>
 
-                {/* Per-language download buttons */}
-                <div className="mt-3 pl-10 space-y-2">
-                  {cachedPhraseLangs.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mb-2">
-                      {cachedPhraseLangs.map((code) => {
-                        const lang = LANGUAGES.find((l) => l.code === code);
-                        const count = getPhraseCountForLang(code);
-                        return (
-                          <span key={code} className="bg-[#123182] px-2 py-0.5 rounded-full text-xs text-[#F4F4F4]/60">
-                            {lang?.flag} {count} {t("phrasesAvailable")}
-                          </span>
-                        );
-                      })}
-                    </div>
-                  )}
-                  <div className="flex flex-wrap gap-2">
-                    {LANGUAGES.map((lang) => {
-                      const hasCache = cachedPhraseLangs.includes(lang.code);
+                {/* Status: which languages are downloaded */}
+                {cachedPhraseLangs.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {cachedPhraseLangs.map((code) => {
+                      const lang = LANGUAGES.find((l) => l.code === code);
                       return (
-                        <button
-                          key={lang.code}
-                          onClick={() => handleDownloadPhrases(lang.code)}
-                          disabled={downloadingPhrases}
-                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border disabled:opacity-40 ${
-                            hasCache
-                              ? "bg-green-500/10 border-green-500/30 text-green-400"
-                              : "bg-[#123182] border-[#FFFFFF14] text-[#F4F4F4]/60 hover:border-[#295BDB] hover:text-[#295BDB]"
-                          }`}
-                        >
-                          {hasCache ? <Check className="w-3 h-3" /> : <Download className="w-3 h-3" />}
-                          {lang.flag} {lang.label}
-                        </button>
+                        <span key={code} className="bg-green-500/10 border border-green-500/20 text-green-400 px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1">
+                          <Check className="w-3 h-3" />
+                          {lang?.flag} {lang?.label}
+                        </span>
                       );
                     })}
                   </div>
-                </div>
+                )}
+
+                {/* Download button */}
+                {downloadingPhrases ? (
+                  <div className="flex items-center justify-center gap-2 py-3 bg-[#295BDB]/10 rounded-xl">
+                    <Loader2 className="w-4 h-4 text-[#295BDB] animate-spin" />
+                    <span className="text-sm text-[#295BDB] font-medium">{t("downloading")} {downloadProgress}</span>
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleDownloadAllPhrases}
+                    className="w-full flex items-center justify-center gap-2 py-3 bg-[#295BDB] hover:bg-[#295BDB]/80 rounded-xl text-sm font-bold transition-colors"
+                  >
+                    <Download className="w-4 h-4" />
+                    {cachedPhraseLangs.length > 0 ? t("offlineUpdate") : t("offlineDownloadAll")}
+                  </button>
+                )}
               </div>
 
-              {/* Offline Conversions */}
-              <div className="bg-[#0A1628] p-4">
-                <div className="flex items-center gap-4">
-                  <span className="text-2xl">🔄</span>
+              {/* Conversions card */}
+              <div className="bg-[#0E2666] rounded-2xl p-4 border border-[#FFFFFF14]">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-green-500/20 flex items-center justify-center shrink-0">
+                    <Check className="w-5 h-5 text-green-400" />
+                  </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-[#F4F4F4]">{t("offlineConversions")}</p>
+                    <p className="text-sm font-bold text-[#F4F4F4]">{t("offlineConversions")}</p>
                     <p className="text-xs text-green-400 mt-0.5">{t("worksOffline")}</p>
                   </div>
-                  <Check className="w-5 h-5 text-green-400 shrink-0" />
                 </div>
               </div>
 
-
+              {/* What requires internet */}
+              <div className="bg-[#0E2666]/50 rounded-2xl p-4 border border-[#FFFFFF14]">
+                <p className="text-xs font-bold text-[#F4F4F4]/60 mb-2">{t("offlineRequiresInternet")}</p>
+                <p className="text-xs text-[#F4F4F4]/40 leading-relaxed">{t("offlineRequiresInternetDesc")}</p>
+              </div>
             </div>
 
           </div>
