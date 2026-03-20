@@ -9,7 +9,7 @@ import {
   orderBy,
 } from "firebase/firestore";
 import { QRCodeSVG } from "qrcode.react";
-import { Mic, MicOff, Settings, Users, X, Send } from "lucide-react";
+import { Mic, MicOff, Settings, Users, X, Send, Share2 } from "lucide-react";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import { translateText } from "../lib/openai";
 import { sendMessage } from "../lib/firebase-helpers";
@@ -17,6 +17,7 @@ import { LanguageSwitcher } from "../components/LanguageSwitcher";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { getLabelForCode } from "../lib/languages";
+import { exportAndShare, PdfLine } from "../lib/export-pdf";
 
 export default function SessionHost() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -135,6 +136,17 @@ export default function SessionHost() {
     }
   };
 
+  const handleSharePDF = () => {
+    if (messages.length === 0) return;
+    const lines: PdfLine[] = messages.map((msg) => ({
+      text: msg.sourceText,
+      subtext: msg.type === "QUESTION" ? `(${t("question")})` : undefined,
+      label: msg.type === "QUESTION" ? "Q" : undefined,
+      labelColor: msg.type === "QUESTION" ? "amber" as const : undefined,
+    }));
+    exportAndShare({ title: session?.title || "Session", lines }, `session-${sessionId}.pdf`);
+  };
+
   if (!session)
     return (
       <div className="min-h-screen bg-[#02114A] text-[#F4F4F4] flex items-center justify-center">
@@ -167,6 +179,11 @@ export default function SessionHost() {
         </div>
         <div className="flex items-center gap-3">
           <LanguageSwitcher />
+          {messages.length > 0 && (
+            <button onClick={handleSharePDF} className="p-2 rounded-xl bg-[#123182] text-[#F4F4F4]/60 hover:text-[#F4F4F4] transition-colors">
+              <Share2 className="w-4 h-4" />
+            </button>
+          )}
           <button
             onClick={() => setShowQR(true)}
             className="flex items-center gap-2 bg-[#123182] hover:bg-[#123182] px-3 py-2 rounded-xl text-sm font-medium transition-colors"

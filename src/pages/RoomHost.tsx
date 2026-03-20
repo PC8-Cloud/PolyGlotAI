@@ -6,6 +6,7 @@ import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLocaleForCode } from "../lib/languages";
 import { translateText, getApiErrorMessage } from "../lib/openai";
+import { exportAndShare, PdfLine } from "../lib/export-pdf";
 import { createRoom, sendMessage } from "../lib/firebase-helpers";
 import { db } from "../firebase";
 import { collection, doc, getDoc, onSnapshot, orderBy, query, updateDoc, where, getDocs, limit } from "firebase/firestore";
@@ -488,6 +489,20 @@ export default function RoomHost() {
 
   const langOptions = LANGUAGES.map((l) => ({ code: l.code, label: `${l.flag} ${l.label}` }));
 
+  const handleSharePDF = () => {
+    if (messages.length === 0) return;
+    const lines: PdfLine[] = messages.map((msg) => {
+      const isQuestion = msg.type === "QUESTION";
+      return {
+        text: msg.sourceText,
+        subtext: isQuestion ? `(${t("questionFrom")} ${msg.senderName || "?"})` : undefined,
+        label: isQuestion ? "Q" : undefined,
+        labelColor: isQuestion ? "amber" as const : undefined,
+      };
+    });
+    exportAndShare({ title: `${t("multilingualRoom")} — ${roomCode}`, lines }, `room-${roomCode}.pdf`);
+  };
+
   // ─── Render: room not created yet ─────────────────────────────────────────
 
   if (!roomCode || !sessionId) {
@@ -584,6 +599,11 @@ export default function RoomHost() {
             <Users className="w-4 h-4" />
             <span className="text-sm font-bold">{participants.length}</span>
           </div>
+          {messages.length > 0 && (
+            <button onClick={handleSharePDF} className="p-2 rounded-xl bg-[#123182] text-[#F4F4F4]/60 hover:text-[#F4F4F4] transition-colors">
+              <Share2 className="w-4 h-4" />
+            </button>
+          )}
           <button onClick={closeRoom} className="p-2 rounded-xl bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors">
             <LogOut className="w-4 h-4" />
           </button>

@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Mic, MicOff, Send, Volume2, VolumeX, ArrowRightLeft, Check, CheckCheck } from "lucide-react";
+import { ChevronLeft, Mic, MicOff, Send, Volume2, VolumeX, ArrowRightLeft, Check, CheckCheck, Share2 } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLabelForCode } from "../lib/languages";
 import { translateText, playTTS, prepareAudioForSafari, getApiErrorMessage, transcribeAudioDetectLang } from "../lib/openai";
+import { exportAndShare, PdfLine } from "../lib/export-pdf";
 
 type MsgStatus = "sent" | "translated" | "playing" | "done";
 
@@ -337,6 +338,21 @@ export default function Conversation() {
   const isListening = chatState === "listening";
   const busy = chatState === "translating" || chatState === "speaking" || chatState === "transcribing";
 
+  const handleSharePDF = () => {
+    const yourLabel = LANGUAGES.find((l) => l.code === yourLang)?.label || yourLang;
+    const theirLabel = LANGUAGES.find((l) => l.code === theirLang)?.label || theirLang;
+    const lines: PdfLine[] = messages.map((msg) => ({
+      text: msg.translatedText,
+      subtext: msg.originalText,
+      label: msg.side === "you" ? t("you") : t("them"),
+      labelColor: msg.side === "you" ? "blue" as const : "grey" as const,
+    }));
+    exportAndShare(
+      { title: t("conversation"), subtitle: `${yourLabel} ↔ ${theirLabel}`, lines },
+      `PolyGlot-${t("conversation")}.pdf`,
+    );
+  };
+
   return (
     <div className="h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans overflow-hidden">
       <header className="flex items-center gap-3 p-4 border-b border-[#FFFFFF14] bg-[#0E2666] shrink-0">
@@ -344,6 +360,14 @@ export default function Conversation() {
           <ChevronLeft className="w-6 h-6" />
         </button>
         <h1 className="text-lg font-bold flex-1">{t("conversation")}</h1>
+        {messages.length > 0 && (
+          <button
+            onClick={handleSharePDF}
+            className="p-2 rounded-xl transition-colors bg-[#123182] text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#295BDB]"
+          >
+            <Share2 className="w-5 h-5" />
+          </button>
+        )}
         <button
           onClick={() => setAutoSpeak(!autoSpeak)}
           className={`p-2 rounded-xl transition-colors ${

@@ -9,13 +9,14 @@ import {
   orderBy,
 } from "firebase/firestore";
 import { useUserStore } from "../lib/store";
-import { Mic, MicOff, Send } from "lucide-react";
+import { Mic, MicOff, Send, Share2 } from "lucide-react";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import { translateText } from "../lib/openai";
 import { sendMessage } from "../lib/firebase-helpers";
 import { LanguageSwitcher } from "../components/LanguageSwitcher";
 import { useTranslation } from "../lib/i18n";
 import { getLabelForCode } from "../lib/languages";
+import { exportAndShare, PdfLine } from "../lib/export-pdf";
 
 export default function SessionAudience() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -120,6 +121,22 @@ export default function SessionAudience() {
     }
   };
 
+  const handleSharePDF = () => {
+    if (messages.length === 0) return;
+    const lines: PdfLine[] = messages.map((msg) => {
+      const isMyMessage = msg.senderId === userId;
+      const displayText = isMyMessage
+        ? msg.sourceText
+        : (msg.translations?.[language] || msg.sourceText);
+      return {
+        text: displayText,
+        label: isMyMessage ? t("you") : t("host"),
+        labelColor: isMyMessage ? "blue" as const : "grey" as const,
+      };
+    });
+    exportAndShare({ title: session?.title || "Session", lines }, `session-${sessionId}.pdf`);
+  };
+
   if (!session)
     return (
       <div className="min-h-screen bg-[#02114A] text-[#F4F4F4] flex items-center justify-center">
@@ -139,6 +156,11 @@ export default function SessionAudience() {
         </div>
         <div className="flex items-center gap-3">
           <LanguageSwitcher />
+          {messages.length > 0 && (
+            <button onClick={handleSharePDF} className="p-2 rounded-xl bg-[#123182] text-[#F4F4F4]/60 hover:text-[#F4F4F4] transition-colors">
+              <Share2 className="w-4 h-4" />
+            </button>
+          )}
           <div className="text-sm font-medium text-[#F4F4F4]/60">
             {getLabelForCode(language)}
           </div>

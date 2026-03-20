@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Mic, Volume2, VolumeX, Megaphone, Check } from "lucide-react";
+import { ChevronLeft, Mic, Volume2, VolumeX, Megaphone, Check, Share2 } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLocaleForCode } from "../lib/languages";
 import { translateText, playTTS, prepareAudioForSafari, getApiErrorMessage } from "../lib/openai";
+import { exportAndShare, PdfLine } from "../lib/export-pdf";
 
 interface Entry {
   id: number;
@@ -305,6 +306,25 @@ export default function MegaphonePage() {
         </button>
         <Megaphone className="w-5 h-5 text-[#295BDB]" />
         <h1 className="text-lg font-bold flex-1">{t("megaphone")}</h1>
+        {entries.length > 0 && (
+          <button
+            onClick={() => {
+              const speakerLabel = LANGUAGES.find((l) => l.code === speakerLang)?.label || speakerLang;
+              const targetLabel = LANGUAGES.find((l) => l.code === targetLang)?.label || targetLang;
+              const lines: PdfLine[] = entries.map((e) => ({
+                text: e.translatedText,
+                subtext: e.originalText,
+              }));
+              exportAndShare(
+                { title: t("megaphone"), subtitle: `${speakerLabel} → ${targetLabel}`, lines },
+                `PolyGlot-Megaphone.pdf`,
+              );
+            }}
+            className="p-2 rounded-xl transition-colors bg-[#123182] text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#295BDB]"
+          >
+            <Share2 className="w-5 h-5" />
+          </button>
+        )}
         <button
           onClick={() => setAutoSpeak(!autoSpeak)}
           className={`p-2 rounded-xl transition-colors ${

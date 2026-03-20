@@ -214,11 +214,19 @@ let _audioCtx: AudioContext | null = null;
 // Pre-warmed Audio element — created on user gesture, reused for playback
 let _warmAudio: HTMLAudioElement | null = null;
 
+// Tiny silent MP3 (1 frame) — just to unlock playback
+const SILENT_MP3 = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRwLHAAAAAAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRwLHAAAAAAAAAAAAAAAAAAAA";
+
 // Call this synchronously inside EVERY tap/click handler to unlock audio on iOS.
 // Creates AudioContext + warms an Audio element with a silent data URI.
 export function prepareAudioForSafari() {
-  // AudioContext
   const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+
+  // If AudioContext is closed (e.g. after stopAllAudio), discard and recreate
+  if (_audioCtx?.state === "closed") {
+    _audioCtx = null;
+  }
+
   if (AudioCtx && !_audioCtx) {
     _audioCtx = new AudioCtx();
   }
@@ -226,33 +234,41 @@ export function prepareAudioForSafari() {
     _audioCtx.resume().catch(() => {});
   }
 
-  // Warm an HTMLAudioElement on user gesture (iOS requires .play() in gesture)
+  // Re-warm HTMLAudioElement if needed (after stopAllAudio nulls it)
   if (!_warmAudio) {
     _warmAudio = new Audio();
-    // Tiny silent MP3 (1 frame) — just to unlock playback
-    _warmAudio.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRwLHAAAAAAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRwLHAAAAAAAAAAAAAAAAAAAA";
+    _warmAudio.src = SILENT_MP3;
     _warmAudio.load();
     _warmAudio.play().catch(() => {});
   }
 }
 
-// Suspend AudioContext to release audio session (call before recording)
+// Suspend AudioContext to release audio session (call before recording).
+// On mobile, the audio session can conflict with the microphone.
 export function suspendAudioForMic() {
   if (_audioCtx?.state === "running") {
     _audioCtx.suspend().catch(() => {});
   }
-}
-
-/** Stop all audio playback immediately (for background/visibility change) */
-export function stopAllAudio() {
-  // Stop AudioContext sources
-  if (_audioCtx?.state === "running") {
-    _audioCtx.suspend().catch(() => {});
-  }
-  // Stop HTMLAudioElement
+  // Also stop any playing warm audio
   if (_warmAudio) {
     _warmAudio.pause();
     _warmAudio.currentTime = 0;
+  }
+}
+
+/** Stop all audio playback immediately (for background/visibility change).
+ *  Closes AudioContext and nulls refs so they get re-created fresh on next user gesture. */
+export function stopAllAudio() {
+  // Close AudioContext entirely — suspend isn't enough on some mobile browsers
+  if (_audioCtx) {
+    _audioCtx.close().catch(() => {});
+    _audioCtx = null;
+  }
+  // Destroy warm audio element
+  if (_warmAudio) {
+    _warmAudio.pause();
+    _warmAudio.currentTime = 0;
+    _warmAudio = null;
   }
   // Stop any other audio elements on the page
   document.querySelectorAll("audio").forEach((a) => {
@@ -289,22 +305,24 @@ export async function playTTS(
 
     // Strategy 1: AudioContext (best for iOS — stays unlocked after initial gesture)
     if (_audioCtx) {
-      if (_audioCtx.state === "suspended") {
+      if (_audioCtx.state === "closed") {
+        _audioCtx = null;
+      } else if (_audioCtx.state === "suspended") {
         try { await _audioCtx.resume(); } catch {}
       }
-      if (_audioCtx.state === "running") {
-        try {
-          const audioData = await _audioCtx.decodeAudioData(buffer.slice(0));
-          const source = _audioCtx.createBufferSource();
-          source.buffer = audioData;
-          source.connect(_audioCtx.destination);
-          source.start();
-          return new Promise<void>((resolve) => {
-            source.onended = () => resolve();
-          });
-        } catch (decodeErr) {
-          console.warn("AudioContext decode failed, trying Audio element:", decodeErr);
-        }
+    }
+    if (_audioCtx?.state === "running") {
+      try {
+        const audioData = await _audioCtx.decodeAudioData(buffer.slice(0));
+        const source = _audioCtx.createBufferSource();
+        source.buffer = audioData;
+        source.connect(_audioCtx.destination);
+        source.start();
+        return new Promise<void>((resolve) => {
+          source.onended = () => resolve();
+        });
+      } catch (decodeErr) {
+        console.warn("AudioContext decode failed, trying Audio element:", decodeErr);
       }
     }
 

@@ -182,19 +182,9 @@ export default function Home() {
     <div className="min-h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col items-center justify-center p-6 font-sans relative">
       <div className="w-full max-w-md">
         <div className="grid grid-cols-2 gap-4">
-          <button onClick={() => navigate("/camera")} className={btnClass}>
-            <Camera className="w-10 h-10 mb-2" />
-            <span className="text-sm font-medium text-center leading-tight">{t("camera")}</span>
-          </button>
-
           <button onClick={() => navigate("/conversation")} className={btnClass}>
             <MessagesSquare className="w-10 h-10 mb-2" />
             <span className="text-sm font-medium text-center leading-tight">{t("conversation")}</span>
-          </button>
-
-          <button onClick={() => navigate("/converter")} className={btnClass}>
-            <Coins className="w-10 h-10 mb-2" />
-            <span className="text-sm font-medium text-center leading-tight">{t("convertUnits")}</span>
           </button>
 
           <button onClick={() => navigate("/phrases")} className={btnClass}>
@@ -210,6 +200,16 @@ export default function Home() {
           <button onClick={() => navigate("/group")} className={btnClass}>
             <Users className="w-10 h-10 mb-2" />
             <span className="text-sm font-medium text-center leading-tight">{t("groupTranslation")}</span>
+          </button>
+
+          <button onClick={() => navigate("/camera")} className={btnClass}>
+            <Camera className="w-10 h-10 mb-2" />
+            <span className="text-sm font-medium text-center leading-tight">{t("camera")}</span>
+          </button>
+
+          <button onClick={() => navigate("/converter")} className={btnClass}>
+            <Coins className="w-10 h-10 mb-2" />
+            <span className="text-sm font-medium text-center leading-tight">{t("convertUnits")}</span>
           </button>
 
           <button onClick={() => setShowOffline(true)} className={btnClass}>

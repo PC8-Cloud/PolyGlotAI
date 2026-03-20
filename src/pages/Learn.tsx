@@ -18,11 +18,13 @@ import {
   Mic,
   MicOff,
   Square,
+  Share2,
 } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES } from "../lib/languages";
 import { playTTS, prepareAudioForSafari, getApiErrorMessage, transcribeAudio } from "../lib/openai";
+import { exportAndShare, PdfLine } from "../lib/export-pdf";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -44,6 +46,14 @@ interface TutorResponse {
 type Level = "molto_base" | "base" | "intermedio" | "alto" | "madrelingua";
 type Topic = "free" | "greetings" | "restaurant" | "directions" | "shopping" | "work" | "travel" | "daily";
 type ChatState = "idle" | "speaking" | "listening" | "transcribing" | "thinking";
+type LearnMode = "conversation" | "vocabulary";
+type VocabState = "loading" | "ready" | "listening" | "evaluating" | "correct" | "wrong" | "complete";
+
+interface VocabWord {
+  word: string;
+  translation: string;
+  phonetic: string;
+}
 
 const LEVELS: { id: Level; labelKey: string; emoji: string }[] = [
   { id: "molto_base", labelKey: "learnLevelVeryBasic", emoji: "🌱" },
@@ -63,6 +73,56 @@ const TOPICS: { id: Topic; labelKey: string; icon: any }[] = [
   { id: "travel", labelKey: "learnTopicTravel", icon: BookOpen },
   { id: "daily", labelKey: "learnTopicDaily", icon: Lightbulb },
 ];
+
+const VOCAB_CATS: { id: string; labelKey: string; emoji: string }[] = [
+  { id: "numbers", labelKey: "vocabNumbers", emoji: "🔢" },
+  { id: "months", labelKey: "vocabMonths", emoji: "📅" },
+  { id: "days", labelKey: "vocabDays", emoji: "🗓️" },
+  { id: "colors", labelKey: "vocabColors", emoji: "🎨" },
+  { id: "food", labelKey: "vocabFood", emoji: "🍕" },
+  { id: "animals", labelKey: "vocabAnimals", emoji: "🐾" },
+  { id: "body", labelKey: "vocabBody", emoji: "🧍" },
+  { id: "family", labelKey: "vocabFamily", emoji: "👨‍👩‍👧" },
+  { id: "random", labelKey: "vocabRandom", emoji: "🎲" },
+];
+
+function buildVocabPrompt(nativeLang: string, targetLang: string, category: string): string {
+  const catDescs: Record<string, string> = {
+    numbers: "Numbers from 1 to 20, in order",
+    months: "All 12 months of the year, in order",
+    days: "All 7 days of the week, in order",
+    colors: "10 common colors",
+    food: "10 common food items and drinks",
+    animals: "10 common animals",
+    body: "10 body parts",
+    family: "10 family member terms (mother, father, brother, etc.)",
+    random: "10 random useful everyday words — pick a fun, surprising category each time (e.g. professions, emotions, weather, sports, kitchen tools, etc.)",
+  };
+
+  return `Generate vocabulary words in ${targetLang} for a ${nativeLang} speaker.
+Category: ${catDescs[category] || catDescs.random}
+
+Rules:
+- For sequential categories (numbers, months, days), include ALL items in their natural order
+- For other categories, pick exactly 10 practical, commonly-used words
+- For "phonetic": write how to pronounce the ${targetLang} word using ${nativeLang} sounds/letters so the learner can read it and approximate the pronunciation
+- Keep the phonetic simple and readable
+
+Respond ONLY with a valid JSON array, no other text:
+[{"word": "word in ${targetLang}", "translation": "translation in ${nativeLang}", "phonetic": "pronunciation in ${nativeLang} sounds"}]`;
+}
+
+function normalizedSimilarity(a: string, b: string): number {
+  if (a === b) return 1;
+  const maxLen = Math.max(a.length, b.length);
+  if (maxLen === 0) return 1;
+  let matches = 0;
+  const minLen = Math.min(a.length, b.length);
+  for (let i = 0; i < minLen; i++) {
+    if (a[i] === b[i]) matches++;
+  }
+  return matches / maxLen;
+}
 
 // Silence detection threshold (seconds of silence before auto-stop)
 const SILENCE_TIMEOUT = 2.0;
@@ -180,13 +240,15 @@ export default function Learn() {
   const t = useTranslation(uiLanguage);
 
   // Setup
-  const [phase, setPhase] = useState<"setup" | "chat">("setup");
+  const [phase, setPhase] = useState<"setup" | "chat" | "vocab">("setup");
+  const [mode, setMode] = useState<LearnMode>("conversation");
   const [nativeLang, setNativeLang] = useState(uiLanguage || "it");
   const [targetLang, setTargetLang] = useState(
     defaultSourceLanguage === uiLanguage ? "en" : defaultSourceLanguage || "en",
   );
   const [level, setLevel] = useState<Level>("base");
   const [topic, setTopic] = useState<Topic>("free");
+  const [vocabCat, setVocabCat] = useState("numbers");
 
   // Chat
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -195,6 +257,12 @@ export default function Learn() {
   const [chatState, setChatState] = useState<ChatState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [autoMode, setAutoMode] = useState(true); // hands-free auto-listen
+
+  // Vocabulary state
+  const [vocabWords, setVocabWords] = useState<VocabWord[]>([]);
+  const [vocabIndex, setVocabIndex] = useState(0);
+  const [vocabState, setVocabState] = useState<VocabState>("loading");
+  const [vocabFeedback, setVocabFeedback] = useState("");
 
   // Speed ref (can be changed by voice commands)
   const currentSpeedRef = useRef(LEVEL_SPEED[level]);
@@ -214,6 +282,7 @@ export default function Learn() {
   const cancelledRef = useRef(false);
   const silenceCyclesRef = useRef(0); // counts consecutive silence cycles for [NO_RESPONSE]
   const levelRef = useRef(level);
+  const vocabRecorderRef = useRef<MediaRecorder | null>(null);
 
   // Keep refs in sync
   useEffect(() => { autoModeRef.current = autoMode; }, [autoMode]);
@@ -612,6 +681,169 @@ export default function Learn() {
     setTargetLang(nativeLang);
   };
 
+  // ─── Vocabulary mode ──────────────────────────────────────────────────────
+
+  const startVocab = async () => {
+    prepareAudioForSafari();
+    setPhase("vocab");
+    setVocabState("loading");
+    setVocabIndex(0);
+    setVocabFeedback("");
+    setError(null);
+
+    try {
+      const prompt = buildVocabPrompt(nativeLangLabel, targetLangLabel, vocabCat);
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: [
+            { role: "system", content: prompt },
+            { role: "user", content: "Generate the vocabulary list now." },
+          ],
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to generate vocabulary");
+
+      const data = await res.json();
+      let words: VocabWord[];
+      if (Array.isArray(data)) {
+        words = data;
+      } else if (typeof data.text === "string") {
+        const match = data.text.match(/\[[\s\S]*\]/);
+        if (match) words = JSON.parse(match[0]);
+        else throw new Error("Could not parse vocabulary");
+      } else {
+        throw new Error("Invalid response");
+      }
+
+      if (!Array.isArray(words) || words.length === 0) throw new Error("Empty vocabulary");
+      setVocabWords(words);
+      setVocabState("ready");
+    } catch (e: any) {
+      setError(e.message || "Failed to generate vocabulary");
+      setPhase("setup");
+    }
+  };
+
+  const playVocabWord = async () => {
+    const word = vocabWords[vocabIndex];
+    if (!word) return;
+    prepareAudioForSafari();
+    try {
+      await playTTS(word.word, undefined, 0.85, targetLang);
+    } catch {}
+  };
+
+  const startVocabListening = async () => {
+    setVocabState("listening");
+    prepareAudioForSafari();
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 2048;
+      source.connect(analyser);
+
+      const recorder = new MediaRecorder(stream);
+      const chunks: Blob[] = [];
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+
+      recorder.onstop = async () => {
+        audioCtx.close().catch(() => {});
+        stream.getTracks().forEach((tr) => tr.stop());
+
+        const blob = new Blob(chunks, { type: "audio/webm" });
+        if (blob.size < 800) {
+          setVocabState("ready");
+          return;
+        }
+
+        setVocabState("evaluating");
+        try {
+          const text = await transcribeAudio(blob, targetLang);
+          const spoken = text.toLowerCase().trim().replace(/[.!?,;:…"""'']+/g, "").trim();
+          const expected = vocabWords[vocabIndex].word.toLowerCase().trim();
+
+          const isCorrect =
+            spoken === expected ||
+            spoken.includes(expected) ||
+            expected.includes(spoken) ||
+            (spoken.length > 0 && normalizedSimilarity(spoken, expected) > 0.6);
+
+          if (isCorrect) {
+            setVocabState("correct");
+            setVocabFeedback(t("vocabCorrect"));
+          } else {
+            setVocabState("wrong");
+            setVocabFeedback(spoken ? `"${text.trim()}" — ${t("vocabTryAgain")}` : t("vocabTryAgain"));
+            try {
+              await playTTS(vocabWords[vocabIndex].word, undefined, 0.85, targetLang);
+            } catch {}
+          }
+        } catch {
+          setVocabState("ready");
+        }
+      };
+
+      recorder.start();
+      vocabRecorderRef.current = recorder;
+
+      // Silence detection for single word
+      const dataArray = new Uint8Array(analyser.fftSize);
+      let silenceStart: number | null = null;
+      let hasSpoken = false;
+
+      const checkSilence = () => {
+        if (recorder.state !== "recording") return;
+        analyser.getByteTimeDomainData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) {
+          const v = (dataArray[i] - 128) / 128;
+          sum += v * v;
+        }
+        const rms = Math.sqrt(sum / dataArray.length);
+
+        if (rms >= SILENCE_THRESHOLD) {
+          hasSpoken = true;
+          silenceStart = null;
+        } else if (hasSpoken) {
+          if (!silenceStart) silenceStart = Date.now();
+          else if (Date.now() - silenceStart > 1500) {
+            recorder.stop();
+            return;
+          }
+        }
+        requestAnimationFrame(checkSilence);
+      };
+      checkSilence();
+
+      // Max 5 seconds
+      setTimeout(() => {
+        if (recorder.state === "recording") recorder.stop();
+      }, 5000);
+    } catch {
+      setVocabState("ready");
+    }
+  };
+
+  const stopVocabListening = () => {
+    if (vocabRecorderRef.current?.state === "recording") {
+      vocabRecorderRef.current.stop();
+    }
+  };
+
+  const nextVocabWord = () => {
+    if (vocabIndex < vocabWords.length - 1) {
+      setVocabIndex((prev) => prev + 1);
+      setVocabState("ready");
+      setVocabFeedback("");
+    } else {
+      setVocabState("complete");
+    }
+  };
+
   // ─── Status label & color ─────────────────────────────────────────────────
 
   const statusConfig: Record<ChatState, { label: string; color: string; pulse: boolean }> = {
@@ -635,6 +867,30 @@ export default function Learn() {
         </header>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-5 max-w-sm mx-auto w-full">
+          {/* Mode toggle */}
+          <div className="flex gap-2">
+            <button
+              onClick={() => setMode("conversation")}
+              className={`flex-1 py-3 rounded-xl font-medium text-sm transition-colors border ${
+                mode === "conversation"
+                  ? "bg-[#295BDB]/20 border-[#295BDB] text-[#295BDB]"
+                  : "bg-[#0E2666] border-[#FFFFFF14] text-[#F4F4F4]/60"
+              }`}
+            >
+              {t("learnModeConversation")}
+            </button>
+            <button
+              onClick={() => setMode("vocabulary")}
+              className={`flex-1 py-3 rounded-xl font-medium text-sm transition-colors border ${
+                mode === "vocabulary"
+                  ? "bg-[#295BDB]/20 border-[#295BDB] text-[#295BDB]"
+                  : "bg-[#0E2666] border-[#FFFFFF14] text-[#F4F4F4]/60"
+              }`}
+            >
+              {t("learnModeVocabulary")}
+            </button>
+          </div>
+
           {/* Language row */}
           <div className="flex items-center gap-2">
             <select
@@ -660,59 +916,222 @@ export default function Learn() {
             </select>
           </div>
 
-          {/* Level dropdown */}
-          <div>
-            <label className="block text-sm font-medium text-[#F4F4F4]/60 mb-2">{t("learnLevel")}</label>
-            <select
-              value={level}
-              onChange={(e) => setLevel(e.target.value as Level)}
-              className="w-full bg-[#0E2666] border border-[#FFFFFF14] rounded-xl px-4 py-3 text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-sm"
-            >
-              {LEVELS.map((lv) => (
-                <option key={lv.id} value={lv.id}>{lv.emoji} {t(lv.labelKey as any)}</option>
-              ))}
-            </select>
-          </div>
+          {mode === "conversation" ? (
+            <>
+              {/* Level dropdown */}
+              <div>
+                <label className="block text-sm font-medium text-[#F4F4F4]/60 mb-2">{t("learnLevel")}</label>
+                <select
+                  value={level}
+                  onChange={(e) => setLevel(e.target.value as Level)}
+                  className="w-full bg-[#0E2666] border border-[#FFFFFF14] rounded-xl px-4 py-3 text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-sm"
+                >
+                  {LEVELS.map((lv) => (
+                    <option key={lv.id} value={lv.id}>{lv.emoji} {t(lv.labelKey as any)}</option>
+                  ))}
+                </select>
+              </div>
 
-          {/* Topics */}
-          <div>
-            <label className="block text-sm font-medium text-[#F4F4F4]/60 mb-2">{t("learnTopic")}</label>
-            <div className="grid grid-cols-2 gap-2">
-              {TOPICS.map((tp) => {
-                const Icon = tp.icon;
-                return (
-                  <button
-                    key={tp.id}
-                    onClick={() => setTopic(tp.id)}
-                    className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium transition-colors border ${
-                      topic === tp.id
-                        ? "bg-[#295BDB]/20 border-[#295BDB] text-[#295BDB]"
-                        : "bg-[#0E2666] border-[#FFFFFF14] text-[#F4F4F4]/60 hover:border-[#FFFFFF30]"
-                    }`}
-                  >
-                    <Icon className="w-4 h-4 shrink-0" />
-                    <span>{t(tp.labelKey as any)}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+              {/* Topics */}
+              <div>
+                <label className="block text-sm font-medium text-[#F4F4F4]/60 mb-2">{t("learnTopic")}</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {TOPICS.map((tp) => {
+                    const Icon = tp.icon;
+                    return (
+                      <button
+                        key={tp.id}
+                        onClick={() => setTopic(tp.id)}
+                        className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium transition-colors border ${
+                          topic === tp.id
+                            ? "bg-[#295BDB]/20 border-[#295BDB] text-[#295BDB]"
+                            : "bg-[#0E2666] border-[#FFFFFF14] text-[#F4F4F4]/60 hover:border-[#FFFFFF30]"
+                        }`}
+                      >
+                        <Icon className="w-4 h-4 shrink-0" />
+                        <span>{t(tp.labelKey as any)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
 
-          {/* Start */}
-          <button
-            onClick={startLesson}
-            className="w-full bg-[#295BDB] hover:bg-[#295BDB]/80 text-[#F4F4F4] font-bold py-4 rounded-2xl transition-colors text-lg shadow-lg"
-          >
-            {t("learnStart")}
-          </button>
+              {/* Start conversation */}
+              <button
+                onClick={startLesson}
+                className="w-full bg-[#295BDB] hover:bg-[#295BDB]/80 text-[#F4F4F4] font-bold py-4 rounded-2xl transition-colors text-lg shadow-lg"
+              >
+                {t("learnStart")}
+              </button>
+            </>
+          ) : (
+            <>
+              {/* Vocabulary categories */}
+              <div>
+                <label className="block text-sm font-medium text-[#F4F4F4]/60 mb-2">{t("vocabCategory")}</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {VOCAB_CATS.map((cat) => (
+                    <button
+                      key={cat.id}
+                      onClick={() => setVocabCat(cat.id)}
+                      className={`flex flex-col items-center gap-1 px-2 py-3 rounded-xl text-xs font-medium transition-colors border ${
+                        vocabCat === cat.id
+                          ? "bg-[#295BDB]/20 border-[#295BDB] text-[#295BDB]"
+                          : "bg-[#0E2666] border-[#FFFFFF14] text-[#F4F4F4]/60 hover:border-[#FFFFFF30]"
+                      }`}
+                    >
+                      <span className="text-lg">{cat.emoji}</span>
+                      <span>{t(cat.labelKey as any)}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Start vocabulary */}
+              <button
+                onClick={startVocab}
+                className="w-full bg-[#295BDB] hover:bg-[#295BDB]/80 text-[#F4F4F4] font-bold py-4 rounded-2xl transition-colors text-lg shadow-lg"
+              >
+                {t("learnStart")}
+              </button>
+            </>
+          )}
         </div>
       </div>
     );
   }
 
-  // ─── Render: Chat Phase ───────────────────────────────────────────────────
+  // ─── Render: Vocabulary Phase ────────────────────────────────────────────
 
   const targetFlag = LANGUAGES.find((l) => l.code === targetLang)?.flag || "";
+
+  if (phase === "vocab") {
+    const currentWord = vocabWords[vocabIndex];
+    const progress = vocabWords.length > 0 ? `${vocabIndex + 1} / ${vocabWords.length}` : "";
+
+    return (
+      <div className="h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans overflow-hidden">
+        <header className="flex items-center gap-3 p-4 border-b border-[#FFFFFF14] bg-[#0E2666] shrink-0">
+          <button onClick={() => setPhase("setup")} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
+            <ChevronLeft className="w-6 h-6" />
+          </button>
+          <div className="flex-1">
+            <h1 className="text-sm font-bold">{targetFlag} {t("learnModeVocabulary")}</h1>
+            <p className="text-xs text-[#F4F4F4]/40">{t(VOCAB_CATS.find((c) => c.id === vocabCat)?.labelKey as any)} · {progress}</p>
+          </div>
+        </header>
+
+        {error && (
+          <div className="mx-4 mt-3 p-3 bg-red-500/20 border border-red-500/30 rounded-xl flex items-center gap-3 shrink-0">
+            <p className="text-sm text-red-400 flex-1">{error}</p>
+            <button onClick={() => setError(null)} className="text-red-400 text-xs">✕</button>
+          </div>
+        )}
+
+        {vocabState === "loading" ? (
+          <div className="flex-1 flex items-center justify-center">
+            <Loader2 className="w-8 h-8 animate-spin text-[#295BDB]" />
+          </div>
+        ) : vocabState === "complete" ? (
+          <div className="flex-1 flex flex-col items-center justify-center p-6 gap-6">
+            <div className="text-6xl">🎉</div>
+            <p className="text-xl font-bold text-center">{t("vocabComplete")}</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setPhase("setup")}
+                className="px-6 py-3 bg-[#123182] rounded-xl text-[#F4F4F4]/80 hover:bg-[#123182]/80 transition-colors font-medium"
+              >
+                {t("vocabTryAnother")}
+              </button>
+              <button
+                onClick={() => { setVocabIndex(0); setVocabState("ready"); setVocabFeedback(""); }}
+                className="px-6 py-3 bg-[#295BDB] rounded-xl text-[#F4F4F4] hover:bg-[#295BDB]/80 transition-colors font-medium flex items-center gap-2"
+              >
+                <RotateCcw className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="flex-1 flex flex-col items-center justify-center p-6 gap-5">
+              {/* Progress bar */}
+              <div className="w-full max-w-xs bg-[#123182] rounded-full h-1.5">
+                <div
+                  className="bg-[#295BDB] h-1.5 rounded-full transition-all"
+                  style={{ width: `${((vocabIndex + 1) / vocabWords.length) * 100}%` }}
+                />
+              </div>
+
+              {/* Word card */}
+              <div className="bg-[#0E2666] border border-[#FFFFFF14] rounded-3xl p-8 w-full max-w-xs text-center space-y-3">
+                <p className="text-4xl font-bold leading-tight">{currentWord?.word}</p>
+                <p className="text-lg text-[#F4F4F4]/60">{currentWord?.translation}</p>
+                {currentWord?.phonetic && (
+                  <p className="text-sm text-[#295BDB] italic">{currentWord.phonetic}</p>
+                )}
+              </div>
+
+              {/* Listen button */}
+              <button
+                onClick={playVocabWord}
+                className="flex items-center gap-2 px-6 py-3 bg-[#123182] rounded-xl text-[#F4F4F4]/80 hover:bg-[#123182]/80 transition-colors"
+              >
+                <Volume2 className="w-5 h-5" />
+                {t("vocabListen")}
+              </button>
+
+              {/* Feedback area */}
+              {vocabState === "correct" && (
+                <div className="bg-green-500/20 border border-green-500/30 rounded-xl px-5 py-3 text-green-400 font-medium text-center w-full max-w-xs">
+                  {vocabFeedback}
+                </div>
+              )}
+              {vocabState === "wrong" && (
+                <div className="bg-red-500/20 border border-red-500/30 rounded-xl px-5 py-3 text-red-400 font-medium text-center text-sm w-full max-w-xs">
+                  {vocabFeedback}
+                </div>
+              )}
+              {vocabState === "evaluating" && (
+                <div className="flex items-center gap-2 text-[#F4F4F4]/40">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span className="text-sm">{t("learnTranscribing")}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Bottom bar */}
+            <div className="shrink-0 border-t border-[#FFFFFF14] bg-[#0E2666] p-4 flex items-center gap-3">
+              <button
+                onClick={vocabState === "listening" ? stopVocabListening : startVocabListening}
+                disabled={vocabState === "evaluating"}
+                className={`p-4 rounded-2xl transition-all shrink-0 ${
+                  vocabState === "listening"
+                    ? "bg-red-500 text-[#F4F4F4] shadow-lg shadow-red-500/30 animate-pulse"
+                    : "bg-[#123182] text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#295BDB]"
+                } disabled:opacity-30`}
+              >
+                {vocabState === "listening" ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
+              </button>
+
+              <span className="flex-1 text-sm text-[#F4F4F4]/40 text-center">
+                {vocabState === "listening" ? t("learnListening") : t("vocabTapToSpeak")}
+              </span>
+
+              <button
+                onClick={nextVocabWord}
+                disabled={vocabState === "listening" || vocabState === "evaluating"}
+                className="px-6 py-3 bg-[#295BDB] rounded-xl text-[#F4F4F4] font-bold hover:bg-[#295BDB]/80 transition-colors disabled:opacity-30"
+              >
+                {vocabIndex < vocabWords.length - 1 ? t("vocabNext") : t("vocabFinish")}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  // ─── Render: Chat Phase ───────────────────────────────────────────────────
   const { label: statusLabel, color: statusColor, pulse: statusPulse } = statusConfig[chatState];
 
   return (
@@ -744,6 +1163,25 @@ export default function Learn() {
           >
             <Mic className="w-3.5 h-3.5" />
             {t("learnResume")}
+          </button>
+        )}
+        {messages.length > 0 && (
+          <button
+            onClick={() => {
+              const lines: PdfLine[] = messages.map((msg) => ({
+                text: msg.role === "tutor" ? msg.text : msg.text,
+                subtext: msg.role === "tutor" ? msg.translation : undefined,
+                label: msg.role === "tutor" ? "Tutor" : t("you"),
+                labelColor: msg.role === "tutor" ? "blue" as const : "grey" as const,
+              }));
+              exportAndShare(
+                { title: t("learn"), subtitle: `${nativeLangLabel} → ${targetLangLabel}`, lines },
+                `PolyGlot-${t("learn")}.pdf`,
+              );
+            }}
+            className="p-2 rounded-lg text-[#F4F4F4]/40 hover:text-[#F4F4F4] hover:bg-[#123182]"
+          >
+            <Share2 className="w-5 h-5" />
           </button>
         )}
         <button onClick={resetLesson} className="p-2 rounded-lg text-[#F4F4F4]/40 hover:text-[#F4F4F4] hover:bg-[#123182]">
