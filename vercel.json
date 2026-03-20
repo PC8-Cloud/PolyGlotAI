@@ -18,6 +18,9 @@
     },
     "api/analyze-image.ts": {
       "maxDuration": 30
+    },
+    "api/chat.ts": {
+      "maxDuration": 30
     }
   }
 }

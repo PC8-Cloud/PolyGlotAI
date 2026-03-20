@@ -21,6 +21,7 @@ import MegaphonePage from "./pages/Megaphone";
 import RoomHost from "./pages/RoomHost";
 import RoomJoin from "./pages/RoomJoin";
 import Paywall from "./pages/Paywall";
+import Learn from "./pages/Learn";
 import NetworkCheck from "./components/NetworkCheck";
 
 function AutoTranslate() {
@@ -113,6 +114,7 @@ export default function App() {
           <Route path="/megaphone" element={<MegaphonePage />} />
           <Route path="/room" element={<RoomHost />} />
           <Route path="/join" element={<RoomJoin />} />
+          <Route path="/learn" element={<Learn />} />
           <Route path="/plans" element={<Paywall />} />
           <Route path="/session/:sessionId/host" element={<SessionHost />} />
           <Route path="/join/:sessionId" element={<SessionJoin />} />

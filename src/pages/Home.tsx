@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { createSession } from "../lib/firebase-helpers";
-import { Settings, Camera, MessagesSquare, Coins, MessageSquarePlus, Users, Globe, ChevronLeft, WifiOff, Download, Check, Loader2, Volume2 } from "lucide-react";
+import { Settings, Camera, MessagesSquare, Coins, MessageSquarePlus, Users, Globe, ChevronLeft, WifiOff, Download, Check, Loader2, Volume2, GraduationCap } from "lucide-react";
 import { signInWithPopup, GoogleAuthProvider } from "firebase/auth";
 import { auth } from "../firebase";
 import { useTranslation } from "../lib/i18n";
@@ -214,9 +214,9 @@ export default function Home() {
             <span className="text-sm font-medium text-center leading-tight">{t("usefulPhrases")}</span>
           </button>
 
-          <button onClick={() => setShowOffline(true)} className={btnClass}>
-            <WifiOff className="w-12 h-12 mb-3" />
-            <span className="text-sm font-medium text-center leading-tight">{t("offlineFunctions")}</span>
+          <button onClick={() => navigate("/learn")} className={btnClass}>
+            <GraduationCap className="w-12 h-12 mb-3" />
+            <span className="text-sm font-medium text-center leading-tight">{t("learn")}</span>
           </button>
 
           <button
@@ -225,6 +225,11 @@ export default function Home() {
           >
             <Users className="w-12 h-12 mb-3" />
             <span className="text-sm font-medium text-center leading-tight">{t("groupTranslation")}</span>
+          </button>
+
+          <button onClick={() => setShowOffline(true)} className={btnClass}>
+            <WifiOff className="w-12 h-12 mb-3" />
+            <span className="text-sm font-medium text-center leading-tight">{t("offlineFunctions")}</span>
           </button>
         </div>
       </div>
