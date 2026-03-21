@@ -4,6 +4,7 @@ import { ChevronLeft, Camera, RotateCcw, Volume2 } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES } from "../lib/languages";
+import { LanguageOptions } from "../components/LanguageOptions";
 import { analyzeImage, playTTS, prepareAudioForSafari } from "../lib/openai";
 
 export default function CameraTranslate() {
@@ -103,11 +104,7 @@ export default function CameraTranslate() {
           }}
           className="flex-1 bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-4 py-2.5 text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-sm"
         >
-          {LANGUAGES.map((lang) => (
-            <option key={lang.code} value={lang.code}>
-              {lang.flag} {lang.label}
-            </option>
-          ))}
+          <LanguageOptions />
         </select>
       </div>
 

@@ -142,3 +142,13 @@ export function getLocaleForCode(code: string): string {
 export function getLabelForCode(code: string): string {
   return getLanguageByCode(code)?.label || code.toUpperCase();
 }
+
+/** Returns languages split into favorites and rest */
+export function getSortedLanguages(favoriteCodes: string[]): { favorites: Language[]; rest: Language[] } {
+  const favSet = new Set(favoriteCodes);
+  const favorites = favoriteCodes
+    .map((code) => LANGUAGES.find((l) => l.code === code))
+    .filter((l): l is Language => !!l);
+  const rest = LANGUAGES.filter((l) => !favSet.has(l.code));
+  return { favorites, rest };
+}

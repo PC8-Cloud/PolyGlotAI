@@ -4,6 +4,7 @@ import { ChevronLeft, Radio, Volume2, VolumeX, Send, MessageCircleQuestion, Shar
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES } from "../lib/languages";
+import { LanguageOptions } from "../components/LanguageOptions";
 import { findRoomByCode, joinRoom, sendMessage } from "../lib/firebase-helpers";
 import { playTTS, translateText, prepareAudioForSafari } from "../lib/openai";
 import { db } from "../firebase";
@@ -186,7 +187,6 @@ export default function RoomJoin() {
     }
   };
 
-  const langOptions = LANGUAGES.map((l) => ({ code: l.code, label: `${l.flag} ${l.label}` }));
   const myLangObj = LANGUAGES.find((l) => l.code === myLang);
 
   // ─── PDF/Share Export ────────────────────────────────────────────────────
@@ -256,9 +256,7 @@ export default function RoomJoin() {
               onChange={(e) => setMyLang(e.target.value)}
               className="w-full bg-[#0E2666] border border-[#FFFFFF14] rounded-xl px-4 py-3 text-[#F4F4F4] appearance-none outline-none focus:ring-2 focus:ring-[#295BDB]"
             >
-              {langOptions.map((l) => (
-                <option key={l.code} value={l.code}>{l.label}</option>
-              ))}
+              <LanguageOptions />
             </select>
           </div>
 

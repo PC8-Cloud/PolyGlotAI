@@ -11,6 +11,7 @@ interface UserState {
   uiLanguage: string;
   defaultSourceLanguage: string;
   defaultTargetLanguages: string[];
+  favoriteLanguages: string[];
   openaiApiKey: string;
   textModel: string;
   transcribeModel: string;
@@ -26,6 +27,7 @@ interface UserState {
   setUiLanguage: (lang: string) => void;
   setDefaultSourceLanguage: (lang: string) => void;
   setDefaultTargetLanguages: (langs: string[]) => void;
+  setFavoriteLanguages: (langs: string[]) => void;
   setOpenaiApiKey: (key: string) => void;
   setTextModel: (model: string) => void;
   setTranscribeModel: (model: string) => void;
@@ -45,6 +47,7 @@ export const useUserStore = create<UserState>()(
       uiLanguage: "en", // default UI language
       defaultSourceLanguage: "en",
       defaultTargetLanguages: ["es", "fr", "it", "de"],
+      favoriteLanguages: ["en", "it", "es", "fr", "de", "pt", "zh", "ar", "ja", "ru"],
       openaiApiKey: "",
       textModel: "gpt-4.1-mini",
       transcribeModel: "gpt-4o-transcribe",
@@ -60,6 +63,7 @@ export const useUserStore = create<UserState>()(
       setUiLanguage: (lang) => set({ uiLanguage: lang }),
       setDefaultSourceLanguage: (lang) => set({ defaultSourceLanguage: lang }),
       setDefaultTargetLanguages: (langs) => set({ defaultTargetLanguages: langs }),
+      setFavoriteLanguages: (langs) => set({ favoriteLanguages: langs }),
       setOpenaiApiKey: (key) => set({ openaiApiKey: key }),
       setTextModel: (model) => set({ textModel: model }),
       setTranscribeModel: (model) => set({ transcribeModel: model }),

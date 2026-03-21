@@ -7,6 +7,7 @@ import { auth } from "../firebase";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES } from "../lib/languages";
+import { LanguageOptions } from "../components/LanguageOptions";
 import { translateText } from "../lib/openai";
 import {
   getCachedUILanguages,
@@ -30,18 +31,16 @@ export default function Home() {
     setUiLanguage,
     defaultSourceLanguage,
     defaultTargetLanguages,
-    setDefaultSourceLanguage,
-    setDefaultTargetLanguages,
     ttsVoice,
     setTtsVoice,
     ttsSpeed,
     setTtsSpeed,
+    favoriteLanguages,
+    setFavoriteLanguages,
   } = useUserStore();
 
   const t = useTranslation(uiLanguage);
 
-  // Local state for settings modal
-  const [tempSource, setTempSource] = useState(defaultSourceLanguage);
   const [previewingVoice, setPreviewingVoice] = useState<string | null>(null);
 
   const TTS_VOICES = [
@@ -79,8 +78,6 @@ export default function Home() {
       }
     }
   };
-  const [tempTargets, setTempTargets] = useState<string[]>(defaultTargetLanguages);
-
   const handleStartSession = async () => {
     if (!auth.currentUser) {
       try {
@@ -109,19 +106,6 @@ export default function Home() {
     }
   };
 
-  const saveSettings = () => {
-    setDefaultSourceLanguage(tempSource);
-    setDefaultTargetLanguages(tempTargets);
-    setShowSettings(false);
-  };
-
-  const toggleTargetLanguage = (code: string) => {
-    if (tempTargets.includes(code)) {
-      setTempTargets(tempTargets.filter(l => l !== code));
-    } else {
-      setTempTargets([...tempTargets, code]);
-    }
-  };
 
   // Offline status state
   const [cachedUILangs, setCachedUILangs] = useState<string[]>([]);
@@ -218,11 +202,7 @@ export default function Home() {
           </button>
 
           <button
-            onClick={() => {
-              setTempSource(defaultSourceLanguage);
-              setTempTargets(defaultTargetLanguages);
-              setShowSettings(true);
-            }}
+            onClick={() => setShowSettings(true)}
             className={btnClass}
           >
             <Settings className="w-10 h-10 mb-2" />
@@ -340,47 +320,40 @@ export default function Home() {
                   onChange={(e) => setUiLanguage(e.target.value)}
                   className="w-full bg-[#02114A] border border-[#FFFFFF14] rounded-xl p-4 text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none"
                 >
-                  {LANGUAGES.map((lang) => (
-                    <option key={lang.code} value={lang.code}>{lang.flag} {lang.label}</option>
-                  ))}
+                  <LanguageOptions />
                 </select>
               </div>
 
               <div className="border-t border-[#FFFFFF14]" />
 
-              {/* Source Language */}
+              {/* Favorite Languages */}
               <div>
-                <label className="block text-sm font-medium text-[#F4F4F4]/80 mb-2">{t("sourceLanguage")}</label>
-                <select
-                  value={tempSource}
-                  onChange={(e) => setTempSource(e.target.value)}
-                  className="w-full bg-[#02114A] border border-[#FFFFFF14] rounded-xl p-4 text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none"
-                >
-                  {LANGUAGES.map((lang) => (
-                    <option key={lang.code} value={lang.code}>{lang.flag} {lang.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Target Languages */}
-              <div>
-                <label className="block text-sm font-medium text-[#F4F4F4]/80 mb-2">{t("targetLanguages")}</label>
-                <p className="text-xs text-[#F4F4F4]/40 mb-3">{t("selectLanguages")}</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {LANGUAGES.filter(l => l.code !== tempSource).map((lang) => (
-                    <button
-                      key={lang.code}
-                      onClick={() => toggleTargetLanguage(lang.code)}
-                      className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors border ${
-                        tempTargets.includes(lang.code)
-                          ? "bg-[#295BDB]/20 border-[#295BDB] text-[#295BDB]"
-                          : "bg-[#02114A] border-[#FFFFFF14] text-[#F4F4F4]/60 hover:border-[#FFFFFF30]"
-                      }`}
-                    >
-                      <span className="text-base">{lang.flag}</span>
-                      <span>{lang.label}</span>
-                    </button>
-                  ))}
+                <label className="block text-sm font-medium text-[#F4F4F4]/80 mb-1">{t("favoriteLanguages")}</label>
+                <p className="text-xs text-[#F4F4F4]/40 mb-3">{t("favoriteLanguagesDesc")}</p>
+                <div className="grid grid-cols-2 gap-2 max-h-[40vh] overflow-y-auto">
+                  {LANGUAGES.map((lang) => {
+                    const isFav = favoriteLanguages.includes(lang.code);
+                    return (
+                      <button
+                        key={lang.code}
+                        onClick={() => {
+                          if (isFav) {
+                            setFavoriteLanguages(favoriteLanguages.filter((c) => c !== lang.code));
+                          } else {
+                            setFavoriteLanguages([...favoriteLanguages, lang.code]);
+                          }
+                        }}
+                        className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors border ${
+                          isFav
+                            ? "bg-[#295BDB]/20 border-[#295BDB] text-[#295BDB]"
+                            : "bg-[#02114A] border-[#FFFFFF14] text-[#F4F4F4]/60 hover:border-[#FFFFFF30]"
+                        }`}
+                      >
+                        <span className="text-base">{lang.flag}</span>
+                        <span className="truncate">{lang.label}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -440,20 +413,6 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className="flex gap-3 pt-4">
-                <button
-                  onClick={() => setShowSettings(false)}
-                  className="flex-1 bg-[#123182] hover:bg-[#0E2666] text-[#F4F4F4] font-medium py-3 rounded-xl transition-colors"
-                >
-                  {t("cancel")}
-                </button>
-                <button
-                  onClick={saveSettings}
-                  className="flex-1 bg-[#295BDB] hover:bg-[#295BDB]/80 text-[#F4F4F4] font-medium py-3 rounded-xl transition-colors"
-                >
-                  {t("save")}
-                </button>
-              </div>
             </div>
           </div>
         </div>

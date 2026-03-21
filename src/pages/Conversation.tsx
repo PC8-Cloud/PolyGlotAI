@@ -4,6 +4,7 @@ import { ChevronLeft, Mic, MicOff, Send, Volume2, VolumeX, ArrowRightLeft, Check
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLabelForCode } from "../lib/languages";
+import { LanguageOptions } from "../components/LanguageOptions";
 import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudioDetectLang } from "../lib/openai";
 
 type MsgStatus = "sent" | "translated" | "playing" | "done";
@@ -331,10 +332,6 @@ export default function Conversation() {
     }
   };
 
-  const langOptions = LANGUAGES.map((l) => ({
-    code: l.code,
-    label: `${l.flag} ${l.label}`,
-  }));
 
   const isListening = chatState === "listening";
   const busy = chatState === "translating" || chatState === "speaking" || chatState === "transcribing";
@@ -522,9 +519,7 @@ export default function Conversation() {
             disabled={conversationActive}
             className="flex-1 min-w-0 bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-3 py-2 text-sm text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-center disabled:opacity-60 truncate"
           >
-            {langOptions.map((l) => (
-              <option key={l.code} value={l.code}>{l.label}</option>
-            ))}
+            <LanguageOptions />
           </select>
           <button
             onClick={swapLanguages}
@@ -539,9 +534,7 @@ export default function Conversation() {
             disabled={conversationActive}
             className="flex-1 min-w-0 bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-3 py-2 text-sm text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-center disabled:opacity-60 truncate"
           >
-            {langOptions.map((l) => (
-              <option key={l.code} value={l.code}>{l.label}</option>
-            ))}
+            <LanguageOptions />
           </select>
         </div>
 

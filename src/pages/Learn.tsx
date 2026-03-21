@@ -18,13 +18,13 @@ import {
   Mic,
   MicOff,
   Square,
-  Share2,
+  Upload,
 } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES } from "../lib/languages";
+import { LanguageOptions } from "../components/LanguageOptions";
 import { playTTS, prepareAudioForSafari, getApiErrorMessage, transcribeAudio } from "../lib/openai";
-import { exportAndShare, PdfLine } from "../lib/export-pdf";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -901,9 +901,7 @@ export default function Learn() {
               onChange={(e) => setNativeLang(e.target.value)}
               className="flex-1 min-w-0 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl px-3 py-3 text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-sm truncate"
             >
-              {LANGUAGES.map((l) => (
-                <option key={l.code} value={l.code}>{l.flag} {l.label}</option>
-              ))}
+              <LanguageOptions />
             </select>
             <button onClick={swapLanguages} className="p-2.5 bg-[#295BDB] rounded-xl text-[#F4F4F4] hover:bg-[#295BDB]/80 transition-colors shrink-0">
               <ArrowRightLeft className="w-5 h-5" />
@@ -913,9 +911,7 @@ export default function Learn() {
               onChange={(e) => setTargetLang(e.target.value)}
               className="flex-1 min-w-0 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl px-3 py-3 text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-sm truncate"
             >
-              {LANGUAGES.filter((l) => l.code !== nativeLang).map((l) => (
-                <option key={l.code} value={l.code}>{l.flag} {l.label}</option>
-              ))}
+              <LanguageOptions exclude={[nativeLang]} />
             </select>
           </div>
 
@@ -1168,25 +1164,26 @@ export default function Learn() {
             {t("learnResume")}
           </button>
         )}
-        {messages.length > 0 && (
-          <button
-            onClick={() => {
-              const lines: PdfLine[] = messages.map((msg) => ({
-                text: msg.role === "tutor" ? msg.text : msg.text,
-                subtext: msg.role === "tutor" ? msg.translation : undefined,
-                label: msg.role === "tutor" ? "Tutor" : t("you"),
-                labelColor: msg.role === "tutor" ? "blue" as const : "grey" as const,
-              }));
-              exportAndShare(
-                { title: t("learn"), subtitle: `${nativeLangLabel} → ${targetLangLabel}`, lines },
-                `PolyGlot-${t("learn")}.pdf`,
-              );
-            }}
-            className="p-2 rounded-lg text-[#F4F4F4]/40 hover:text-[#F4F4F4] hover:bg-[#123182]"
-          >
-            <Share2 className="w-5 h-5" />
-          </button>
-        )}
+        <button
+          onClick={async () => {
+            const text = messages
+              .map((msg) => {
+                const label = msg.role === "tutor" ? "Tutor" : t("you");
+                const line = `[${label}] ${msg.text}`;
+                return msg.translation ? `${line}\n  → ${msg.translation}` : line;
+              })
+              .join("\n\n");
+            if (navigator.share) {
+              try {
+                await navigator.share({ title: `PolyGlot - ${t("learn")}`, text });
+              } catch {}
+            }
+          }}
+          disabled={messages.length === 0}
+          className={`p-2 rounded-lg transition-colors ${messages.length > 0 ? "text-[#F4F4F4]/40 hover:text-[#F4F4F4] hover:bg-[#123182]" : "text-[#F4F4F4]/20"}`}
+        >
+          <Upload className="w-5 h-5" />
+        </button>
         <button onClick={resetLesson} className="p-2 rounded-lg text-[#F4F4F4]/40 hover:text-[#F4F4F4] hover:bg-[#123182]">
           <RotateCcw className="w-5 h-5" />
         </button>

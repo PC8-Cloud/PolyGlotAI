@@ -4,6 +4,7 @@ import { ChevronLeft, Mic, Volume2, VolumeX, Megaphone, Check, Upload, Download,
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLocaleForCode } from "../lib/languages";
+import { LanguageOptions } from "../components/LanguageOptions";
 import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage } from "../lib/openai";
 import { extractTextFromFile } from "../lib/file-reader";
 
@@ -379,10 +380,6 @@ export default function MegaphonePage() {
   const targetLangObj = LANGUAGES.find((l) => l.code === targetLang);
   const busy = isTranslating || isSpeaking;
 
-  const langOptions = LANGUAGES.map((l) => ({
-    code: l.code,
-    label: `${l.flag} ${l.label}`,
-  }));
 
   return (
     <div className="min-h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans">
@@ -413,9 +410,7 @@ export default function MegaphonePage() {
           onChange={(e) => setSpeakerLang(e.target.value)}
           className="flex-1 bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-3 py-2.5 text-sm text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-center"
         >
-          {langOptions.map((l) => (
-            <option key={l.code} value={l.code}>{l.label}</option>
-          ))}
+          <LanguageOptions />
         </select>
         <span className="text-[#F4F4F4]/40 text-lg">→</span>
         <select
@@ -423,9 +418,7 @@ export default function MegaphonePage() {
           onChange={(e) => setTargetLang(e.target.value)}
           className="flex-1 bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-3 py-2.5 text-sm text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-center"
         >
-          {langOptions.map((l) => (
-            <option key={l.code} value={l.code}>{l.label}</option>
-          ))}
+          <LanguageOptions />
         </select>
       </div>
 

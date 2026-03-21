@@ -5,6 +5,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLocaleForCode } from "../lib/languages";
+import { LanguageOptions } from "../components/LanguageOptions";
 import { translateText, getApiErrorMessage } from "../lib/openai";
 import { extractTextFromFile } from "../lib/file-reader";
 import { createRoom, sendMessage } from "../lib/firebase-helpers";
@@ -489,7 +490,6 @@ export default function RoomHost() {
     langCounts[p.language] = (langCounts[p.language] || 0) + 1;
   });
 
-  const langOptions = LANGUAGES.map((l) => ({ code: l.code, label: `${l.flag} ${l.label}` }));
 
   const handleLoadedText = async (text: string) => {
     if (!text.trim() || !sessionId || !hostId || processingRef.current) return;
@@ -589,9 +589,7 @@ export default function RoomHost() {
               onChange={(e) => setSpeakerLang(e.target.value)}
               className="w-full bg-[#0E2666] border border-[#FFFFFF14] rounded-xl px-4 py-3 text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none"
             >
-              {langOptions.map((l) => (
-                <option key={l.code} value={l.code}>{l.label}</option>
-              ))}
+              <LanguageOptions />
             </select>
           </div>
 

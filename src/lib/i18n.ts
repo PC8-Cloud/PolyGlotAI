@@ -328,6 +328,9 @@ export const translations = {
     networkSlowTitle: "Slow internet connection",
     networkSlowDesc: "Your internet connection does not meet the minimum requirements for PolyGlot AI to work properly. Translations and voice features may be slow or unavailable. This is not an app issue — please try moving to an area with better signal or switching to Wi-Fi.",
     networkMinRequirements: "Minimum: 1 Mbps download, ping < 2s",
+    favoriteLanguages: "Favorite Languages",
+    favoriteLanguagesDesc: "Select your most used languages. They will appear first in all dropdowns.",
+    allLanguages: "All Languages",
   },
   it: {
     startBroadcast: "Avvia Trasmissione",
@@ -658,6 +661,9 @@ export const translations = {
     networkSlowTitle: "Connessione internet lenta",
     networkSlowDesc: "La tua connessione internet non soddisfa i requisiti minimi per il corretto funzionamento di PolyGlot AI. Le traduzioni e le funzioni vocali potrebbero essere lente o non disponibili. Non è un problema dell'app — prova a spostarti in una zona con segnale migliore o a connetterti al Wi-Fi.",
     networkMinRequirements: "Requisiti minimi: 1 Mbps download, ping < 2s",
+    favoriteLanguages: "Lingue Preferite",
+    favoriteLanguagesDesc: "Seleziona le lingue che usi di più. Appariranno per prime in tutti i menu.",
+    allLanguages: "Tutte le Lingue",
   },
   es: {
     startBroadcast: "Iniciar Transmisión",
@@ -988,6 +994,9 @@ export const translations = {
     networkSlowTitle: "Conexión a internet lenta",
     networkSlowDesc: "Tu conexión a internet no cumple con los requisitos mínimos para que PolyGlot AI funcione correctamente. Las traducciones y funciones de voz pueden ser lentas o no estar disponibles. No es un problema de la app — intenta moverte a una zona con mejor señal o conectarte a Wi-Fi.",
     networkMinRequirements: "Mínimo: 1 Mbps descarga, ping < 2s",
+    favoriteLanguages: "Idiomas Favoritos",
+    favoriteLanguagesDesc: "Selecciona los idiomas que más usas. Aparecerán primero en todos los menús.",
+    allLanguages: "Todos los Idiomas",
   },
   fr: {
     startBroadcast: "Démarrer la diffusion",
@@ -1318,6 +1327,9 @@ export const translations = {
     networkSlowTitle: "Connexion internet lente",
     networkSlowDesc: "Votre connexion internet ne répond pas aux exigences minimales pour que PolyGlot AI fonctionne correctement. Les traductions et les fonctions vocales peuvent être lentes ou indisponibles. Ce n'est pas un problème de l'application — essayez de vous déplacer vers une zone avec un meilleur signal ou de vous connecter au Wi-Fi.",
     networkMinRequirements: "Minimum : 1 Mbps téléchargement, ping < 2s",
+    favoriteLanguages: "Langues Favorites",
+    favoriteLanguagesDesc: "Sélectionnez vos langues les plus utilisées. Elles apparaîtront en premier dans tous les menus.",
+    allLanguages: "Toutes les Langues",
   },
   de: {
     startBroadcast: "Übertragung starten",
@@ -1648,6 +1660,9 @@ export const translations = {
     networkSlowTitle: "Langsame Internetverbindung",
     networkSlowDesc: "Ihre Internetverbindung erfüllt nicht die Mindestanforderungen für den ordnungsgemäßen Betrieb von PolyGlot AI. Übersetzungen und Sprachfunktionen können langsam oder nicht verfügbar sein. Dies ist kein App-Problem — versuchen Sie, sich in einen Bereich mit besserem Signal zu bewegen oder sich mit WLAN zu verbinden.",
     networkMinRequirements: "Minimum: 1 Mbps Download, Ping < 2s",
+    favoriteLanguages: "Bevorzugte Sprachen",
+    favoriteLanguagesDesc: "Wählen Sie Ihre meistgenutzten Sprachen. Sie erscheinen zuerst in allen Menüs.",
+    allLanguages: "Alle Sprachen",
   },
 };
 

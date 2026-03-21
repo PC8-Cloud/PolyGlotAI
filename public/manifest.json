@@ -1,6 +1,6 @@
 {
   "name": "PolyGlot AI",
-  "short_name": "PolyGlot",
+  "short_name": "PolyGlotAI",
   "description": "Real-time multilingual translation",
   "start_url": "/",
   "display": "standalone",
