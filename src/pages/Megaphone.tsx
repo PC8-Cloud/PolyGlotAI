@@ -5,7 +5,7 @@ import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLocaleForCode } from "../lib/languages";
 import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage } from "../lib/openai";
-import { exportAndShare, PdfLine } from "../lib/export-pdf";
+import { extractTextFromFile } from "../lib/file-reader";
 
 interface Entry {
   id: number;
@@ -346,24 +346,9 @@ export default function MegaphonePage() {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      let text = "";
-      if (file.type === "application/pdf" || file.name.endsWith(".pdf")) {
-        const pdfjsLib = await import("pdfjs-dist");
-        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
-        const buffer = await file.arrayBuffer();
-        const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
-        const pages: string[] = [];
-        for (let i = 1; i <= pdf.numPages; i++) {
-          const page = await pdf.getPage(i);
-          const content = await page.getTextContent();
-          text = content.items.map((item: any) => item.str).join(" ");
-          pages.push(text);
-        }
-        text = pages.join("\n\n");
-      } else {
-        text = await file.text();
-      }
+      const text = await extractTextFromFile(file);
       if (text.trim()) handleLoadedText(text.trim());
+      else setError(t("loadTextEmpty"));
     } catch {
       setError(t("loadTextError"));
     } finally {
@@ -457,7 +442,7 @@ export default function MegaphonePage() {
           <input
             ref={fileInputRef}
             type="file"
-            accept=".txt,.pdf,.md,.text"
+            accept=".txt,.pdf,.md,.text,.docx,.doc"
             onChange={handleFileChange}
             className="hidden"
           />
