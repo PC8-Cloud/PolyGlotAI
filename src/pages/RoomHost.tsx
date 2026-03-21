@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Mic, Radio, Users, MessageCircleQuestion, LogOut, QrCode, X, Share, Share2, RotateCcw, Printer, Check, Download, ClipboardPaste, FolderOpen } from "lucide-react";
+import { ChevronLeft, Mic, Radio, Users, MessageCircleQuestion, LogOut, QrCode, X, Upload, Share2, RotateCcw, Printer, Check, Download, ClipboardPaste, FolderOpen } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
@@ -720,7 +720,7 @@ export default function RoomHost() {
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
         {/* Import & Share icons */}
         {participants.length > 0 && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center">
             <input
               ref={fileInputRef}
               type="file"
@@ -732,7 +732,7 @@ export default function RoomHost() {
               <button
                 onClick={() => setShowImportMenu(!showImportMenu)}
                 disabled={isListening || isTranslating}
-                className="p-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-40"
+                className="p-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/50 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-40"
               >
                 <Download className="w-5 h-5" />
               </button>
@@ -759,14 +759,14 @@ export default function RoomHost() {
                 </>
               )}
             </div>
-            {messages.length > 0 && (
-              <button
-                onClick={handleShareMessages}
-                className="p-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors"
-              >
-                <Share className="w-5 h-5" />
-              </button>
-            )}
+            <div className="flex-1" />
+            <button
+              onClick={handleShareMessages}
+              disabled={messages.length === 0}
+              className="p-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/50 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-20 disabled:hover:bg-[#0E2666] disabled:hover:text-[#F4F4F4]/50"
+            >
+              <Upload className="w-5 h-5" />
+            </button>
           </div>
         )}
 

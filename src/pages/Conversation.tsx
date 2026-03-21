@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Mic, MicOff, Send, Volume2, VolumeX, ArrowRightLeft, Check, CheckCheck, Share } from "lucide-react";
+import { ChevronLeft, Mic, MicOff, Send, Volume2, VolumeX, ArrowRightLeft, Check, CheckCheck, Upload } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLabelForCode } from "../lib/languages";
@@ -367,14 +367,6 @@ export default function Conversation() {
           <ChevronLeft className="w-6 h-6" />
         </button>
         <h1 className="text-lg font-bold flex-1">{t("conversation")}</h1>
-        {messages.length > 0 && (
-          <button
-            onClick={handleShareConversation}
-            className="p-2 rounded-xl transition-colors bg-[#123182] text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#295BDB]"
-          >
-            <Share className="w-5 h-5" />
-          </button>
-        )}
         <button
           onClick={() => {
             const newVal = !autoSpeak;
@@ -398,6 +390,15 @@ export default function Conversation() {
       )}
 
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 min-h-0">
+        <div className="flex justify-end">
+          <button
+            onClick={handleShareConversation}
+            disabled={messages.length === 0}
+            className="p-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/50 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-20 disabled:hover:bg-[#0E2666] disabled:hover:text-[#F4F4F4]/50"
+          >
+            <Upload className="w-5 h-5" />
+          </button>
+        </div>
         {messages.length === 0 && !conversationActive && (
           <div className="flex-1 flex items-center justify-center">
             <p className="text-[#F4F4F4]/30 text-sm text-center px-8">{t("conversationAutoDetect")}</p>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Mic, Volume2, VolumeX, Megaphone, Check, Share, Download, ClipboardPaste, FolderOpen } from "lucide-react";
+import { ChevronLeft, Mic, Volume2, VolumeX, Megaphone, Check, Upload, Download, ClipboardPaste, FolderOpen } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLocaleForCode } from "../lib/languages";
@@ -453,7 +453,7 @@ export default function MegaphonePage() {
 
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
         {/* Import & Share icons */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center">
           <input
             ref={fileInputRef}
             type="file"
@@ -465,7 +465,7 @@ export default function MegaphonePage() {
             <button
               onClick={() => setShowImportMenu(!showImportMenu)}
               disabled={busy || isListening}
-              className="p-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-40"
+              className="p-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/50 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-40"
             >
               <Download className="w-5 h-5" />
             </button>
@@ -492,14 +492,14 @@ export default function MegaphonePage() {
               </>
             )}
           </div>
-          {entries.length > 0 && (
-            <button
-              onClick={handleShare}
-              className="p-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors"
-            >
-              <Share className="w-5 h-5" />
-            </button>
-          )}
+          <div className="flex-1" />
+          <button
+            onClick={handleShare}
+            disabled={entries.length === 0}
+            className="p-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/50 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-20 disabled:hover:bg-[#0E2666] disabled:hover:text-[#F4F4F4]/50"
+          >
+            <Upload className="w-5 h-5" />
+          </button>
         </div>
 
         {entries.length === 0 && !isListening && (
