@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Mic, Radio, Users, MessageCircleQuestion, LogOut, QrCode, X, Share2, RotateCcw, Printer, Check, Download, ClipboardPaste, FolderOpen } from "lucide-react";
+import { ChevronLeft, Mic, Radio, Users, MessageCircleQuestion, LogOut, QrCode, X, Share, Share2, RotateCcw, Printer, Check, Download, ClipboardPaste, FolderOpen } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
@@ -557,18 +557,27 @@ export default function RoomHost() {
     }
   };
 
-  const handleSharePDF = () => {
+  const handleShareMessages = async () => {
     if (messages.length === 0) return;
-    const lines: PdfLine[] = messages.map((msg) => {
+    const text = messages.map((msg) => {
       const isQuestion = msg.type === "QUESTION";
-      return {
-        text: msg.sourceText,
-        subtext: isQuestion ? `(${t("questionFrom")} ${msg.senderName || "?"})` : undefined,
-        label: isQuestion ? "Q" : undefined,
-        labelColor: isQuestion ? "amber" as const : undefined,
-      };
-    });
-    exportAndShare({ title: `${t("multilingualRoom")} — ${roomCode}`, lines }, `room-${roomCode}.pdf`);
+      return isQuestion
+        ? `[${t("questionFrom")} ${msg.senderName || "?"}] ${msg.sourceText}`
+        : msg.sourceText;
+    }).join("\n\n");
+    const shareText = `${t("multilingualRoom")} — ${roomCode}\n\n${text}`;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: "PolyGlot AI", text: shareText });
+      } catch (e: any) {
+        if (e.name !== "AbortError") {
+          await navigator.clipboard.writeText(shareText);
+        }
+      }
+    } else {
+      await navigator.clipboard.writeText(shareText);
+    }
   };
 
   // ─── Render: room not created yet ─────────────────────────────────────────
@@ -667,11 +676,6 @@ export default function RoomHost() {
             <Users className="w-4 h-4" />
             <span className="text-sm font-bold">{participants.length}</span>
           </div>
-          {messages.length > 0 && (
-            <button onClick={handleSharePDF} className="p-2 rounded-xl bg-[#123182] text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#295BDB] transition-colors">
-              <Share2 className="w-5 h-5" />
-            </button>
-          )}
           <button onClick={closeRoom} className="p-2 rounded-xl bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors">
             <LogOut className="w-4 h-4" />
           </button>
@@ -714,9 +718,9 @@ export default function RoomHost() {
       )}
 
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
-        {/* Import button with dropdown */}
+        {/* Import & Share icons */}
         {participants.length > 0 && (
-          <div className="relative">
+          <div className="flex items-center gap-2">
             <input
               ref={fileInputRef}
               type="file"
@@ -724,35 +728,44 @@ export default function RoomHost() {
               onChange={handleFileChange}
               className="hidden"
             />
-            <button
-              onClick={() => setShowImportMenu(!showImportMenu)}
-              disabled={isListening || isTranslating}
-              className="flex items-center gap-2 py-2 px-4 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-sm text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-40"
-            >
-              <Download className="w-4 h-4" />
-              {t("loadText")}
-            </button>
-            {showImportMenu && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setShowImportMenu(false)} />
-                <div className="absolute left-0 top-full mt-1 z-50 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl overflow-hidden shadow-xl min-w-[160px]">
-                  <button
-                    onClick={() => { setShowImportMenu(false); handlePaste(); }}
-                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-[#F4F4F4]/80 hover:bg-[#123182] transition-colors"
-                  >
-                    <ClipboardPaste className="w-4 h-4 text-[#F4F4F4]/40" />
-                    {t("paste")}
-                  </button>
-                  <div className="border-t border-[#FFFFFF14]" />
-                  <button
-                    onClick={() => { setShowImportMenu(false); fileInputRef.current?.click(); }}
-                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-[#F4F4F4]/80 hover:bg-[#123182] transition-colors"
-                  >
-                    <FolderOpen className="w-4 h-4 text-[#F4F4F4]/40" />
-                    {t("browse")}
-                  </button>
-                </div>
-              </>
+            <div className="relative">
+              <button
+                onClick={() => setShowImportMenu(!showImportMenu)}
+                disabled={isListening || isTranslating}
+                className="p-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-40"
+              >
+                <Download className="w-5 h-5" />
+              </button>
+              {showImportMenu && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowImportMenu(false)} />
+                  <div className="absolute left-0 top-full mt-1 z-50 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl overflow-hidden shadow-xl min-w-[160px]">
+                    <button
+                      onClick={() => { setShowImportMenu(false); handlePaste(); }}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-sm text-[#F4F4F4]/80 hover:bg-[#123182] transition-colors"
+                    >
+                      <ClipboardPaste className="w-4 h-4 text-[#F4F4F4]/40" />
+                      {t("paste")}
+                    </button>
+                    <div className="border-t border-[#FFFFFF14]" />
+                    <button
+                      onClick={() => { setShowImportMenu(false); fileInputRef.current?.click(); }}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-sm text-[#F4F4F4]/80 hover:bg-[#123182] transition-colors"
+                    >
+                      <FolderOpen className="w-4 h-4 text-[#F4F4F4]/40" />
+                      {t("browse")}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+            {messages.length > 0 && (
+              <button
+                onClick={handleShareMessages}
+                className="p-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors"
+              >
+                <Share className="w-5 h-5" />
+              </button>
             )}
           </div>
         )}

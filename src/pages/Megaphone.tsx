@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Mic, Volume2, VolumeX, Megaphone, Check, Share2, Download, ClipboardPaste, FolderOpen } from "lucide-react";
+import { ChevronLeft, Mic, Volume2, VolumeX, Megaphone, Check, Share, Download, ClipboardPaste, FolderOpen } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLocaleForCode } from "../lib/languages";
@@ -371,17 +371,23 @@ export default function MegaphonePage() {
     }
   };
 
-  const handleSharePDF = () => {
+  const handleShare = async () => {
     const speakerLabel = LANGUAGES.find((l) => l.code === speakerLang)?.label || speakerLang;
     const targetLabel = LANGUAGES.find((l) => l.code === targetLang)?.label || targetLang;
-    const lines: PdfLine[] = entries.map((e) => ({
-      text: e.translatedText,
-      subtext: e.originalText,
-    }));
-    exportAndShare(
-      { title: t("megaphone"), subtitle: `${speakerLabel} → ${targetLabel}`, lines },
-      `PolyGlot-Megaphone.pdf`,
-    );
+    const text = entries.map((e) => `${e.originalText}\n→ ${e.translatedText}`).join("\n\n");
+    const shareText = `${t("megaphone")} (${speakerLabel} → ${targetLabel})\n\n${text}`;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: "PolyGlot AI", text: shareText });
+      } catch (e: any) {
+        if (e.name !== "AbortError") {
+          await navigator.clipboard.writeText(shareText);
+        }
+      }
+    } else {
+      await navigator.clipboard.writeText(shareText);
+    }
   };
 
   const speakerLangObj = LANGUAGES.find((l) => l.code === speakerLang);
@@ -401,14 +407,6 @@ export default function MegaphonePage() {
         </button>
         <Megaphone className="w-5 h-5 text-[#295BDB]" />
         <h1 className="text-lg font-bold flex-1">{t("megaphone")}</h1>
-        {entries.length > 0 && (
-          <button
-            onClick={handleSharePDF}
-            className="p-2 rounded-xl transition-colors bg-[#123182] text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#295BDB]"
-          >
-            <Share2 className="w-5 h-5" />
-          </button>
-        )}
         <button
           onClick={() => {
             const newVal = !autoSpeak;
@@ -453,8 +451,8 @@ export default function MegaphonePage() {
       )}
 
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
-        {/* Import button with dropdown */}
-        <div className="relative">
+        {/* Import & Share icons */}
+        <div className="flex items-center gap-2">
           <input
             ref={fileInputRef}
             type="file"
@@ -462,35 +460,44 @@ export default function MegaphonePage() {
             onChange={handleFileChange}
             className="hidden"
           />
-          <button
-            onClick={() => setShowImportMenu(!showImportMenu)}
-            disabled={busy || isListening}
-            className="flex items-center gap-2 py-2 px-4 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-sm text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-40"
-          >
-            <Download className="w-4 h-4" />
-            {t("loadText")}
-          </button>
-          {showImportMenu && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setShowImportMenu(false)} />
-              <div className="absolute left-0 top-full mt-1 z-50 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl overflow-hidden shadow-xl min-w-[160px]">
-                <button
-                  onClick={() => { setShowImportMenu(false); handlePaste(); }}
-                  className="w-full flex items-center gap-3 px-4 py-3 text-sm text-[#F4F4F4]/80 hover:bg-[#123182] transition-colors"
-                >
-                  <ClipboardPaste className="w-4 h-4 text-[#F4F4F4]/40" />
-                  {t("paste")}
-                </button>
-                <div className="border-t border-[#FFFFFF14]" />
-                <button
-                  onClick={() => { setShowImportMenu(false); fileInputRef.current?.click(); }}
-                  className="w-full flex items-center gap-3 px-4 py-3 text-sm text-[#F4F4F4]/80 hover:bg-[#123182] transition-colors"
-                >
-                  <FolderOpen className="w-4 h-4 text-[#F4F4F4]/40" />
-                  {t("browse")}
-                </button>
-              </div>
-            </>
+          <div className="relative">
+            <button
+              onClick={() => setShowImportMenu(!showImportMenu)}
+              disabled={busy || isListening}
+              className="p-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-40"
+            >
+              <Download className="w-5 h-5" />
+            </button>
+            {showImportMenu && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowImportMenu(false)} />
+                <div className="absolute left-0 top-full mt-1 z-50 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl overflow-hidden shadow-xl min-w-[160px]">
+                  <button
+                    onClick={() => { setShowImportMenu(false); handlePaste(); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-[#F4F4F4]/80 hover:bg-[#123182] transition-colors"
+                  >
+                    <ClipboardPaste className="w-4 h-4 text-[#F4F4F4]/40" />
+                    {t("paste")}
+                  </button>
+                  <div className="border-t border-[#FFFFFF14]" />
+                  <button
+                    onClick={() => { setShowImportMenu(false); fileInputRef.current?.click(); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-[#F4F4F4]/80 hover:bg-[#123182] transition-colors"
+                  >
+                    <FolderOpen className="w-4 h-4 text-[#F4F4F4]/40" />
+                    {t("browse")}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+          {entries.length > 0 && (
+            <button
+              onClick={handleShare}
+              className="p-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors"
+            >
+              <Share className="w-5 h-5" />
+            </button>
           )}
         </div>
 
