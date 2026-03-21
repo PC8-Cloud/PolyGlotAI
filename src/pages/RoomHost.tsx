@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Mic, Radio, Users, MessageCircleQuestion, LogOut, QrCode, X, Share2, RotateCcw, Printer, Check, ClipboardPaste, FolderOpen } from "lucide-react";
+import { ChevronLeft, Mic, Radio, Users, MessageCircleQuestion, LogOut, QrCode, X, Share2, RotateCcw, Printer, Check, Download, Upload } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
@@ -728,7 +728,7 @@ export default function RoomHost() {
               disabled={isListening || isTranslating}
               className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-sm text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-40"
             >
-              <ClipboardPaste className="w-4 h-4" />
+              <Download className="w-4 h-4" />
               {t("paste")}
             </button>
             <button
@@ -736,7 +736,7 @@ export default function RoomHost() {
               disabled={isListening || isTranslating}
               className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-sm text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-40"
             >
-              <FolderOpen className="w-4 h-4" />
+              <Upload className="w-4 h-4" />
               {t("browse")}
             </button>
           </div>

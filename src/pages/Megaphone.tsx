@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Mic, Volume2, VolumeX, Megaphone, Check, Share2, Download, ClipboardPaste, FolderOpen } from "lucide-react";
+import { ChevronLeft, Mic, Volume2, VolumeX, Megaphone, Check, Share2, Download, Upload } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLocaleForCode } from "../lib/languages";
@@ -466,7 +466,7 @@ export default function MegaphonePage() {
             disabled={busy || isListening}
             className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-sm text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-40"
           >
-            <ClipboardPaste className="w-4 h-4" />
+            <Download className="w-4 h-4" />
             {t("paste")}
           </button>
           <button
@@ -474,7 +474,7 @@ export default function MegaphonePage() {
             disabled={busy || isListening}
             className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-sm text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-40"
           >
-            <FolderOpen className="w-4 h-4" />
+            <Upload className="w-4 h-4" />
             {t("browse")}
           </button>
         </div>
@@ -482,7 +482,7 @@ export default function MegaphonePage() {
         {entries.length === 0 && !isListening && (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center space-y-3">
-              <Download className="w-16 h-16 text-[#F4F4F4]/10 mx-auto" />
+              <Megaphone className="w-16 h-16 text-[#F4F4F4]/10 mx-auto" />
               <p className="text-[#F4F4F4]/30 text-sm px-8">{t("megaphoneDesc")}</p>
             </div>
           </div>
