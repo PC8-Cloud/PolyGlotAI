@@ -51,9 +51,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const detectLang = detectLangPart?.data?.toString() === "true";
 
       if (detectLang) {
-        // Use verbose_json to get detected language
+        // Use whisper-1 with verbose_json to detect language reliably
+        // (gpt-4o-transcribe does NOT return the language field)
         const response = await client.audio.transcriptions.create({
-          model,
+          model: "whisper-1",
           file,
           response_format: "verbose_json",
         } as any);

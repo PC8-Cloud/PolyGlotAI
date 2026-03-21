@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Mic, Volume2, VolumeX, Megaphone, Check, Share2 } from "lucide-react";
+import { ChevronLeft, Mic, Volume2, VolumeX, Megaphone, Check, Share2, Upload } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLocaleForCode } from "../lib/languages";
 import { translateText, playTTS, prepareAudioForSafari, getApiErrorMessage } from "../lib/openai";
 import { exportAndShare, PdfLine } from "../lib/export-pdf";
+import LoadTextModal from "../components/LoadTextModal";
 
 interface Entry {
   id: number;
@@ -33,6 +34,7 @@ export default function MegaphonePage() {
   const [autoSpeak, setAutoSpeak] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [readyChunks, setReadyChunks] = useState(0);
+  const [showLoadText, setShowLoadText] = useState(false);
 
   const recognitionRef = useRef<any>(null);
   const transcriptRef = useRef("");
@@ -289,6 +291,49 @@ export default function MegaphonePage() {
     setReadyChunks(0);
   };
 
+  const handleLoadedText = async (text: string) => {
+    if (!text.trim() || processingRef.current) return;
+    processingRef.current = true;
+
+    prepareAudioForSafari();
+    entryIdRef.current += 1;
+    const entryId = entryIdRef.current;
+    setEntries((prev) => [...prev, { id: entryId, originalText: text, translatedText: "..." }]);
+    setIsSpeaking(true);
+    setError(null);
+    acquireWakeLock();
+
+    try {
+      const result = await translateText(text, speakerLang, [targetLang]);
+      const translated = result[targetLang] || "...";
+      setEntries((prev) =>
+        prev.map((e) => (e.id === entryId ? { ...e, translatedText: translated } : e))
+      );
+      if (autoSpeak && translated !== "...") {
+        // Split into sentences for chunked TTS playback
+        const sentences = translated.match(/[^.!?]+[.!?]+/g) || [translated];
+        for (const sentence of sentences) {
+          const s = sentence.trim();
+          if (s) {
+            try {
+              await playTTS(s, undefined, undefined, targetLang);
+            } catch (e) {
+              console.error("TTS chunk failed:", e);
+            }
+          }
+        }
+      }
+    } catch (e: any) {
+      console.error("Translation failed:", e);
+      const { key, fallback } = getApiErrorMessage(e);
+      setError((t as any)[key] || fallback);
+    } finally {
+      setIsSpeaking(false);
+      releaseWakeLock();
+      processingRef.current = false;
+    }
+  };
+
   const speakerLangObj = LANGUAGES.find((l) => l.code === speakerLang);
   const targetLangObj = LANGUAGES.find((l) => l.code === targetLang);
   const busy = isTranslating || isSpeaking;
@@ -306,6 +351,14 @@ export default function MegaphonePage() {
         </button>
         <Megaphone className="w-5 h-5 text-[#295BDB]" />
         <h1 className="text-lg font-bold flex-1">{t("megaphone")}</h1>
+        <button
+          onClick={() => setShowLoadText(true)}
+          disabled={isListening || isSpeaking || isTranslating}
+          className="p-2 rounded-xl transition-colors bg-[#123182] text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#295BDB] disabled:opacity-40"
+          title={t("loadText")}
+        >
+          <Upload className="w-5 h-5" />
+        </button>
         {entries.length > 0 && (
           <button
             onClick={() => {
@@ -435,6 +488,12 @@ export default function MegaphonePage() {
           {isListening ? t("tapToStop") : t("tapToSpeak")}
         </span>
       </div>
+
+      <LoadTextModal
+        open={showLoadText}
+        onClose={() => setShowLoadText(false)}
+        onLoad={handleLoadedText}
+      />
     </div>
   );
 }

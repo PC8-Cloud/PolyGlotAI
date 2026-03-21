@@ -173,6 +173,7 @@ export default function Conversation() {
         setChatState("transcribing");
         try {
           const { text, language: detectedLang } = await transcribeAudioDetectLang(blob);
+          console.log("[Conversation] detected:", { text: text.substring(0, 30), detectedLang });
 
           if (!text.trim() || !conversationActiveRef.current) {
             processingRef.current = false;
@@ -182,6 +183,7 @@ export default function Conversation() {
           }
 
           const side = detectSide(detectedLang);
+          console.log("[Conversation] side:", side, "yourLang:", yourLangRef.current, "theirLang:", theirLangRef.current);
           await processMessage(side, text.trim());
         } catch (e: any) {
           const { key, fallback } = getApiErrorMessage(e);

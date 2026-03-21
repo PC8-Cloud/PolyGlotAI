@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Mic, Radio, Users, MessageCircleQuestion, LogOut, QrCode, X, Share2, RotateCcw, Printer, Check } from "lucide-react";
+import { ChevronLeft, Mic, Radio, Users, MessageCircleQuestion, LogOut, QrCode, X, Share2, RotateCcw, Printer, Check, Upload } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLocaleForCode } from "../lib/languages";
 import { translateText, getApiErrorMessage } from "../lib/openai";
 import { exportAndShare, PdfLine } from "../lib/export-pdf";
+import LoadTextModal from "../components/LoadTextModal";
 import { createRoom, sendMessage } from "../lib/firebase-helpers";
 import { db } from "../firebase";
 import { collection, doc, getDoc, onSnapshot, orderBy, query, updateDoc, where, getDocs, limit } from "firebase/firestore";
@@ -50,6 +51,7 @@ export default function RoomHost() {
   const [rejoining, setRejoining] = useState(false);
   const [lastRoom, setLastRoom] = useState<{ code: string; sessionId: string; hostId: string } | null>(null);
   const [readyChunks, setReadyChunks] = useState(0);
+  const [showLoadText, setShowLoadText] = useState(false);
 
   const recognitionRef = useRef<any>(null);
   const transcriptRef = useRef("");
@@ -489,6 +491,34 @@ export default function RoomHost() {
 
   const langOptions = LANGUAGES.map((l) => ({ code: l.code, label: `${l.flag} ${l.label}` }));
 
+  const handleLoadedText = async (text: string) => {
+    if (!text.trim() || !sessionId || !hostId || processingRef.current) return;
+    processingRef.current = true;
+    setIsTranslating(true);
+    setError(null);
+
+    try {
+      const targetLangs = getTargetLangs();
+      const initialTranslations: Record<string, string> = { [speakerLang]: text };
+      const msgId = await sendMessage(sessionId, hostId, "BROADCAST", speakerLang, text, initialTranslations);
+
+      if (targetLangs.length > 0) {
+        const translations = await translateText(text, speakerLang, targetLangs);
+        translations[speakerLang] = text;
+        if (msgId) {
+          await updateDoc(doc(db, "sessions", sessionId, "messages", msgId), { translations });
+        }
+      }
+    } catch (e: any) {
+      console.error("Translation/broadcast failed:", e);
+      const { key, fallback } = getApiErrorMessage(e);
+      setError((t as any)[key] || fallback);
+    } finally {
+      setIsTranslating(false);
+      processingRef.current = false;
+    }
+  };
+
   const handleSharePDF = () => {
     if (messages.length === 0) return;
     const lines: PdfLine[] = messages.map((msg) => {
@@ -599,6 +629,14 @@ export default function RoomHost() {
             <Users className="w-4 h-4" />
             <span className="text-sm font-bold">{participants.length}</span>
           </div>
+          <button
+            onClick={() => setShowLoadText(true)}
+            disabled={isListening || isTranslating || participants.length === 0}
+            className="p-2 rounded-xl bg-[#123182] text-[#F4F4F4]/60 hover:text-[#F4F4F4] transition-colors disabled:opacity-40"
+            title={t("loadText")}
+          >
+            <Upload className="w-4 h-4" />
+          </button>
           {messages.length > 0 && (
             <button onClick={handleSharePDF} className="p-2 rounded-xl bg-[#123182] text-[#F4F4F4]/60 hover:text-[#F4F4F4] transition-colors">
               <Share2 className="w-4 h-4" />
@@ -733,6 +771,12 @@ export default function RoomHost() {
           {participants.length === 0 ? t("waitingForParticipants") : isListening ? t("tapToStop") : t("tapToSpeak")}
         </span>
       </div>
+
+      <LoadTextModal
+        open={showLoadText}
+        onClose={() => setShowLoadText(false)}
+        onLoad={handleLoadedText}
+      />
 
       {showQR && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">

@@ -6,3 +6,4 @@ dist/
 .claude/
 .vercel
 .env.vercel
+.env*.local
