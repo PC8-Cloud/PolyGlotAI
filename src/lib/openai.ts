@@ -256,6 +256,27 @@ export function suspendAudioForMic() {
   }
 }
 
+/** Mute: stop current playback but keep AudioContext alive for future use. */
+export function muteAudio() {
+  // Suspend (not close) AudioContext — stops current BufferSource nodes
+  if (_audioCtx?.state === "running") {
+    _audioCtx.suspend().catch(() => {});
+  }
+  // Pause warm audio element
+  if (_warmAudio) {
+    _warmAudio.pause();
+    _warmAudio.currentTime = 0;
+  }
+  // Pause any other audio elements on the page
+  document.querySelectorAll("audio").forEach((a) => {
+    a.pause();
+    a.currentTime = 0;
+  });
+  if (typeof speechSynthesis !== "undefined") {
+    speechSynthesis.cancel();
+  }
+}
+
 /** Stop all audio playback immediately (for background/visibility change).
  *  Closes AudioContext and nulls refs so they get re-created fresh on next user gesture. */
 export function stopAllAudio() {
