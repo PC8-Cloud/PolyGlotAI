@@ -12,6 +12,8 @@ interface UserState {
   defaultSourceLanguage: string;
   defaultTargetLanguages: string[];
   favoriteLanguages: string[];
+  userName: string;
+  userGender: "male" | "female" | "";
   openaiApiKey: string;
   textModel: string;
   transcribeModel: string;
@@ -28,6 +30,8 @@ interface UserState {
   setDefaultSourceLanguage: (lang: string) => void;
   setDefaultTargetLanguages: (langs: string[]) => void;
   setFavoriteLanguages: (langs: string[]) => void;
+  setUserName: (name: string) => void;
+  setUserGender: (gender: "male" | "female" | "") => void;
   setOpenaiApiKey: (key: string) => void;
   setTextModel: (model: string) => void;
   setTranscribeModel: (model: string) => void;
@@ -48,6 +52,8 @@ export const useUserStore = create<UserState>()(
       defaultSourceLanguage: "en",
       defaultTargetLanguages: ["es", "fr", "it", "de"],
       favoriteLanguages: ["en", "it", "es", "fr", "de", "pt", "zh", "ar", "ja", "ru"],
+      userName: "",
+      userGender: "",
       openaiApiKey: "",
       textModel: "gpt-4.1-mini",
       transcribeModel: "gpt-4o-transcribe",
@@ -64,6 +70,8 @@ export const useUserStore = create<UserState>()(
       setDefaultSourceLanguage: (lang) => set({ defaultSourceLanguage: lang }),
       setDefaultTargetLanguages: (langs) => set({ defaultTargetLanguages: langs }),
       setFavoriteLanguages: (langs) => set({ favoriteLanguages: langs }),
+      setUserName: (name) => set({ userName: name }),
+      setUserGender: (gender) => set({ userGender: gender }),
       setOpenaiApiKey: (key) => set({ openaiApiKey: key }),
       setTextModel: (model) => set({ textModel: model }),
       setTranscribeModel: (model) => set({ transcribeModel: model }),

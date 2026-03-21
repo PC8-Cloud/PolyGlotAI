@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { createSession } from "../lib/firebase-helpers";
-import { Settings, Camera, MessagesSquare, Coins, MessageSquarePlus, Users, Globe, ChevronLeft, WifiOff, Download, Check, Loader2, Volume2, GraduationCap } from "lucide-react";
+import { Settings, Camera, MessagesSquare, Coins, MessageSquarePlus, Users, Globe, ChevronLeft, WifiOff, Download, Check, Loader2, Volume2, GraduationCap, Plus, X, Search, User, Pencil } from "lucide-react";
 import { signInWithPopup, GoogleAuthProvider } from "firebase/auth";
 import { auth } from "../firebase";
 import { useTranslation } from "../lib/i18n";
@@ -25,18 +25,27 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showOffline, setShowOffline] = useState(false);
+  const [showLangPicker, setShowLangPicker] = useState(false);
+  const [langSearch, setLangSearch] = useState("");
+  const [showPersonalize, setShowPersonalize] = useState(false);
+  const [tempName, setTempName] = useState("");
+  const [tempGender, setTempGender] = useState<"male" | "female" | "">("");
+  const [tempLang, setTempLang] = useState("");
+  const [tempVoice, setTempVoice] = useState("");
 
   const {
     uiLanguage,
     setUiLanguage,
-    defaultSourceLanguage,
-    defaultTargetLanguages,
     ttsVoice,
     setTtsVoice,
     ttsSpeed,
     setTtsSpeed,
     favoriteLanguages,
     setFavoriteLanguages,
+    userName,
+    setUserName,
+    userGender,
+    setUserGender,
   } = useUserStore();
 
   const t = useTranslation(uiLanguage);
@@ -44,16 +53,16 @@ export default function Home() {
   const [previewingVoice, setPreviewingVoice] = useState<string | null>(null);
 
   const TTS_VOICES = [
-    { id: "alloy", label: "Alloy", desc: "Neutra" },
-    { id: "ash", label: "Ash", desc: "Maschile, calda" },
-    { id: "ballad", label: "Ballad", desc: "Maschile, morbida" },
-    { id: "coral", label: "Coral", desc: "Femminile, calda" },
-    { id: "echo", label: "Echo", desc: "Maschile, profonda" },
-    { id: "fable", label: "Fable", desc: "Maschile, narrativa" },
-    { id: "nova", label: "Nova", desc: "Femminile, vivace" },
-    { id: "onyx", label: "Onyx", desc: "Maschile, autorevole" },
-    { id: "sage", label: "Sage", desc: "Femminile, calma" },
-    { id: "shimmer", label: "Shimmer", desc: "Femminile, luminosa" },
+    { id: "alloy", label: "Alloy", descKey: "voiceAlloy" as const },
+    { id: "ash", label: "Ash", descKey: "voiceAsh" as const },
+    { id: "ballad", label: "Ballad", descKey: "voiceBallad" as const },
+    { id: "coral", label: "Coral", descKey: "voiceCoral" as const },
+    { id: "echo", label: "Echo", descKey: "voiceEcho" as const },
+    { id: "fable", label: "Fable", descKey: "voiceFable" as const },
+    { id: "nova", label: "Nova", descKey: "voiceNova" as const },
+    { id: "onyx", label: "Onyx", descKey: "voiceOnyx" as const },
+    { id: "sage", label: "Sage", descKey: "voiceSage" as const },
+    { id: "shimmer", label: "Shimmer", descKey: "voiceShimmer" as const },
   ];
 
   const previewAbortRef = useRef(false);
@@ -93,8 +102,8 @@ export default function Home() {
     try {
       const sessionId = await createSession(
         "Live Translation",
-        defaultSourceLanguage,
-        defaultTargetLanguages
+        uiLanguage,
+        favoriteLanguages
       );
       if (sessionId) {
         navigate(`/session/${sessionId}/host`);
@@ -308,6 +317,50 @@ export default function Home() {
             </div>
 
             <div className="overflow-y-auto p-4 pt-2 space-y-6 flex-1">
+              {/* Personalize */}
+              {userName ? (
+                <button
+                  onClick={() => {
+                    setTempName(userName);
+                    setTempGender(userGender);
+                    setTempLang(uiLanguage);
+                    setTempVoice(ttsVoice);
+                    setShowPersonalize(true);
+                  }}
+                  className="w-full bg-[#0E2666] border border-[#FFFFFF14] rounded-2xl p-4 flex items-center gap-4 hover:bg-[#123182] transition-colors"
+                >
+                  <div className="w-11 h-11 rounded-full bg-[#295BDB]/20 flex items-center justify-center shrink-0">
+                    <User className="w-5 h-5 text-[#295BDB]" />
+                  </div>
+                  <div className="flex-1 min-w-0 text-left">
+                    <p className="text-sm font-bold text-[#F4F4F4]">{userName}</p>
+                    <p className="text-xs text-[#F4F4F4]/40">{LANGUAGES.find((l) => l.code === uiLanguage)?.label} · {TTS_VOICES.find((v) => v.id === ttsVoice)?.label}</p>
+                  </div>
+                  <Pencil className="w-4 h-4 text-[#F4F4F4]/30 shrink-0" />
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    setTempName("");
+                    setTempGender("");
+                    setTempLang(uiLanguage);
+                    setTempVoice(ttsVoice);
+                    setShowPersonalize(true);
+                  }}
+                  className="w-full bg-[#295BDB] hover:bg-[#295BDB]/80 rounded-2xl p-4 flex items-center gap-4 transition-colors"
+                >
+                  <div className="w-11 h-11 rounded-full bg-white/10 flex items-center justify-center shrink-0">
+                    <User className="w-5 h-5" />
+                  </div>
+                  <div className="flex-1 min-w-0 text-left">
+                    <p className="text-sm font-bold">{t("personalizeTitle")}</p>
+                    <p className="text-xs text-[#F4F4F4]/60">{t("personalizeDesc")}</p>
+                  </div>
+                </button>
+              )}
+
+              <div className="border-t border-[#FFFFFF14]" />
+
               {/* System Language */}
               <div>
                 <div className="flex items-center gap-2 mb-2">
@@ -330,32 +383,78 @@ export default function Home() {
               <div>
                 <label className="block text-sm font-medium text-[#F4F4F4]/80 mb-1">{t("favoriteLanguages")}</label>
                 <p className="text-xs text-[#F4F4F4]/40 mb-3">{t("favoriteLanguagesDesc")}</p>
-                <div className="grid grid-cols-2 gap-2 max-h-[40vh] overflow-y-auto">
-                  {LANGUAGES.map((lang) => {
-                    const isFav = favoriteLanguages.includes(lang.code);
+                <div className="flex flex-wrap gap-2">
+                  {favoriteLanguages.map((code) => {
+                    const lang = LANGUAGES.find((l) => l.code === code);
+                    if (!lang) return null;
                     return (
-                      <button
-                        key={lang.code}
-                        onClick={() => {
-                          if (isFav) {
-                            setFavoriteLanguages(favoriteLanguages.filter((c) => c !== lang.code));
-                          } else {
-                            setFavoriteLanguages([...favoriteLanguages, lang.code]);
-                          }
-                        }}
-                        className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors border ${
-                          isFav
-                            ? "bg-[#295BDB]/20 border-[#295BDB] text-[#295BDB]"
-                            : "bg-[#02114A] border-[#FFFFFF14] text-[#F4F4F4]/60 hover:border-[#FFFFFF30]"
-                        }`}
+                      <span
+                        key={code}
+                        className="flex items-center gap-1.5 bg-[#295BDB]/20 border border-[#295BDB] text-[#295BDB] pl-2.5 pr-1.5 py-1.5 rounded-xl text-sm font-medium"
                       >
-                        <span className="text-base">{lang.flag}</span>
-                        <span className="truncate">{lang.label}</span>
-                      </button>
+                        {lang.flag} {lang.label}
+                        <button
+                          onClick={() => setFavoriteLanguages(favoriteLanguages.filter((c) => c !== code))}
+                          className="p-0.5 rounded-full hover:bg-[#295BDB]/30 transition-colors"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </span>
                     );
                   })}
+                  <button
+                    onClick={() => { setLangSearch(""); setShowLangPicker(true); }}
+                    className="flex items-center gap-1.5 bg-[#02114A] border border-dashed border-[#FFFFFF30] text-[#F4F4F4]/50 hover:border-[#295BDB] hover:text-[#295BDB] px-3 py-1.5 rounded-xl text-sm font-medium transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
+
+              {/* Language Picker Popup */}
+              {showLangPicker && (
+                <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/50" onClick={() => setShowLangPicker(false)}>
+                  <div
+                    className="w-full max-w-[430px] bg-[#0E2666] rounded-t-2xl border-t border-[#FFFFFF14] flex flex-col"
+                    style={{ maxHeight: "70vh" }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-center gap-3 p-4 border-b border-[#FFFFFF14] shrink-0">
+                      <Search className="w-4 h-4 text-[#F4F4F4]/40" />
+                      <input
+                        type="text"
+                        value={langSearch}
+                        onChange={(e) => setLangSearch(e.target.value)}
+                        placeholder={t("favoriteLanguages")}
+                        autoFocus
+                        className="flex-1 bg-transparent text-[#F4F4F4] text-sm outline-none placeholder:text-[#F4F4F4]/30"
+                      />
+                      <button onClick={() => setShowLangPicker(false)} className="text-[#F4F4F4]/40 hover:text-[#F4F4F4]">
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+                    <div className="overflow-y-auto p-2 flex-1">
+                      {LANGUAGES.filter((l) => {
+                        if (favoriteLanguages.includes(l.code)) return false;
+                        if (!langSearch) return true;
+                        const q = langSearch.toLowerCase();
+                        return l.label.toLowerCase().includes(q) || l.code.toLowerCase().includes(q);
+                      }).map((lang) => (
+                        <button
+                          key={lang.code}
+                          onClick={() => {
+                            setFavoriteLanguages([...favoriteLanguages, lang.code]);
+                          }}
+                          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-[#F4F4F4]/80 hover:bg-[#295BDB]/20 transition-colors"
+                        >
+                          <span className="text-base">{lang.flag}</span>
+                          <span>{lang.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="border-t border-[#FFFFFF14]" />
 
@@ -381,7 +480,7 @@ export default function Home() {
                     >
                       <div className="flex-1 min-w-0">
                         <span className="block">{v.label}</span>
-                        <span className="block text-[10px] opacity-60">{v.desc}</span>
+                        <span className="block text-[10px] opacity-60">{t(v.descKey)}</span>
                       </div>
                       {previewingVoice === v.id && (
                         <Loader2 className="w-3 h-3 animate-spin shrink-0" />
@@ -413,6 +512,116 @@ export default function Home() {
                 </div>
               </div>
 
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Personalize Modal */}
+      {showPersonalize && (
+        <div className="fixed inset-0 z-[70] flex flex-col bg-[#010B2E]">
+          <div className="flex-1 flex flex-col w-full max-w-[430px] mx-auto overflow-hidden">
+            <div className="flex items-center gap-3 p-4 shrink-0">
+              <button onClick={() => setShowPersonalize(false)} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
+                <ChevronLeft className="w-6 h-6" />
+              </button>
+              <h2 className="text-2xl font-bold">{t("personalizeTitle")}</h2>
+            </div>
+
+            <div className="overflow-y-auto p-4 pt-2 space-y-6 flex-1">
+              {/* Name */}
+              <div>
+                <label className="block text-sm font-medium text-[#F4F4F4]/80 mb-2">{t("yourName")}</label>
+                <input
+                  type="text"
+                  value={tempName}
+                  onChange={(e) => setTempName(e.target.value)}
+                  placeholder={t("yourNamePlaceholder")}
+                  className="w-full bg-[#02114A] border border-[#FFFFFF14] rounded-xl p-4 text-[#F4F4F4] outline-none focus:ring-2 focus:ring-[#295BDB] placeholder:text-[#F4F4F4]/30"
+                />
+              </div>
+
+              {/* Gender */}
+              <div>
+                <label className="block text-sm font-medium text-[#F4F4F4]/80 mb-2">{t("yourGender")}</label>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setTempGender("male")}
+                    className={`flex-1 py-3 rounded-xl text-sm font-medium transition-colors border ${
+                      tempGender === "male"
+                        ? "bg-[#295BDB]/20 border-[#295BDB] text-[#295BDB]"
+                        : "bg-[#02114A] border-[#FFFFFF14] text-[#F4F4F4]/60 hover:border-[#FFFFFF30]"
+                    }`}
+                  >
+                    {t("genderMale")}
+                  </button>
+                  <button
+                    onClick={() => setTempGender("female")}
+                    className={`flex-1 py-3 rounded-xl text-sm font-medium transition-colors border ${
+                      tempGender === "female"
+                        ? "bg-[#295BDB]/20 border-[#295BDB] text-[#295BDB]"
+                        : "bg-[#02114A] border-[#FFFFFF14] text-[#F4F4F4]/60 hover:border-[#FFFFFF30]"
+                    }`}
+                  >
+                    {t("genderFemale")}
+                  </button>
+                </div>
+              </div>
+
+              {/* Language */}
+              <div>
+                <label className="block text-sm font-medium text-[#F4F4F4]/80 mb-2">{t("personalizeLanguage")}</label>
+                <select
+                  value={tempLang}
+                  onChange={(e) => setTempLang(e.target.value)}
+                  className="w-full bg-[#02114A] border border-[#FFFFFF14] rounded-xl p-4 text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none"
+                >
+                  <LanguageOptions />
+                </select>
+              </div>
+
+              {/* Voice */}
+              <div>
+                <label className="block text-sm font-medium text-[#F4F4F4]/80 mb-2">{t("personalizeVoice")}</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {TTS_VOICES.map((v) => (
+                    <button
+                      key={v.id}
+                      onClick={() => {
+                        setTempVoice(v.id);
+                        prepareAudioForSafari();
+                        playTTS("Hello! This is how I sound.", v.id as any, 1.0, "en").catch(() => {});
+                      }}
+                      className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors border ${
+                        tempVoice === v.id
+                          ? "bg-[#295BDB]/20 border-[#295BDB] text-[#295BDB]"
+                          : "bg-[#02114A] border-[#FFFFFF14] text-[#F4F4F4]/60 hover:border-[#FFFFFF30]"
+                      }`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <span className="block">{v.label}</span>
+                        <span className="block text-[10px] opacity-60">{t(v.descKey)}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Save */}
+              <button
+                onClick={() => {
+                  if (tempName.trim()) {
+                    setUserName(tempName.trim());
+                    setUserGender(tempGender);
+                    setUiLanguage(tempLang);
+                    setTtsVoice(tempVoice);
+                    setShowPersonalize(false);
+                  }
+                }}
+                disabled={!tempName.trim()}
+                className="w-full bg-[#295BDB] hover:bg-[#295BDB]/80 disabled:opacity-40 text-[#F4F4F4] font-bold py-4 rounded-xl transition-colors text-sm"
+              >
+                {t("personalizeSave")}
+              </button>
             </div>
           </div>
         </div>

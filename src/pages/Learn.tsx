@@ -163,7 +163,7 @@ function detectVoiceCommand(text: string): VoiceCommand {
 
 // ─── System prompt builder ───────────────────────────────────────────────────
 
-function buildSystemPrompt(nativeLang: string, targetLang: string, level: Level, topic: Topic): string {
+function buildSystemPrompt(nativeLang: string, targetLang: string, level: Level, topic: Topic, studentName?: string, studentGender?: string): string {
   const levelDesc: Record<Level, string> = {
     molto_base: `The user is an absolute beginner. You are their patient, warm teacher.
 - Use only the most basic words (hello, yes, no, thank you, numbers 1-10). 2-4 words max.
@@ -200,7 +200,11 @@ function buildSystemPrompt(nativeLang: string, targetLang: string, level: Level,
 
   const isBeginnerLevel = level === "molto_base" || level === "base";
 
-  return `You are a friendly language tutor teaching ${targetLang} to a ${nativeLang} speaker.
+  const studentInfo = studentName
+    ? `\nSTUDENT: Their name is ${studentName}.${studentGender ? ` Use ${studentGender === "male" ? "masculine" : "feminine"} grammatical forms when addressing them.` : ""} Call them by name occasionally to make the conversation personal.`
+    : "";
+
+  return `You are a friendly language tutor teaching ${targetLang} to a ${nativeLang} speaker.${studentInfo}
 LEVEL: ${levelDesc[level]}
 TOPIC: ${topicDesc[topic]}
 
@@ -212,7 +216,7 @@ RULES:
 - If the user made errors, put the FULL correction in ${nativeLang}: what was wrong, the correct version, and why
 - Keep responses concise — this is a SPOKEN conversation
 - Ask questions to keep the conversation going
-- Start by greeting and beginning the lesson
+- Start by greeting${studentName ? ` ${studentName}` : ""} and beginning the lesson
 - In your FIRST message only, briefly mention in the "hint" field that voice commands are available: repeat, slower, faster, stop (in ${nativeLang})
 ${isBeginnerLevel ? `
 TEACHER MODE (because the user is a beginner):
@@ -236,7 +240,7 @@ const LEVEL_SPEED: Record<Level, number> = {
 
 export default function Learn() {
   const navigate = useNavigate();
-  const { uiLanguage, defaultSourceLanguage } = useUserStore();
+  const { uiLanguage, userName, userGender } = useUserStore();
   const t = useTranslation(uiLanguage);
 
   // Setup
@@ -244,7 +248,7 @@ export default function Learn() {
   const [mode, setMode] = useState<LearnMode>("conversation");
   const [nativeLang, setNativeLang] = useState(uiLanguage || "it");
   const [targetLang, setTargetLang] = useState(
-    defaultSourceLanguage === uiLanguage ? "en" : defaultSourceLanguage || "en",
+    uiLanguage === "en" ? "it" : "en",
   );
   const [level, setLevel] = useState<Level>("base");
   const [topic, setTopic] = useState<Topic>("free");
@@ -519,7 +523,7 @@ export default function Learn() {
     prepareAudioForSafari();
     cancelledRef.current = false;
 
-    const systemPrompt = buildSystemPrompt(nativeLangLabel, targetLangLabel, level, topic);
+    const systemPrompt = buildSystemPrompt(nativeLangLabel, targetLangLabel, level, topic, userName || undefined, userGender || undefined);
     const initMessages = [{ role: "system" as const, content: systemPrompt }];
 
     setPhase("chat");

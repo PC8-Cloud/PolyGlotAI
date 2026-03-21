@@ -9,11 +9,11 @@ import { analyzeImage, playTTS, prepareAudioForSafari } from "../lib/openai";
 
 export default function CameraTranslate() {
   const navigate = useNavigate();
-  const { uiLanguage, defaultSourceLanguage } = useUserStore();
+  const { uiLanguage } = useUserStore();
   const t = useTranslation(uiLanguage);
 
   const [targetLang, setTargetLang] = useState(
-    defaultSourceLanguage === "en" ? "it" : "en",
+    uiLanguage === "en" ? "it" : "en",
   );
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);

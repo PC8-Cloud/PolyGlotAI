@@ -144,11 +144,11 @@ const CATEGORIES: Category[] = [
 
 export default function Phrases() {
   const navigate = useNavigate();
-  const { uiLanguage, defaultSourceLanguage } = useUserStore();
+  const { uiLanguage } = useUserStore();
   const t = useTranslation(uiLanguage);
 
   const [targetLang, setTargetLang] = useState(
-    defaultSourceLanguage === "en" ? "it" : defaultSourceLanguage,
+    uiLanguage === "en" ? "it" : "en",
   );
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [translations, setTranslations] = useState<Record<string, string>>({});

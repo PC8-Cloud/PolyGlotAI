@@ -24,12 +24,12 @@ const SILENCE_THRESHOLD = 0.015;
 
 export default function Conversation() {
   const navigate = useNavigate();
-  const { uiLanguage, defaultSourceLanguage } = useUserStore();
+  const { uiLanguage } = useUserStore();
   const t = useTranslation(uiLanguage);
 
-  const [yourLang, setYourLang] = useState(defaultSourceLanguage);
+  const [yourLang, setYourLang] = useState(uiLanguage);
   const [theirLang, setTheirLang] = useState(
-    defaultSourceLanguage === "en" ? "it" : "en",
+    uiLanguage === "en" ? "it" : "en",
   );
   const [messages, setMessages] = useState<Message[]>([]);
   const [chatState, setChatState] = useState<"idle" | "listening" | "transcribing" | "translating" | "speaking">("idle");
@@ -359,24 +359,38 @@ export default function Conversation() {
 
   return (
     <div className="h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans overflow-hidden">
-      <header className="flex items-center gap-3 p-4 border-b border-[#FFFFFF14] bg-[#0E2666] shrink-0">
-        <button onClick={() => { stopConversation(); navigate("/"); }} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
-          <ChevronLeft className="w-6 h-6" />
-        </button>
-        <h1 className="text-lg font-bold flex-1">{t("conversation")}</h1>
-        <button
-          onClick={() => {
-            const newVal = !autoSpeak;
-            setAutoSpeak(newVal);
-            if (!newVal) muteAudio();
-            else prepareAudioForSafari();
-          }}
-          className={`p-2 rounded-xl transition-colors ${
-            autoSpeak ? "bg-[#295BDB]/20 text-[#295BDB]" : "bg-[#123182] text-[#F4F4F4]/40"
-          }`}
-        >
-          {autoSpeak ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
-        </button>
+      <header className="border-b border-[#FFFFFF14] bg-[#0E2666] shrink-0">
+        <div className="flex items-center gap-3 px-4 pt-4 pb-2">
+          <button onClick={() => { stopConversation(); navigate("/"); }} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
+            <ChevronLeft className="w-6 h-6" />
+          </button>
+          <h1 className="text-lg font-bold flex-1">{t("conversation")}</h1>
+        </div>
+        <div className="flex items-center gap-2 px-4 pb-3">
+          <select
+            value={yourLang}
+            onChange={(e) => setYourLang(e.target.value)}
+            disabled={conversationActive}
+            className="flex-1 min-w-0 bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-3 py-2 text-sm text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-center disabled:opacity-60 truncate"
+          >
+            <LanguageOptions />
+          </select>
+          <button
+            onClick={swapLanguages}
+            disabled={conversationActive}
+            className="p-2 bg-[#123182] rounded-xl text-[#F4F4F4]/60 hover:bg-[#295BDB] hover:text-[#F4F4F4] transition-colors shrink-0 disabled:opacity-40"
+          >
+            <ArrowRightLeft className="w-4 h-4" />
+          </button>
+          <select
+            value={theirLang}
+            onChange={(e) => setTheirLang(e.target.value)}
+            disabled={conversationActive}
+            className="flex-1 min-w-0 bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-3 py-2 text-sm text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-center disabled:opacity-60 truncate"
+          >
+            <LanguageOptions />
+          </select>
+        </div>
       </header>
 
       {error && (
@@ -386,16 +400,14 @@ export default function Conversation() {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 min-h-0">
-        <div className="flex justify-end">
-          <button
-            onClick={handleShareConversation}
-            disabled={messages.length === 0}
-            className="p-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/50 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-20 disabled:hover:bg-[#0E2666] disabled:hover:text-[#F4F4F4]/50"
-          >
-            <Upload className="w-5 h-5" />
-          </button>
-        </div>
+      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 min-h-0 relative">
+        <button
+          onClick={handleShareConversation}
+          disabled={messages.length === 0}
+          className="sticky top-0 z-10 self-end p-2.5 bg-[#0E2666]/90 backdrop-blur-sm border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/50 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-20 disabled:hover:bg-[#0E2666]/90 disabled:hover:text-[#F4F4F4]/50 shrink-0"
+        >
+          <Upload className="w-5 h-5" />
+        </button>
         {messages.length === 0 && !conversationActive && (
           <div className="flex-1 flex items-center justify-center">
             <p className="text-[#F4F4F4]/30 text-sm text-center px-8">{t("conversationAutoDetect")}</p>
@@ -511,33 +523,6 @@ export default function Conversation() {
       )}
 
       <div className="border-t border-[#FFFFFF14] bg-[#0E2666] shrink-0">
-        {/* Language row */}
-        <div className="flex items-center gap-2 px-4 pt-3">
-          <select
-            value={yourLang}
-            onChange={(e) => setYourLang(e.target.value)}
-            disabled={conversationActive}
-            className="flex-1 min-w-0 bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-3 py-2 text-sm text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-center disabled:opacity-60 truncate"
-          >
-            <LanguageOptions />
-          </select>
-          <button
-            onClick={swapLanguages}
-            disabled={conversationActive}
-            className="p-2 bg-[#123182] rounded-xl text-[#F4F4F4]/60 hover:bg-[#295BDB] hover:text-[#F4F4F4] transition-colors shrink-0 disabled:opacity-40"
-          >
-            <ArrowRightLeft className="w-4 h-4" />
-          </button>
-          <select
-            value={theirLang}
-            onChange={(e) => setTheirLang(e.target.value)}
-            disabled={conversationActive}
-            className="flex-1 min-w-0 bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-3 py-2 text-sm text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-center disabled:opacity-60 truncate"
-          >
-            <LanguageOptions />
-          </select>
-        </div>
-
         {/* Mic button + keyboard toggle */}
         <div className="flex items-center justify-center gap-4 py-4">
           <button
@@ -563,7 +548,19 @@ export default function Conversation() {
             )}
           </button>
 
-          <div className="w-[52px]" /> {/* spacer for symmetry */}
+          <button
+            onClick={() => {
+              const newVal = !autoSpeak;
+              setAutoSpeak(newVal);
+              if (!newVal) muteAudio();
+              else prepareAudioForSafari();
+            }}
+            className={`p-3 rounded-xl transition-colors ${
+              autoSpeak ? "bg-[#123182] text-[#F4F4F4]/40 hover:text-[#F4F4F4] hover:bg-[#295BDB]" : "bg-red-500/20 text-red-400"
+            }`}
+          >
+            {autoSpeak ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+          </button>
         </div>
 
         <p className="text-xs text-[#F4F4F4]/30 text-center pb-3">

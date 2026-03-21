@@ -19,12 +19,12 @@ const LONG_PAUSE_MS = 4500;  // stop and play everything
 
 export default function MegaphonePage() {
   const navigate = useNavigate();
-  const { uiLanguage, defaultSourceLanguage } = useUserStore();
+  const { uiLanguage } = useUserStore();
   const t = useTranslation(uiLanguage);
 
-  const [speakerLang, setSpeakerLang] = useState(defaultSourceLanguage);
+  const [speakerLang, setSpeakerLang] = useState(uiLanguage);
   const [targetLang, setTargetLang] = useState(
-    defaultSourceLanguage === "en" ? "it" : "en",
+    uiLanguage === "en" ? "it" : "en",
   );
   const [entries, setEntries] = useState<Entry[]>([]);
   const [isListening, setIsListening] = useState(false);
@@ -431,7 +431,7 @@ export default function MegaphonePage() {
 
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
         {/* Import & Share icons */}
-        <div className="flex items-center">
+        <div className="flex items-center sticky top-0 z-10 bg-[#02114A]/90 backdrop-blur-sm -mx-4 px-4 py-2 -mt-4">
           <input
             ref={fileInputRef}
             type="file"
