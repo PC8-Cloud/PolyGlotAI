@@ -1,13 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Mic, Radio, Users, MessageCircleQuestion, LogOut, QrCode, X, Share2, RotateCcw, Printer, Check, Upload } from "lucide-react";
+import { ChevronLeft, Mic, Radio, Users, MessageCircleQuestion, LogOut, QrCode, X, Share2, RotateCcw, Printer, Check, ClipboardPaste, FolderOpen } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLocaleForCode } from "../lib/languages";
 import { translateText, getApiErrorMessage } from "../lib/openai";
 import { exportAndShare, PdfLine } from "../lib/export-pdf";
-import LoadTextModal from "../components/LoadTextModal";
 import { createRoom, sendMessage } from "../lib/firebase-helpers";
 import { db } from "../firebase";
 import { collection, doc, getDoc, onSnapshot, orderBy, query, updateDoc, where, getDocs, limit } from "firebase/firestore";
@@ -51,7 +50,6 @@ export default function RoomHost() {
   const [rejoining, setRejoining] = useState(false);
   const [lastRoom, setLastRoom] = useState<{ code: string; sessionId: string; hostId: string } | null>(null);
   const [readyChunks, setReadyChunks] = useState(0);
-  const [showLoadText, setShowLoadText] = useState(false);
 
   const recognitionRef = useRef<any>(null);
   const transcriptRef = useRef("");
@@ -60,6 +58,7 @@ export default function RoomHost() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const wakeLockRef = useRef<any>(null);
   const processingRef = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Incremental translation refs
   const segmentsRef = useRef<string[]>([]);
@@ -519,6 +518,44 @@ export default function RoomHost() {
     }
   };
 
+  const handlePaste = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text.trim()) handleLoadedText(text.trim());
+    } catch {
+      setError("Clipboard access denied");
+    }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      let text = "";
+      if (file.type === "application/pdf" || file.name.endsWith(".pdf")) {
+        const pdfjsLib = await import("pdfjs-dist");
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+        const buffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+        const pages: string[] = [];
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          const pageText = content.items.map((item: any) => item.str).join(" ");
+          pages.push(pageText);
+        }
+        text = pages.join("\n\n");
+      } else {
+        text = await file.text();
+      }
+      if (text.trim()) handleLoadedText(text.trim());
+    } catch {
+      setError(t("loadTextError"));
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
   const handleSharePDF = () => {
     if (messages.length === 0) return;
     const lines: PdfLine[] = messages.map((msg) => {
@@ -629,17 +666,9 @@ export default function RoomHost() {
             <Users className="w-4 h-4" />
             <span className="text-sm font-bold">{participants.length}</span>
           </div>
-          <button
-            onClick={() => setShowLoadText(true)}
-            disabled={isListening || isTranslating || participants.length === 0}
-            className="p-2 rounded-xl bg-[#123182] text-[#F4F4F4]/60 hover:text-[#F4F4F4] transition-colors disabled:opacity-40"
-            title={t("loadText")}
-          >
-            <Upload className="w-4 h-4" />
-          </button>
           {messages.length > 0 && (
-            <button onClick={handleSharePDF} className="p-2 rounded-xl bg-[#123182] text-[#F4F4F4]/60 hover:text-[#F4F4F4] transition-colors">
-              <Share2 className="w-4 h-4" />
+            <button onClick={handleSharePDF} className="p-2 rounded-xl bg-[#123182] text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#295BDB] transition-colors">
+              <Share2 className="w-5 h-5" />
             </button>
           )}
           <button onClick={closeRoom} className="p-2 rounded-xl bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors">
@@ -684,6 +713,35 @@ export default function RoomHost() {
       )}
 
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
+        {/* Inline load buttons */}
+        {participants.length > 0 && (
+          <div className="flex items-center gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".txt,.pdf,.md,.text"
+              onChange={handleFileChange}
+              className="hidden"
+            />
+            <button
+              onClick={handlePaste}
+              disabled={isListening || isTranslating}
+              className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-sm text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-40"
+            >
+              <ClipboardPaste className="w-4 h-4" />
+              {t("paste")}
+            </button>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isListening || isTranslating}
+              className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-sm text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-40"
+            >
+              <FolderOpen className="w-4 h-4" />
+              {t("browse")}
+            </button>
+          </div>
+        )}
+
         {messages.length === 0 && !isListening && participants.length === 0 && (
           <div className="flex-1 flex items-center justify-center">
             <p className="text-[#F4F4F4]/30 text-sm text-center px-8">{t("waitingForParticipants")}</p>
@@ -771,12 +829,6 @@ export default function RoomHost() {
           {participants.length === 0 ? t("waitingForParticipants") : isListening ? t("tapToStop") : t("tapToSpeak")}
         </span>
       </div>
-
-      <LoadTextModal
-        open={showLoadText}
-        onClose={() => setShowLoadText(false)}
-        onLoad={handleLoadedText}
-      />
 
       {showQR && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">

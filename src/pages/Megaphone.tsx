@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Mic, Volume2, VolumeX, Megaphone, Check, Share2, Upload } from "lucide-react";
+import { ChevronLeft, Mic, Volume2, VolumeX, Megaphone, Check, Share2, Download, ClipboardPaste, FolderOpen } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLocaleForCode } from "../lib/languages";
 import { translateText, playTTS, prepareAudioForSafari, getApiErrorMessage } from "../lib/openai";
 import { exportAndShare, PdfLine } from "../lib/export-pdf";
-import LoadTextModal from "../components/LoadTextModal";
 
 interface Entry {
   id: number;
@@ -34,7 +33,6 @@ export default function MegaphonePage() {
   const [autoSpeak, setAutoSpeak] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [readyChunks, setReadyChunks] = useState(0);
-  const [showLoadText, setShowLoadText] = useState(false);
 
   const recognitionRef = useRef<any>(null);
   const transcriptRef = useRef("");
@@ -44,6 +42,7 @@ export default function MegaphonePage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const wakeLockRef = useRef<any>(null);
   const processingRef = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Incremental translation refs
   const segmentsRef = useRef<string[]>([]); // isFinal results
@@ -310,7 +309,6 @@ export default function MegaphonePage() {
         prev.map((e) => (e.id === entryId ? { ...e, translatedText: translated } : e))
       );
       if (autoSpeak && translated !== "...") {
-        // Split into sentences for chunked TTS playback
         const sentences = translated.match(/[^.!?]+[.!?]+/g) || [translated];
         for (const sentence of sentences) {
           const s = sentence.trim();
@@ -334,6 +332,57 @@ export default function MegaphonePage() {
     }
   };
 
+  const handlePaste = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text.trim()) handleLoadedText(text.trim());
+    } catch {
+      setError("Clipboard access denied");
+    }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      let text = "";
+      if (file.type === "application/pdf" || file.name.endsWith(".pdf")) {
+        const pdfjsLib = await import("pdfjs-dist");
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+        const buffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+        const pages: string[] = [];
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          text = content.items.map((item: any) => item.str).join(" ");
+          pages.push(text);
+        }
+        text = pages.join("\n\n");
+      } else {
+        text = await file.text();
+      }
+      if (text.trim()) handleLoadedText(text.trim());
+    } catch {
+      setError(t("loadTextError"));
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const handleSharePDF = () => {
+    const speakerLabel = LANGUAGES.find((l) => l.code === speakerLang)?.label || speakerLang;
+    const targetLabel = LANGUAGES.find((l) => l.code === targetLang)?.label || targetLang;
+    const lines: PdfLine[] = entries.map((e) => ({
+      text: e.translatedText,
+      subtext: e.originalText,
+    }));
+    exportAndShare(
+      { title: t("megaphone"), subtitle: `${speakerLabel} → ${targetLabel}`, lines },
+      `PolyGlot-Megaphone.pdf`,
+    );
+  };
+
   const speakerLangObj = LANGUAGES.find((l) => l.code === speakerLang);
   const targetLangObj = LANGUAGES.find((l) => l.code === targetLang);
   const busy = isTranslating || isSpeaking;
@@ -351,28 +400,9 @@ export default function MegaphonePage() {
         </button>
         <Megaphone className="w-5 h-5 text-[#295BDB]" />
         <h1 className="text-lg font-bold flex-1">{t("megaphone")}</h1>
-        <button
-          onClick={() => setShowLoadText(true)}
-          disabled={isListening || isSpeaking || isTranslating}
-          className="p-2 rounded-xl transition-colors bg-[#123182] text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#295BDB] disabled:opacity-40"
-          title={t("loadText")}
-        >
-          <Upload className="w-5 h-5" />
-        </button>
         {entries.length > 0 && (
           <button
-            onClick={() => {
-              const speakerLabel = LANGUAGES.find((l) => l.code === speakerLang)?.label || speakerLang;
-              const targetLabel = LANGUAGES.find((l) => l.code === targetLang)?.label || targetLang;
-              const lines: PdfLine[] = entries.map((e) => ({
-                text: e.translatedText,
-                subtext: e.originalText,
-              }));
-              exportAndShare(
-                { title: t("megaphone"), subtitle: `${speakerLabel} → ${targetLabel}`, lines },
-                `PolyGlot-Megaphone.pdf`,
-              );
-            }}
+            onClick={handleSharePDF}
             className="p-2 rounded-xl transition-colors bg-[#123182] text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#295BDB]"
           >
             <Share2 className="w-5 h-5" />
@@ -418,10 +448,37 @@ export default function MegaphonePage() {
       )}
 
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+        {/* Inline load buttons */}
+        <div className="flex items-center gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".txt,.pdf,.md,.text"
+            onChange={handleFileChange}
+            className="hidden"
+          />
+          <button
+            onClick={handlePaste}
+            disabled={busy || isListening}
+            className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-sm text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-40"
+          >
+            <ClipboardPaste className="w-4 h-4" />
+            {t("paste")}
+          </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={busy || isListening}
+            className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-sm text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-40"
+          >
+            <FolderOpen className="w-4 h-4" />
+            {t("browse")}
+          </button>
+        </div>
+
         {entries.length === 0 && !isListening && (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center space-y-3">
-              <Megaphone className="w-16 h-16 text-[#F4F4F4]/10 mx-auto" />
+              <Download className="w-16 h-16 text-[#F4F4F4]/10 mx-auto" />
               <p className="text-[#F4F4F4]/30 text-sm px-8">{t("megaphoneDesc")}</p>
             </div>
           </div>
@@ -489,11 +546,6 @@ export default function MegaphonePage() {
         </span>
       </div>
 
-      <LoadTextModal
-        open={showLoadText}
-        onClose={() => setShowLoadText(false)}
-        onLoad={handleLoadedText}
-      />
     </div>
   );
 }
