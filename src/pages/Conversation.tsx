@@ -4,7 +4,7 @@ import { ChevronLeft, Mic, MicOff, Send, Volume2, VolumeX, ArrowRightLeft, Check
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLabelForCode } from "../lib/languages";
-import { translateText, playTTS, prepareAudioForSafari, getApiErrorMessage, transcribeAudioDetectLang } from "../lib/openai";
+import { translateText, playTTS, prepareAudioForSafari, stopAllAudio, getApiErrorMessage, transcribeAudioDetectLang } from "../lib/openai";
 import { exportAndShare, PdfLine } from "../lib/export-pdf";
 
 type MsgStatus = "sent" | "translated" | "playing" | "done";
@@ -371,7 +371,11 @@ export default function Conversation() {
           </button>
         )}
         <button
-          onClick={() => setAutoSpeak(!autoSpeak)}
+          onClick={() => {
+            const newVal = !autoSpeak;
+            setAutoSpeak(newVal);
+            if (!newVal) stopAllAudio();
+          }}
           className={`p-2 rounded-xl transition-colors ${
             autoSpeak ? "bg-[#295BDB]/20 text-[#295BDB]" : "bg-[#123182] text-[#F4F4F4]/40"
           }`}

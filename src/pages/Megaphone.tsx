@@ -4,7 +4,7 @@ import { ChevronLeft, Mic, Volume2, VolumeX, Megaphone, Check, Share2, Download,
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLocaleForCode } from "../lib/languages";
-import { translateText, playTTS, prepareAudioForSafari, getApiErrorMessage } from "../lib/openai";
+import { translateText, playTTS, prepareAudioForSafari, stopAllAudio, getApiErrorMessage } from "../lib/openai";
 import { exportAndShare, PdfLine } from "../lib/export-pdf";
 
 interface Entry {
@@ -409,7 +409,11 @@ export default function MegaphonePage() {
           </button>
         )}
         <button
-          onClick={() => setAutoSpeak(!autoSpeak)}
+          onClick={() => {
+            const newVal = !autoSpeak;
+            setAutoSpeak(newVal);
+            if (!newVal) stopAllAudio();
+          }}
           className={`p-2 rounded-xl transition-colors ${
             autoSpeak ? "bg-[#295BDB]/20 text-[#295BDB]" : "bg-[#123182] text-[#F4F4F4]/40"
           }`}
