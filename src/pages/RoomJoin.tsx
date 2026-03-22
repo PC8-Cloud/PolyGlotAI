@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { ChevronLeft, Radio, Volume2, VolumeX, Send, MessageCircleQuestion, Share2 } from "lucide-react";
+import { ChevronLeft, Radio, Volume2, VolumeX, Send, MessageCircleQuestion, Upload } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES } from "../lib/languages";
@@ -9,7 +9,7 @@ import { findRoomByCode, joinRoom, sendMessage } from "../lib/firebase-helpers";
 import { playTTS, translateText, prepareAudioForSafari } from "../lib/openai";
 import { db } from "../firebase";
 import { collection, doc, onSnapshot, orderBy, query } from "firebase/firestore";
-import { exportAndShare, PdfLine } from "../lib/export-pdf";
+import { muteAudio } from "../lib/openai";
 
 interface Msg {
   id: string;
@@ -121,6 +121,7 @@ export default function RoomJoin() {
         setJoining(false);
         return;
       }
+      prepareAudioForSafari(); // unlock audio on user gesture
       const pid = await joinRoom(sid, myLang, name.trim());
       setParticipantId(pid);
       setSessionId(sid);
@@ -189,20 +190,20 @@ export default function RoomJoin() {
 
   const myLangObj = LANGUAGES.find((l) => l.code === myLang);
 
-  // ─── PDF/Share Export ────────────────────────────────────────────────────
-  const handleShare = () => {
+  // ─── Share ────────────────────────────────────────────────────────────────
+  const handleShare = async () => {
     const broadcasts = messages.filter((m) => m.type === "BROADCAST");
-    const lines: PdfLine[] = broadcasts.map((msg) => {
-      const myText = msg.translations[myLang] || msg.sourceText;
-      return {
-        text: myText,
-        subtext: msg.sourceText !== myText ? msg.sourceText : undefined,
-      };
-    });
-    exportAndShare(
-      { title: t("pdfTitle"), langLabel: myLangObj?.label || myLang, lines },
-      `PolyGlot-Session.pdf`,
-    );
+    const text = broadcasts
+      .map((msg) => {
+        const myText = msg.translations[myLang] || msg.sourceText;
+        return msg.sourceText !== myText ? `${myText}\n  → ${msg.sourceText}` : myText;
+      })
+      .join("\n\n");
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: "PolyGlot AI", text });
+      } catch {}
+    }
   };
 
   // ─── Join screen ──────────────────────────────────────────────────────────
@@ -292,8 +293,8 @@ export default function RoomJoin() {
               onClick={handleShare}
               className="flex items-center gap-2 bg-[#295BDB] hover:bg-[#295BDB]/80 text-[#F4F4F4] font-bold py-3 px-6 rounded-xl transition-colors"
             >
-              <Share2 className="w-5 h-5" />
-              {t("savePDF")}
+              <Upload className="w-5 h-5" />
+              {t("shareRoom")}
             </button>
           )}
           <button
@@ -319,17 +320,20 @@ export default function RoomJoin() {
         <h1 className="text-lg font-bold flex-1">
           {myLangObj?.flag} {name}
         </h1>
-        {messages.filter((m) => m.type === "BROADCAST").length > 0 && (
-          <button
-            onClick={handleShare}
-            className="p-2 rounded-xl transition-colors bg-[#123182] text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#295BDB]"
-            title={t("savePDF")}
-          >
-            <Share2 className="w-5 h-5" />
-          </button>
-        )}
         <button
-          onClick={() => setAutoSpeak(!autoSpeak)}
+          onClick={handleShare}
+          disabled={messages.filter((m) => m.type === "BROADCAST").length === 0}
+          className="p-2 rounded-xl transition-colors bg-[#123182] text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#295BDB] disabled:opacity-20"
+        >
+          <Upload className="w-5 h-5" />
+        </button>
+        <button
+          onClick={() => {
+            const newVal = !autoSpeak;
+            setAutoSpeak(newVal);
+            if (!newVal) muteAudio();
+            else prepareAudioForSafari();
+          }}
           className={`p-2 rounded-xl transition-colors ${
             autoSpeak ? "bg-[#295BDB]/20 text-[#295BDB]" : "bg-[#123182] text-[#F4F4F4]/40"
           }`}
