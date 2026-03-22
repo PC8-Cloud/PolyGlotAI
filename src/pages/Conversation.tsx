@@ -75,8 +75,8 @@ export default function Conversation() {
 
   // ─── Language matching ──────────────────────────────────────────────────
 
-  /** Map Whisper detected language code to "you" or "them" */
-  const detectSide = (detectedLang: string): "you" | "them" => {
+  /** Map Whisper detected language code to "you" or "them", or null if unrecognized language */
+  const detectSide = (detectedLang: string): "you" | "them" | null => {
     const dl = detectedLang.toLowerCase().trim();
     const yourCode = yourLangRef.current.toLowerCase();
     const theirCode = theirLangRef.current.toLowerCase();
@@ -91,8 +91,8 @@ export default function Conversation() {
     if (dl.includes(yourLabel) || yourLabel.includes(dl)) return "you";
     if (dl.includes(theirLabel) || theirLabel.includes(dl)) return "them";
 
-    // Fallback: default to "you"
-    return "you";
+    // Unrecognized language (e.g. Korean when configured IT/EN) — reject
+    return null;
   };
 
   // ─── Silence detection ────────────────────────────────────────────────
@@ -211,9 +211,14 @@ export default function Conversation() {
             lower.includes("zeoranger") ||
             lower.includes("copyright") ||
             lower.includes("♪") ||
-            lower.includes("🎵");
+            lower.includes("🎵") ||
+            // TV/News/broadcast artifacts
+            /\bnews\b/i.test(trimmed) ||
+            /\b(mbc|cnn|bbc|fox|nbc|abc|cbs|sky|rai|tg[1-5])\b/i.test(trimmed) ||
+            /\b(reporter|anchor|correspondent|breaking|headline)\b/i.test(trimmed);
 
           if (isHallucination || !conversationActiveRef.current) {
+            console.log("[Conversation] filtered hallucination:", trimmed.substring(0, 40));
             processingRef.current = false;
             if (conversationActiveRef.current) startListening();
             else setChatState("idle");
@@ -222,6 +227,16 @@ export default function Conversation() {
 
           const side = detectSide(detectedLang);
           console.log("[Conversation] side:", side, "yourLang:", yourLangRef.current, "theirLang:", theirLangRef.current);
+
+          // Reject if detected language doesn't match either configured language
+          if (side === null) {
+            console.log("[Conversation] rejected: unrecognized language", detectedLang);
+            processingRef.current = false;
+            if (conversationActiveRef.current) startListening();
+            else setChatState("idle");
+            return;
+          }
+
           await processMessage(side, text.trim());
         } catch (e: any) {
           const { key, fallback } = getApiErrorMessage(e);
@@ -284,7 +299,7 @@ export default function Conversation() {
         prev.map((m) => (m.id === newId ? { ...m, translatedText, status: "translated" } : m))
       );
 
-      // Auto-speak translation — start listening in parallel with TTS
+      // Auto-speak translation — wait for TTS to finish before listening again
       if (autoSpeakRef.current && translatedText !== "...") {
         setChatState("speaking");
         setPlayingId(newId);
@@ -292,26 +307,16 @@ export default function Conversation() {
           prev.map((m) => (m.id === newId ? { ...m, status: "playing" } : m))
         );
 
-        // Start TTS but don't block the pipeline — begin listening while it plays
-        const ttsPromise = playTTS(translatedText, undefined, undefined, targetLang)
-          .catch((e) => console.error("TTS failed:", e))
-          .finally(() => {
-            setPlayingId(null);
-            setMessages((prev) =>
-              prev.map((m) => (m.id === newId ? { ...m, status: "done" } : m))
-            );
-          });
-
-        // Release processing lock and start listening while TTS plays
-        processingRef.current = false;
-        if (conversationActiveRef.current) {
-          startListening();
-        } else {
-          setChatState("idle");
+        try {
+          await playTTS(translatedText, undefined, undefined, targetLang);
+        } catch (e) {
+          console.error("TTS failed:", e);
+        } finally {
+          setPlayingId(null);
+          setMessages((prev) =>
+            prev.map((m) => (m.id === newId ? { ...m, status: "done" } : m))
+          );
         }
-
-        await ttsPromise;
-        return;
       }
 
       // Mark as done (no auto-speak path)
