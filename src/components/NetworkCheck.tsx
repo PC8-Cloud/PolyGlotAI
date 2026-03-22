@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { WifiOff, X, AlertTriangle } from "lucide-react";
-import { useUserStore } from "../lib/store";
+import { useUserStore, useNetworkStore } from "../lib/store";
 import { useTranslation } from "../lib/i18n";
 
 // ─── Minimum requirements ────────────────────────────────────────────────────
@@ -41,6 +41,7 @@ async function measureNetwork(): Promise<NetworkStatus> {
 
 export default function NetworkCheck() {
   const { uiLanguage } = useUserStore();
+  const { setIsOffline } = useNetworkStore();
   const t = useTranslation(uiLanguage);
   const [status, setStatus] = useState<NetworkStatus>({ online: true, pingMs: null, adequate: true });
   const [dismissed, setDismissed] = useState(false);
@@ -51,6 +52,9 @@ export default function NetworkCheck() {
   const runCheck = useCallback(async () => {
     const result = await measureNetwork();
     setStatus(result);
+
+    // Update global offline state
+    setIsOffline(!result.online);
 
     if (!result.online) {
       setShowOffline(true);
@@ -64,7 +68,7 @@ export default function NetworkCheck() {
       setDismissed(false);
     }
     lastAdequate.current = result.adequate;
-  }, [showOffline]);
+  }, [showOffline, setIsOffline]);
 
   useEffect(() => {
     const initTimer = setTimeout(runCheck, 3000);
@@ -73,6 +77,7 @@ export default function NetworkCheck() {
     const handleOnline = () => runCheck();
     const handleOffline = () => {
       setStatus({ online: false, pingMs: null, adequate: false });
+      setIsOffline(true);
       setShowOffline(true);
       setDismissed(false);
     };

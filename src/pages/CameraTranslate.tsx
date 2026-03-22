@@ -90,12 +90,13 @@ export default function CameraTranslate() {
         >
           <ChevronLeft className="w-6 h-6" />
         </button>
-        <h1 className="text-lg font-bold">{t("camera")}</h1>
+        <Camera className="w-5 h-5 text-[#295BDB]" />
+        <h1 className="text-lg font-bold flex-1">{t("camera")}</h1>
       </header>
 
       {/* Language selector */}
       <div className="p-4 flex items-center gap-3 border-b border-[#FFFFFF14] bg-[#0E2666]/50">
-        <span className="text-sm text-[#F4F4F4]/60">{t("translateTo")}:</span>
+        <span className="text-[#F4F4F4]/40 text-lg">→</span>
         <select
           value={targetLang}
           onChange={(e) => {

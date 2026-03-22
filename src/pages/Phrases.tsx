@@ -9,13 +9,16 @@ import {
   MapPin,
   ShoppingBag,
   Volume2,
+  MessageSquarePlus,
 } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
 import { translateText, playTTS, prepareAudioForSafari, getApiErrorMessage } from "../lib/openai";
-import { savePhraseTranslations, getPhraseTranslation, isOnline } from "../lib/offline";
+import { savePhraseTranslations, getPhraseTranslation, loadAllPhraseTranslations, isOnline } from "../lib/offline";
+import { playLocalTTS, canUseLocalTTS } from "../lib/offline";
+import { useNetworkStore } from "../lib/store";
 
 interface Phrase {
   emoji: string;
@@ -147,6 +150,8 @@ export default function Phrases() {
   const { uiLanguage } = useUserStore();
   const t = useTranslation(uiLanguage);
 
+  const { isOffline } = useNetworkStore();
+
   const [targetLang, setTargetLang] = useState(
     uiLanguage === "en" ? "it" : "en",
   );
@@ -155,6 +160,20 @@ export default function Phrases() {
   const [loadingPhrase, setLoadingPhrase] = useState<string | null>(null);
   const [playingPhrase, setPlayingPhrase] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Pre-load all cached translations for current target language
+  React.useEffect(() => {
+    const all = loadAllPhraseTranslations();
+    const cached: Record<string, string> = {};
+    for (const [key, value] of Object.entries(all)) {
+      if (key.endsWith(`__${targetLang}`)) {
+        cached[key] = value;
+      }
+    }
+    if (Object.keys(cached).length > 0) {
+      setTranslations((prev) => ({ ...prev, ...cached }));
+    }
+  }, [targetLang]);
 
   const busyTranslateRef = React.useRef(false);
   const busySpeakRef = React.useRef(false);
@@ -165,11 +184,21 @@ export default function Phrases() {
     prepareAudioForSafari();
     setPlayingPhrase(text);
     try {
-      await playTTS(text, undefined, undefined, targetLang);
+      // When offline, use device TTS directly
+      if (isOffline && canUseLocalTTS()) {
+        await playLocalTTS(text, targetLang);
+      } else {
+        await playTTS(text, undefined, undefined, targetLang);
+      }
     } catch (e: any) {
       console.error("TTS failed:", e);
-      const { key: errKey, fallback } = getApiErrorMessage(e);
-      setError((t as any)[errKey] || fallback);
+      // Last resort: try local TTS
+      if (canUseLocalTTS()) {
+        try { await playLocalTTS(text, targetLang); } catch {}
+      } else {
+        const { key: errKey, fallback } = getApiErrorMessage(e);
+        setError((t as any)[errKey] || fallback);
+      }
     } finally {
       setPlayingPhrase(null);
       busySpeakRef.current = false;
@@ -236,6 +265,7 @@ export default function Phrases() {
         >
           <ChevronLeft className="w-6 h-6" />
         </button>
+        <MessageSquarePlus className="w-5 h-5 text-[#295BDB]" />
         <h1 className="text-lg font-bold flex-1">
           {activeCategory ? t(activeCategory.labelKey as any) : t("usefulPhrases")}
         </h1>
@@ -243,7 +273,7 @@ export default function Phrases() {
 
       {/* Language selector */}
       <div className="p-4 flex items-center gap-3 border-b border-[#FFFFFF14] bg-[#0E2666]/50">
-        <span className="text-sm text-[#F4F4F4]/60">→</span>
+        <span className="text-[#F4F4F4]/40 text-lg">→</span>
         <select
           value={targetLang}
           onChange={(e) => setTargetLang(e.target.value)}

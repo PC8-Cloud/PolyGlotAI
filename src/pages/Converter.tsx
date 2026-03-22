@@ -483,7 +483,8 @@ export default function Converter() {
         <button onClick={() => navigate("/")} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
           <ChevronLeft className="w-6 h-6" />
         </button>
-        <h1 className="text-lg font-bold">{t("convertUnits")}</h1>
+        <Coins className="w-5 h-5 text-[#295BDB]" />
+        <h1 className="text-lg font-bold flex-1">{t("convertUnits")}</h1>
       </header>
 
       {/* Tabs — scrollable */}

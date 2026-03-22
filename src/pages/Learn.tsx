@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ChevronLeft,
+  ChevronRight,
   Send,
   Volume2,
   Loader2,
@@ -19,6 +20,7 @@ import {
   MicOff,
   Square,
   Upload,
+  GraduationCap,
 } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
@@ -870,8 +872,30 @@ export default function Learn() {
           <button onClick={() => navigate("/")} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
             <ChevronLeft className="w-6 h-6" />
           </button>
-          <h1 className="text-lg font-bold">{t("learn")}</h1>
+          <GraduationCap className="w-5 h-5 text-[#295BDB]" />
+          <h1 className="text-lg font-bold flex-1">{t("learn")}</h1>
         </header>
+
+        {/* Language selector (below header, like other pages) */}
+        <div className="flex items-center gap-2 p-4 border-b border-[#FFFFFF14] bg-[#0E2666]/50">
+          <select
+            value={nativeLang}
+            onChange={(e) => setNativeLang(e.target.value)}
+            className="flex-1 min-w-0 bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-3 py-2.5 text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-sm truncate"
+          >
+            <LanguageOptions />
+          </select>
+          <button onClick={swapLanguages} className="p-2 bg-[#123182] rounded-xl text-[#F4F4F4]/60 hover:bg-[#295BDB] hover:text-[#F4F4F4] transition-colors shrink-0">
+            <ArrowRightLeft className="w-4 h-4" />
+          </button>
+          <select
+            value={targetLang}
+            onChange={(e) => setTargetLang(e.target.value)}
+            className="flex-1 min-w-0 bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-3 py-2.5 text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-sm truncate"
+          >
+            <LanguageOptions exclude={[nativeLang]} />
+          </select>
+        </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-5 max-w-sm mx-auto w-full">
           {/* Mode toggle */}
@@ -896,27 +920,6 @@ export default function Learn() {
             >
               {t("learnModeVocabulary")}
             </button>
-          </div>
-
-          {/* Language row */}
-          <div className="flex items-center gap-2">
-            <select
-              value={nativeLang}
-              onChange={(e) => setNativeLang(e.target.value)}
-              className="flex-1 min-w-0 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl px-3 py-3 text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-sm truncate"
-            >
-              <LanguageOptions />
-            </select>
-            <button onClick={swapLanguages} className="p-2.5 bg-[#295BDB] rounded-xl text-[#F4F4F4] hover:bg-[#295BDB]/80 transition-colors shrink-0">
-              <ArrowRightLeft className="w-5 h-5" />
-            </button>
-            <select
-              value={targetLang}
-              onChange={(e) => setTargetLang(e.target.value)}
-              className="flex-1 min-w-0 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl px-3 py-3 text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-sm truncate"
-            >
-              <LanguageOptions exclude={[nativeLang]} />
-            </select>
           </div>
 
           {mode === "conversation" ? (
@@ -1103,30 +1106,44 @@ export default function Learn() {
             </div>
 
             {/* Bottom bar */}
-            <div className="shrink-0 border-t border-[#FFFFFF14] bg-[#0E2666] p-4 flex items-center gap-3">
-              <button
-                onClick={vocabState === "listening" ? stopVocabListening : startVocabListening}
-                disabled={vocabState === "evaluating"}
-                className={`p-4 rounded-2xl transition-all shrink-0 ${
-                  vocabState === "listening"
-                    ? "bg-red-500 text-[#F4F4F4] shadow-lg shadow-red-500/30 animate-pulse"
-                    : "bg-[#123182] text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#295BDB]"
-                } disabled:opacity-30`}
-              >
-                {vocabState === "listening" ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
-              </button>
-
-              <span className="flex-1 text-sm text-[#F4F4F4]/40 text-center">
+            <div className="shrink-0 border-t border-[#FFFFFF14] bg-[#0E2666] p-4">
+              <p className="text-xs text-[#F4F4F4]/40 text-center mb-3">
                 {vocabState === "listening" ? t("learnListening") : t("vocabTapToSpeak")}
-              </span>
+              </p>
+              <div className="flex items-center justify-center gap-4">
+                {/* Back */}
+                <button
+                  onClick={() => { setVocabIndex(Math.max(0, vocabIndex - 1)); setVocabState("ready"); setVocabFeedback(""); }}
+                  disabled={vocabIndex === 0 || vocabState === "listening" || vocabState === "evaluating"}
+                  className="flex items-center gap-1.5 px-4 py-3 bg-[#123182] rounded-2xl text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#123182]/80 transition-colors disabled:opacity-30 text-sm font-medium"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                  {t("vocabPrev")}
+                </button>
 
-              <button
-                onClick={nextVocabWord}
-                disabled={vocabState === "listening" || vocabState === "evaluating"}
-                className="px-6 py-3 bg-[#295BDB] rounded-xl text-[#F4F4F4] font-bold hover:bg-[#295BDB]/80 transition-colors disabled:opacity-30"
-              >
-                {vocabIndex < vocabWords.length - 1 ? t("vocabNext") : t("vocabFinish")}
-              </button>
+                {/* Mic */}
+                <button
+                  onClick={vocabState === "listening" ? stopVocabListening : startVocabListening}
+                  disabled={vocabState === "evaluating"}
+                  className={`p-5 rounded-full transition-all ${
+                    vocabState === "listening"
+                      ? "bg-red-500 text-[#F4F4F4] shadow-lg shadow-red-500/30 animate-pulse"
+                      : "bg-[#295BDB] text-[#F4F4F4] hover:bg-[#295BDB]/80"
+                  } disabled:opacity-30`}
+                >
+                  {vocabState === "listening" ? <MicOff className="w-7 h-7" /> : <Mic className="w-7 h-7" />}
+                </button>
+
+                {/* Next */}
+                <button
+                  onClick={nextVocabWord}
+                  disabled={vocabState === "listening" || vocabState === "evaluating"}
+                  className="flex items-center gap-1.5 px-4 py-3 bg-[#123182] rounded-2xl text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#123182]/80 transition-colors disabled:opacity-30 text-sm font-medium"
+                >
+                  {t("vocabNext")}
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+              </div>
             </div>
           </>
         )}

@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Megaphone, Radio } from "lucide-react";
+import { ChevronLeft, Megaphone, Radio, Users } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 
@@ -17,7 +17,8 @@ export default function GroupTranslation() {
         <button onClick={() => navigate("/")} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
           <ChevronLeft className="w-6 h-6" />
         </button>
-        <h1 className="text-lg font-bold">{t("groupTranslation")}</h1>
+        <Users className="w-5 h-5 text-[#295BDB]" />
+        <h1 className="text-lg font-bold flex-1">{t("groupTranslation")}</h1>
       </header>
 
       <div className="flex-1 flex flex-col items-center justify-center p-6 gap-6 max-w-sm mx-auto w-full">

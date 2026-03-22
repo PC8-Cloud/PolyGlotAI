@@ -47,6 +47,7 @@ export default function RoomJoin() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const prevMsgCountRef = useRef(0);
   const initialLoadRef = useRef(true);
+  const spokenMsgIds = useRef<Set<string>>(new Set());
   const ttsQueueRef = useRef<{ text: string; id: string }[]>([]);
   const ttsPlayingRef = useRef(false);
 
@@ -87,17 +88,26 @@ export default function RoomJoin() {
       });
       setMessages(list);
 
-      // Auto-speak only new messages (skip initial load of existing history)
+      // Auto-speak logic: wait for translation in myLang before speaking
       if (initialLoadRef.current) {
         initialLoadRef.current = false;
+        // Mark all existing messages as already spoken
+        list.forEach((m) => spokenMsgIds.current.add(m.id));
         prevMsgCountRef.current = list.length;
         return;
       }
-      if (autoSpeak && list.length > prevMsgCountRef.current && list.length > 0) {
-        const newest = list[list.length - 1];
-        const myText = newest.translations[myLang] || newest.sourceText;
-        if (myText) {
-          speakText(myText, newest.id);
+      if (autoSpeak) {
+        // Check all BROADCAST messages we haven't spoken yet
+        for (const msg of list) {
+          if (msg.type !== "BROADCAST") continue;
+          if (spokenMsgIds.current.has(msg.id)) continue;
+          // Only speak if we have a translation in our language
+          const myText = msg.translations[myLang];
+          if (myText) {
+            spokenMsgIds.current.add(msg.id);
+            speakText(myText, msg.id);
+          }
+          // If no translation yet, don't speak — wait for next snapshot with translations
         }
       }
       prevMsgCountRef.current = list.length;
@@ -321,13 +331,6 @@ export default function RoomJoin() {
           {myLangObj?.flag} {name}
         </h1>
         <button
-          onClick={handleShare}
-          disabled={messages.filter((m) => m.type === "BROADCAST").length === 0}
-          className="p-2 rounded-xl transition-colors bg-[#123182] text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#295BDB] disabled:opacity-20"
-        >
-          <Upload className="w-5 h-5" />
-        </button>
-        <button
           onClick={() => {
             const newVal = !autoSpeak;
             setAutoSpeak(newVal);
@@ -343,6 +346,18 @@ export default function RoomJoin() {
       </header>
 
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+        {messages.filter((m) => m.type === "BROADCAST").length > 0 && (
+          <div className="flex items-center sticky top-0 z-10 bg-[#02114A]/90 backdrop-blur-sm -mx-4 px-4 py-2 -mt-4">
+            <div className="flex-1" />
+            <button
+              onClick={handleShare}
+              className="p-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/50 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors"
+            >
+              <Upload className="w-5 h-5" />
+            </button>
+          </div>
+        )}
+
         {messages.length === 0 && (
           <div className="flex-1 flex items-center justify-center">
             <p className="text-[#F4F4F4]/30 text-sm text-center px-8">{t("waitingForHost")}</p>
@@ -350,9 +365,12 @@ export default function RoomJoin() {
         )}
 
         {messages.map((msg) => {
+          const hasMyTranslation = !!msg.translations[myLang];
           const myText = msg.translations[myLang] || msg.sourceText;
           const isQuestion = msg.type === "QUESTION";
           const isMyQuestion = isQuestion && msg.senderId === participantId;
+          // Translation is pending only if: no translation for our lang, source is in a different lang, and it's a broadcast
+          const isTranslationPending = !hasMyTranslation && !!msg.sourceLanguage && msg.sourceLanguage !== myLang && !isQuestion;
 
           return (
             <div
@@ -378,15 +396,19 @@ export default function RoomJoin() {
                     <span className="text-xs font-medium">{t("questionSent")}</span>
                   </div>
                 )}
-                <p className={`text-lg font-bold ${isQuestion ? "text-[#F4F4F4]" : "text-[#295BDB]"}`}>{myText}</p>
-                {msg.sourceText !== myText && (
+                {isTranslationPending ? (
+                  <p className="text-lg font-bold text-[#295BDB] animate-pulse">{t("translating")}</p>
+                ) : (
+                  <p className={`text-lg font-bold ${isQuestion ? "text-[#F4F4F4]" : "text-[#295BDB]"}`}>{myText}</p>
+                )}
+                {msg.sourceText !== myText && !isTranslationPending && (
                   <p className="text-xs text-[#F4F4F4]/30 mt-2">{msg.sourceText}</p>
                 )}
               </div>
               {!isQuestion && (
                 <button
-                  onClick={() => speakText(myText, msg.id)}
-                  disabled={playingId !== null}
+                  onClick={() => speakText(hasMyTranslation ? myText : "", msg.id)}
+                  disabled={playingId !== null || !hasMyTranslation}
                   className={`p-2 rounded-lg shrink-0 transition-colors ${
                     playingId === msg.id
                       ? "text-[#295BDB] animate-pulse"

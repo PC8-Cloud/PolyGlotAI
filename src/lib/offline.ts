@@ -174,7 +174,19 @@ export function playLocalTTS(text: string, langCode?: string): Promise<void> {
     const utterance = new SpeechSynthesisUtterance(text);
     const locale = langCode ? (TTS_LOCALE_MAP[langCode] || langCode) : undefined;
     if (locale) utterance.lang = locale;
-    utterance.rate = 1.0;
+    // Use stored speed preference if available
+    try {
+      const stored = localStorage.getItem("polyglot-user-storage");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed.state?.ttsSpeed) utterance.rate = parsed.state.ttsSpeed;
+        else utterance.rate = 1.0;
+      } else {
+        utterance.rate = 1.0;
+      }
+    } catch {
+      utterance.rate = 1.0;
+    }
     utterance.pitch = 1.0;
 
     // Try to find a voice for the language

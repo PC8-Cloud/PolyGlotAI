@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Mic, MicOff, Send, Volume2, VolumeX, ArrowRightLeft, Check, CheckCheck, Upload } from "lucide-react";
+import { ChevronLeft, Mic, MicOff, Send, Volume2, VolumeX, ArrowRightLeft, Check, CheckCheck, Upload, MessagesSquare } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLabelForCode } from "../lib/languages";
@@ -19,8 +19,9 @@ interface Message {
 }
 
 // Silence detection
-const SILENCE_TIMEOUT = 2.0; // seconds of silence before auto-stop
-const SILENCE_THRESHOLD = 0.015;
+const SILENCE_TIMEOUT = 1.5; // seconds of silence before auto-stop
+const SILENCE_THRESHOLD = 0.05; // raised to ignore background noise (music, TV)
+const MIN_SPEECH_DURATION_MS = 800; // ignore recordings shorter than this
 
 export default function Conversation() {
   const navigate = useNavigate();
@@ -132,7 +133,13 @@ export default function Conversation() {
     setLiveLevel(0);
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
       streamRef.current = stream;
 
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -145,6 +152,7 @@ export default function Conversation() {
 
       const recorder = new MediaRecorder(stream);
       audioChunksRef.current = [];
+      const recordStartTime = Date.now();
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) audioChunksRef.current.push(e.data);
       };
@@ -157,9 +165,11 @@ export default function Conversation() {
         audioCtxRef.current = null;
         setLiveLevel(0);
 
+        const recordDuration = Date.now() - recordStartTime;
         const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-        if (blob.size < 1000) {
-          // Too short — re-listen
+
+        // Skip if too short (just noise) or too small
+        if (blob.size < 2000 || recordDuration < MIN_SPEECH_DURATION_MS) {
           if (conversationActiveRef.current && !processingRef.current) {
             startListening();
           } else {
@@ -175,7 +185,29 @@ export default function Conversation() {
           const { text, language: detectedLang } = await transcribeAudioDetectLang(blob);
           console.log("[Conversation] detected:", { text: text.substring(0, 30), detectedLang });
 
-          if (!text.trim() || !conversationActiveRef.current) {
+          // Filter out empty, too-short, or Whisper hallucination artifacts
+          const trimmed = text.trim();
+          const lower = trimmed.toLowerCase();
+          const isHallucination =
+            !trimmed ||
+            trimmed.length < 3 ||
+            /^[\s.,!?…\-—–]+$/.test(trimmed) ||
+            // Whisper common hallucinations
+            /^(music|applause|laughter|silence|background|thank you|thanks for watching)/i.test(trimmed) ||
+            /^\[.*\]$/.test(trimmed) ||
+            /^\(.*\)$/.test(trimmed) ||
+            // Subtitle/watermark hallucinations
+            /sottotitoli|subtitles|subs by|sub(scribe|bed)|www\.|\.com|\.co\.|\.uk|\.org|\.net/i.test(trimmed) ||
+            // Repetitive single-word hallucinations (e.g. "you you you" or "...")
+            /^(.{1,4})\1{2,}$/i.test(trimmed.replace(/\s+/g, "")) ||
+            // Common Whisper noise artifacts in various languages
+            lower.includes("amara.org") ||
+            lower.includes("zeoranger") ||
+            lower.includes("copyright") ||
+            lower.includes("♪") ||
+            lower.includes("🎵");
+
+          if (isHallucination || !conversationActiveRef.current) {
             processingRef.current = false;
             if (conversationActiveRef.current) startListening();
             else setChatState("idle");
@@ -246,22 +278,37 @@ export default function Conversation() {
         prev.map((m) => (m.id === newId ? { ...m, translatedText, status: "translated" } : m))
       );
 
-      // Auto-speak translation
+      // Auto-speak translation — start listening in parallel with TTS
       if (autoSpeakRef.current && translatedText !== "...") {
         setChatState("speaking");
         setPlayingId(newId);
         setMessages((prev) =>
           prev.map((m) => (m.id === newId ? { ...m, status: "playing" } : m))
         );
-        try {
-          await playTTS(translatedText, undefined, undefined, targetLang);
-        } catch (e) {
-          console.error("TTS failed:", e);
+
+        // Start TTS but don't block the pipeline — begin listening while it plays
+        const ttsPromise = playTTS(translatedText, undefined, undefined, targetLang)
+          .catch((e) => console.error("TTS failed:", e))
+          .finally(() => {
+            setPlayingId(null);
+            setMessages((prev) =>
+              prev.map((m) => (m.id === newId ? { ...m, status: "done" } : m))
+            );
+          });
+
+        // Release processing lock and start listening while TTS plays
+        processingRef.current = false;
+        if (conversationActiveRef.current) {
+          startListening();
+        } else {
+          setChatState("idle");
         }
-        setPlayingId(null);
+
+        await ttsPromise;
+        return;
       }
 
-      // Mark as done
+      // Mark as done (no auto-speak path)
       setMessages((prev) =>
         prev.map((m) => (m.id === newId ? { ...m, status: "done" } : m))
       );
@@ -359,39 +406,38 @@ export default function Conversation() {
 
   return (
     <div className="h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans overflow-hidden">
-      <header className="border-b border-[#FFFFFF14] bg-[#0E2666] shrink-0">
-        <div className="flex items-center gap-3 px-4 pt-4 pb-2">
-          <button onClick={() => { stopConversation(); navigate("/"); }} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
-            <ChevronLeft className="w-6 h-6" />
-          </button>
-          <h1 className="text-lg font-bold flex-1">{t("conversation")}</h1>
-        </div>
-        <div className="flex items-center gap-2 px-4 pb-3">
-          <select
-            value={yourLang}
-            onChange={(e) => setYourLang(e.target.value)}
-            disabled={conversationActive}
-            className="flex-1 min-w-0 bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-3 py-2 text-sm text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-center disabled:opacity-60 truncate"
-          >
-            <LanguageOptions />
-          </select>
-          <button
-            onClick={swapLanguages}
-            disabled={conversationActive}
-            className="p-2 bg-[#123182] rounded-xl text-[#F4F4F4]/60 hover:bg-[#295BDB] hover:text-[#F4F4F4] transition-colors shrink-0 disabled:opacity-40"
-          >
-            <ArrowRightLeft className="w-4 h-4" />
-          </button>
-          <select
-            value={theirLang}
-            onChange={(e) => setTheirLang(e.target.value)}
-            disabled={conversationActive}
-            className="flex-1 min-w-0 bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-3 py-2 text-sm text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-center disabled:opacity-60 truncate"
-          >
-            <LanguageOptions />
-          </select>
-        </div>
+      <header className="flex items-center gap-3 p-4 border-b border-[#FFFFFF14] bg-[#0E2666] shrink-0">
+        <button onClick={() => { stopConversation(); navigate("/"); }} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
+          <ChevronLeft className="w-6 h-6" />
+        </button>
+        <MessagesSquare className="w-5 h-5 text-[#295BDB]" />
+        <h1 className="text-lg font-bold flex-1">{t("conversation")}</h1>
       </header>
+      <div className="flex items-center gap-2 p-4 border-b border-[#FFFFFF14] bg-[#0E2666]/50 shrink-0">
+        <select
+          value={yourLang}
+          onChange={(e) => setYourLang(e.target.value)}
+          disabled={conversationActive}
+          className="flex-1 min-w-0 bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-3 py-2.5 text-sm text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-center disabled:opacity-60 truncate"
+        >
+          <LanguageOptions />
+        </select>
+        <button
+          onClick={swapLanguages}
+          disabled={conversationActive}
+          className="p-2 bg-[#123182] rounded-xl text-[#F4F4F4]/60 hover:bg-[#295BDB] hover:text-[#F4F4F4] transition-colors shrink-0 disabled:opacity-40"
+        >
+          <ArrowRightLeft className="w-4 h-4" />
+        </button>
+        <select
+          value={theirLang}
+          onChange={(e) => setTheirLang(e.target.value)}
+          disabled={conversationActive}
+          className="flex-1 min-w-0 bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-3 py-2.5 text-sm text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-center disabled:opacity-60 truncate"
+        >
+          <LanguageOptions />
+        </select>
+      </div>
 
       {error && (
         <div className="mx-4 mt-3 p-3 bg-red-500/20 border border-red-500/30 rounded-xl flex items-center gap-3 shrink-0">

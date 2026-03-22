@@ -14,6 +14,7 @@ interface UserState {
   favoriteLanguages: string[];
   userName: string;
   userGender: "male" | "female" | "";
+  betaUnlocked: boolean;
   openaiApiKey: string;
   textModel: string;
   transcribeModel: string;
@@ -32,6 +33,7 @@ interface UserState {
   setFavoriteLanguages: (langs: string[]) => void;
   setUserName: (name: string) => void;
   setUserGender: (gender: "male" | "female" | "") => void;
+  setBetaUnlocked: (unlocked: boolean) => void;
   setOpenaiApiKey: (key: string) => void;
   setTextModel: (model: string) => void;
   setTranscribeModel: (model: string) => void;
@@ -54,6 +56,7 @@ export const useUserStore = create<UserState>()(
       favoriteLanguages: ["en", "it", "es", "fr", "de", "pt", "zh", "ar", "ja", "ru"],
       userName: "",
       userGender: "",
+      betaUnlocked: false,
       openaiApiKey: "",
       textModel: "gpt-4.1-mini",
       transcribeModel: "gpt-4o-transcribe",
@@ -72,6 +75,7 @@ export const useUserStore = create<UserState>()(
       setFavoriteLanguages: (langs) => set({ favoriteLanguages: langs }),
       setUserName: (name) => set({ userName: name }),
       setUserGender: (gender) => set({ userGender: gender }),
+      setBetaUnlocked: (unlocked) => set({ betaUnlocked: unlocked }),
       setOpenaiApiKey: (key) => set({ openaiApiKey: key }),
       setTextModel: (model) => set({ textModel: model }),
       setTranscribeModel: (model) => set({ transcribeModel: model }),
@@ -94,4 +98,16 @@ interface SessionState {
 export const useSessionStore = create<SessionState>((set) => ({
   sessionId: null,
   setSessionId: (id) => set({ sessionId: id }),
+}));
+
+// ─── Global network state (non-persisted) ────────────────────────────────────
+
+interface NetworkState {
+  isOffline: boolean;
+  setIsOffline: (offline: boolean) => void;
+}
+
+export const useNetworkStore = create<NetworkState>((set) => ({
+  isOffline: typeof navigator !== "undefined" ? !navigator.onLine : false,
+  setIsOffline: (offline) => set({ isOffline: offline }),
 }));

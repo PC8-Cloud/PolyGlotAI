@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { createSession } from "../lib/firebase-helpers";
-import { Settings, Camera, MessagesSquare, Coins, MessageSquarePlus, Users, Globe, ChevronLeft, WifiOff, Download, Check, Loader2, Volume2, GraduationCap, Plus, X, Search, User, Pencil } from "lucide-react";
+import { Settings, Camera, MessagesSquare, Coins, MessageSquarePlus, Users, Globe, ChevronLeft, WifiOff, Download, Check, Loader2, Volume2, GraduationCap, Plus, X, Search, User, Pencil, Lock } from "lucide-react";
 import { signInWithPopup, GoogleAuthProvider } from "firebase/auth";
 import { auth } from "../firebase";
 import { useTranslation } from "../lib/i18n";
-import { useUserStore } from "../lib/store";
+import { useUserStore, useNetworkStore } from "../lib/store";
 import { LANGUAGES } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
 import { translateText } from "../lib/openai";
@@ -32,6 +32,7 @@ export default function Home() {
   const [tempGender, setTempGender] = useState<"male" | "female" | "">("");
   const [tempLang, setTempLang] = useState("");
   const [tempVoice, setTempVoice] = useState("");
+  const [tempSpeed, setTempSpeed] = useState(1.0);
 
   const {
     uiLanguage,
@@ -169,66 +170,74 @@ export default function Home() {
     }
   };
 
+  const { isOffline } = useNetworkStore();
+
   const btnClass = "flex flex-col items-center justify-center bg-[#123182] hover:bg-[#295BDB] active:bg-[#0E2666] rounded-2xl p-4 transition-all aspect-square shadow-lg hover:scale-[1.03] border border-[#FFFFFF14]";
+  const btnDisabled = "flex flex-col items-center justify-center bg-[#123182]/40 rounded-2xl p-4 aspect-square shadow-lg border border-[#FFFFFF14] opacity-40 relative";
+
+  // Features that work offline: phrases (cached), converter (local), offline panel, settings
+  const OFFLINE_ROUTES = new Set(["/phrases", "/converter"]);
+
+  const FeatureButton = ({ route, icon: Icon, label, onClick }: { route?: string; icon: any; label: string; onClick?: () => void }) => {
+    const needsInternet = route && !OFFLINE_ROUTES.has(route);
+    const disabled = isOffline && needsInternet;
+
+    return (
+      <button
+        onClick={() => {
+          if (disabled) return;
+          if (onClick) onClick();
+          else if (route) navigate(route);
+        }}
+        className={disabled ? btnDisabled : btnClass}
+      >
+        <Icon className="w-10 h-10 mb-2" />
+        <span className="text-sm font-medium text-center leading-tight">{label}</span>
+        {disabled && (
+          <div className="absolute top-2 right-2">
+            <Lock className="w-3.5 h-3.5 text-[#F4F4F4]/30" />
+          </div>
+        )}
+      </button>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col items-center justify-center p-6 font-sans relative">
+      {/* Offline mode banner */}
+      {isOffline && (
+        <div className="w-full max-w-md mb-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3 flex items-center gap-3">
+          <WifiOff className="w-5 h-5 text-amber-400 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-amber-400">{t("offlineMode")}</p>
+            <p className="text-[11px] text-amber-400/60">{t("offlineModeDesc")}</p>
+          </div>
+        </div>
+      )}
+
       <div className="w-full max-w-md">
         <div className="grid grid-cols-2 gap-4">
-          <button onClick={() => navigate("/conversation")} className={btnClass}>
-            <MessagesSquare className="w-10 h-10 mb-2" />
-            <span className="text-sm font-medium text-center leading-tight">{t("conversation")}</span>
-          </button>
-
-          <button onClick={() => navigate("/phrases")} className={btnClass}>
-            <MessageSquarePlus className="w-10 h-10 mb-2" />
-            <span className="text-sm font-medium text-center leading-tight">{t("usefulPhrases")}</span>
-          </button>
-
-          <button onClick={() => navigate("/learn")} className={btnClass}>
-            <GraduationCap className="w-10 h-10 mb-2" />
-            <span className="text-sm font-medium text-center leading-tight">{t("learn")}</span>
-          </button>
-
-          <button onClick={() => navigate("/group")} className={btnClass}>
-            <Users className="w-10 h-10 mb-2" />
-            <span className="text-sm font-medium text-center leading-tight">{t("groupTranslation")}</span>
-          </button>
-
-          <button onClick={() => navigate("/camera")} className={btnClass}>
-            <Camera className="w-10 h-10 mb-2" />
-            <span className="text-sm font-medium text-center leading-tight">{t("camera")}</span>
-          </button>
-
-          <button onClick={() => navigate("/converter")} className={btnClass}>
-            <Coins className="w-10 h-10 mb-2" />
-            <span className="text-sm font-medium text-center leading-tight">{t("convertUnits")}</span>
-          </button>
-
-          <button onClick={() => setShowOffline(true)} className={btnClass}>
-            <WifiOff className="w-10 h-10 mb-2" />
-            <span className="text-sm font-medium text-center leading-tight">{t("offlineFunctions")}</span>
-          </button>
-
-          <button
-            onClick={() => setShowSettings(true)}
-            className={btnClass}
-          >
-            <Settings className="w-10 h-10 mb-2" />
-            <span className="text-sm font-medium text-center leading-tight">{t("settings")}</span>
-          </button>
+          <FeatureButton route="/conversation" icon={MessagesSquare} label={t("conversation")} />
+          <FeatureButton route="/phrases" icon={MessageSquarePlus} label={t("usefulPhrases")} />
+          <FeatureButton route="/learn" icon={GraduationCap} label={t("learn")} />
+          <FeatureButton route="/group" icon={Users} label={t("groupTranslation")} />
+          <FeatureButton route="/camera" icon={Camera} label={t("camera")} />
+          <FeatureButton route="/converter" icon={Coins} label={t("convertUnits")} />
+          <FeatureButton icon={WifiOff} label={t("offlineFunctions")} onClick={() => setShowOffline(true)} />
+          <FeatureButton icon={Settings} label={t("settings")} onClick={() => setShowSettings(true)} />
         </div>
       </div>
 
       {/* Offline Functions Modal */}
       {showOffline && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-[#010B2E]">
+        <div className="fixed inset-0 z-50 flex flex-col bg-[#02114A]">
           <div className="flex-1 flex flex-col w-full max-w-[430px] mx-auto overflow-hidden">
-            <div className="flex items-center gap-3 p-4 shrink-0">
+            <div className="flex items-center gap-3 p-4 border-b border-[#FFFFFF14] bg-[#0E2666] shrink-0">
               <button onClick={() => setShowOffline(false)} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
                 <ChevronLeft className="w-6 h-6" />
               </button>
-              <h2 className="text-2xl font-bold">{t("offlineFunctions")}</h2>
+              <WifiOff className="w-5 h-5 text-[#295BDB]" />
+              <h1 className="text-lg font-bold flex-1">{t("offlineFunctions")}</h1>
             </div>
 
             <div className="overflow-y-auto p-4 pt-2 space-y-4 flex-1">
@@ -307,13 +316,14 @@ export default function Home() {
 
       {/* Settings Modal */}
       {showSettings && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-[#010B2E]">
+        <div className="fixed inset-0 z-50 flex flex-col bg-[#02114A]">
           <div className="flex-1 flex flex-col w-full max-w-[430px] mx-auto overflow-hidden">
-            <div className="flex items-center gap-3 p-4 shrink-0">
+            <div className="flex items-center gap-3 p-4 border-b border-[#FFFFFF14] bg-[#0E2666] shrink-0">
               <button onClick={() => setShowSettings(false)} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
                 <ChevronLeft className="w-6 h-6" />
               </button>
-              <h2 className="text-2xl font-bold">{t("settings")}</h2>
+              <Settings className="w-5 h-5 text-[#295BDB]" />
+              <h1 className="text-lg font-bold flex-1">{t("settings")}</h1>
             </div>
 
             <div className="overflow-y-auto p-4 pt-2 space-y-6 flex-1">
@@ -325,6 +335,7 @@ export default function Home() {
                     setTempGender(userGender);
                     setTempLang(uiLanguage);
                     setTempVoice(ttsVoice);
+                    setTempSpeed(ttsSpeed);
                     setShowPersonalize(true);
                   }}
                   className="w-full bg-[#0E2666] border border-[#FFFFFF14] rounded-2xl p-4 flex items-center gap-4 hover:bg-[#123182] transition-colors"
@@ -345,6 +356,7 @@ export default function Home() {
                     setTempGender("");
                     setTempLang(uiLanguage);
                     setTempVoice(ttsVoice);
+                    setTempSpeed(ttsSpeed);
                     setShowPersonalize(true);
                   }}
                   className="w-full bg-[#295BDB] hover:bg-[#295BDB]/80 rounded-2xl p-4 flex items-center gap-4 transition-colors"
@@ -512,19 +524,33 @@ export default function Home() {
                 </div>
               </div>
 
+              <div className="border-t border-[#FFFFFF14]" />
+
+              {/* About */}
+              <div className="text-center space-y-3 py-2">
+                <p className="text-sm font-bold text-[#F4F4F4]/80">PolyGlotAI</p>
+                <p className="text-xs text-[#F4F4F4]/50">Versione 1.0.0</p>
+                <div className="text-[11px] text-[#F4F4F4]/40 leading-relaxed space-y-2" style={{ fontFamily: "Georgia, 'Times New Roman', serif" }}>
+                  <p>PolyGlotAI è un prodotto sviluppato da PC8 S.r.l.<br />Il nome PolyGlotAI è un marchio di PC8 S.r.l.</p>
+                  <p>Tutti i contenuti dell'app, inclusi testi, elementi grafici, interfaccia e software, sono protetti ai sensi della normativa applicabile.</p>
+                  <p>© 2026 PC8 S.r.l. Tutti i diritti riservati.</p>
+                </div>
+              </div>
+
             </div>
           </div>
         </div>
       )}
       {/* Personalize Modal */}
       {showPersonalize && (
-        <div className="fixed inset-0 z-[70] flex flex-col bg-[#010B2E]">
+        <div className="fixed inset-0 z-[70] flex flex-col bg-[#02114A]">
           <div className="flex-1 flex flex-col w-full max-w-[430px] mx-auto overflow-hidden">
-            <div className="flex items-center gap-3 p-4 shrink-0">
+            <div className="flex items-center gap-3 p-4 border-b border-[#FFFFFF14] bg-[#0E2666] shrink-0">
               <button onClick={() => setShowPersonalize(false)} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
                 <ChevronLeft className="w-6 h-6" />
               </button>
-              <h2 className="text-2xl font-bold">{t("personalizeTitle")}</h2>
+              <User className="w-5 h-5 text-[#295BDB]" />
+              <h1 className="text-lg font-bold flex-1">{t("personalizeTitle")}</h1>
             </div>
 
             <div className="overflow-y-auto p-4 pt-2 space-y-6 flex-1">
@@ -577,6 +603,14 @@ export default function Home() {
                 >
                   <LanguageOptions />
                 </select>
+                {tempLang !== uiLanguage && (
+                  <button
+                    onClick={() => setUiLanguage(tempLang)}
+                    className="mt-2 w-full p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-sm text-amber-400 hover:bg-amber-500/20 transition-colors text-left"
+                  >
+                    {t("switchUiLanguagePrompt")} {LANGUAGES.find((l) => l.code === tempLang)?.label || tempLang}?
+                  </button>
+                )}
               </div>
 
               {/* Voice */}
@@ -606,6 +640,28 @@ export default function Home() {
                 </div>
               </div>
 
+              {/* Voice Speed */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <label className="text-sm font-medium text-[#F4F4F4]/80">{t("voiceSpeed")}</label>
+                  <span className="text-sm font-mono text-[#295BDB]">{tempSpeed.toFixed(1)}x</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.7"
+                  max="1.5"
+                  step="0.1"
+                  value={tempSpeed}
+                  onChange={(e) => setTempSpeed(parseFloat(e.target.value))}
+                  className="w-full accent-[#295BDB]"
+                />
+                <div className="flex justify-between text-[10px] text-[#F4F4F4]/30 mt-1">
+                  <span>{t("slow")}</span>
+                  <span>{t("normal")}</span>
+                  <span>{t("fast")}</span>
+                </div>
+              </div>
+
               {/* Save */}
               <button
                 onClick={() => {
@@ -614,6 +670,7 @@ export default function Home() {
                     setUserGender(tempGender);
                     setUiLanguage(tempLang);
                     setTtsVoice(tempVoice);
+                    setTtsSpeed(tempSpeed);
                     setShowPersonalize(false);
                   }
                 }}
