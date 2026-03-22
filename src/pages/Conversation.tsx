@@ -83,7 +83,7 @@ export default function Conversation() {
   useEffect(() => { conversationActiveRef.current = conversationActive; }, [conversationActive]);
 
   useEffect(() => {
-    return () => { stopListening(); };
+    return () => { stopListening(); muteAudio(); };
   }, []);
 
   // ─── Language matching ──────────────────────────────────────────────────

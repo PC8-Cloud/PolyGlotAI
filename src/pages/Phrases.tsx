@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ChevronLeft,
@@ -15,7 +15,7 @@ import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
-import { translateText, playTTS, prepareAudioForSafari, getApiErrorMessage } from "../lib/openai";
+import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage } from "../lib/openai";
 import { savePhraseTranslations, getPhraseTranslation, loadAllPhraseTranslations, isOnline } from "../lib/offline";
 import { playLocalTTS, canUseLocalTTS } from "../lib/offline";
 import { useNetworkStore } from "../lib/store";
@@ -160,6 +160,9 @@ export default function Phrases() {
   const [loadingPhrase, setLoadingPhrase] = useState<string | null>(null);
   const [playingPhrase, setPlayingPhrase] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Stop audio on unmount
+  useEffect(() => () => { muteAudio(); }, []);
 
   // Pre-load all cached translations for current target language
   React.useEffect(() => {
