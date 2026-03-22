@@ -23,7 +23,7 @@ const SILENCE_TIMEOUT = 1.2; // seconds of silence before auto-stop
 const SILENCE_THRESHOLD = 0.08; // raised to ignore background noise (music, TV)
 const MIN_SPEECH_DURATION_MS = 1200; // ignore recordings shorter than this
 const MIN_TRANSCRIPTION_LENGTH = 5; // ignore transcriptions with fewer characters
-const SPEECH_PEAK_THRESHOLD = 0.15; // minimum peak audio level during recording to consider it real speech (not distant TV)
+const SPEECH_PEAK_THRESHOLD = 0.10; // minimum peak audio level during recording to consider it real speech (not distant TV)
 const MAX_DUPLICATE_SIMILARITY = 0.8; // reject if >80% similar to a recent message
 
 /** Simple text similarity (0-1) based on common words */
@@ -113,6 +113,8 @@ export default function Conversation() {
   const startSilenceDetection = useCallback((analyser: AnalyserNode) => {
     const dataArray = new Uint8Array(analyser.fftSize);
     let silenceStart: number | null = null;
+    let allZeroCount = 0; // detect if analyser returns no data (iOS AudioContext issue)
+    const startTime = Date.now();
 
     const check = () => {
       analyser.getByteTimeDomainData(dataArray);
@@ -126,6 +128,21 @@ export default function Conversation() {
 
       // Track peak level to distinguish real speech from distant TV
       if (rms > peakLevelRef.current) peakLevelRef.current = rms;
+
+      // iOS fallback: if analyser reads near-zero for 15+ seconds, stop and let
+      // onstop handle the recording (the audio data may still be valid even if
+      // AudioContext analyser doesn't work properly on iOS)
+      if (rms < 0.001) {
+        allZeroCount++;
+        if (allZeroCount > 500 && (Date.now() - startTime) > 15000) {
+          console.log("[Conversation] analyser stuck at zero — iOS fallback, stopping");
+          peakLevelRef.current = 1; // bypass peak check since analyser is broken
+          stopListening();
+          return;
+        }
+      } else {
+        allZeroCount = 0;
+      }
 
       if (rms < SILENCE_THRESHOLD) {
         if (!silenceStart) silenceStart = Date.now();
@@ -144,6 +161,17 @@ export default function Conversation() {
 
   // ─── Start listening ──────────────────────────────────────────────────
 
+  /** Pick a supported MIME type for MediaRecorder (iOS Safari doesn't support webm) */
+  const getRecorderMimeType = (): string => {
+    if (typeof MediaRecorder === "undefined") return "audio/webm";
+    if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) return "audio/webm;codecs=opus";
+    if (MediaRecorder.isTypeSupported("audio/webm")) return "audio/webm";
+    if (MediaRecorder.isTypeSupported("audio/mp4")) return "audio/mp4";
+    if (MediaRecorder.isTypeSupported("audio/aac")) return "audio/aac";
+    if (MediaRecorder.isTypeSupported("audio/ogg")) return "audio/ogg";
+    return ""; // let browser pick default
+  };
+
   const startListening = useCallback(async () => {
     if (!conversationActiveRef.current || processingRef.current) return;
     setChatState("listening");
@@ -161,6 +189,10 @@ export default function Conversation() {
       streamRef.current = stream;
 
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      // iOS Safari keeps AudioContext suspended until explicitly resumed
+      if (audioCtx.state === "suspended") {
+        await audioCtx.resume();
+      }
       audioCtxRef.current = audioCtx;
       const source = audioCtx.createMediaStreamSource(stream);
       const analyser = audioCtx.createAnalyser();
@@ -168,7 +200,10 @@ export default function Conversation() {
       source.connect(analyser);
       analyserRef.current = analyser;
 
-      const recorder = new MediaRecorder(stream);
+      const mimeType = getRecorderMimeType();
+      const recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
       audioChunksRef.current = [];
       const recordStartTime = Date.now();
       recorder.ondataavailable = (e) => {
@@ -184,7 +219,8 @@ export default function Conversation() {
         setLiveLevel(0);
 
         const recordDuration = Date.now() - recordStartTime;
-        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        const blobType = recorder.mimeType || "audio/webm";
+        const blob = new Blob(audioChunksRef.current, { type: blobType });
 
         const peakLevel = peakLevelRef.current;
 
@@ -283,9 +319,18 @@ export default function Conversation() {
         }
       };
 
-      recorder.start();
+      recorder.start(500); // timeslice 500ms — iOS Safari needs this to emit ondataavailable
       mediaRecorderRef.current = recorder;
       startSilenceDetection(analyser);
+
+      // Safety net: max recording duration 30s (in case silence detection fails on iOS)
+      setTimeout(() => {
+        if (mediaRecorderRef.current === recorder && recorder.state === "recording") {
+          console.log("[Conversation] max recording timeout — stopping");
+          peakLevelRef.current = Math.max(peakLevelRef.current, 0.11); // bypass peak filter
+          stopListening();
+        }
+      }, 30000);
     } catch (e) {
       console.error("Mic access failed:", e);
       setChatState("idle");
