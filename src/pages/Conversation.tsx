@@ -22,7 +22,19 @@ interface Message {
 const SILENCE_TIMEOUT = 1.2; // seconds of silence before auto-stop
 const SILENCE_THRESHOLD = 0.08; // raised to ignore background noise (music, TV)
 const MIN_SPEECH_DURATION_MS = 1200; // ignore recordings shorter than this
-const MIN_TRANSCRIPTION_LENGTH = 5; // ignore transcriptions with fewer characters (filters "tu", "you", etc.)
+const MIN_TRANSCRIPTION_LENGTH = 5; // ignore transcriptions with fewer characters
+const SPEECH_PEAK_THRESHOLD = 0.15; // minimum peak audio level during recording to consider it real speech (not distant TV)
+const MAX_DUPLICATE_SIMILARITY = 0.8; // reject if >80% similar to a recent message
+
+/** Simple text similarity (0-1) based on common words */
+function textSimilarity(a: string, b: string): number {
+  const wordsA = new Set(a.split(/\s+/).filter(Boolean));
+  const wordsB = new Set(b.split(/\s+/).filter(Boolean));
+  if (wordsA.size === 0 || wordsB.size === 0) return 0;
+  let common = 0;
+  wordsA.forEach((w) => { if (wordsB.has(w)) common++; });
+  return common / Math.max(wordsA.size, wordsB.size);
+}
 
 export default function Conversation() {
   const navigate = useNavigate();
@@ -59,6 +71,7 @@ export default function Conversation() {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number>(0);
   const audioCtxRef = useRef<AudioContext | null>(null);
+  const peakLevelRef = useRef(0); // track peak audio level during recording
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -111,6 +124,9 @@ export default function Conversation() {
       const rms = Math.sqrt(sum / dataArray.length);
       setLiveLevel(rms);
 
+      // Track peak level to distinguish real speech from distant TV
+      if (rms > peakLevelRef.current) peakLevelRef.current = rms;
+
       if (rms < SILENCE_THRESHOLD) {
         if (!silenceStart) silenceStart = Date.now();
         else if ((Date.now() - silenceStart) / 1000 > SILENCE_TIMEOUT) {
@@ -132,6 +148,7 @@ export default function Conversation() {
     if (!conversationActiveRef.current || processingRef.current) return;
     setChatState("listening");
     setLiveLevel(0);
+    peakLevelRef.current = 0;
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -169,8 +186,13 @@ export default function Conversation() {
         const recordDuration = Date.now() - recordStartTime;
         const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
 
-        // Skip if too short (just noise) or too small
-        if (blob.size < 2000 || recordDuration < MIN_SPEECH_DURATION_MS) {
+        const peakLevel = peakLevelRef.current;
+
+        // Skip if too short, too small, or audio peak too low (distant TV, not direct speech)
+        if (blob.size < 2000 || recordDuration < MIN_SPEECH_DURATION_MS || peakLevel < SPEECH_PEAK_THRESHOLD) {
+          if (peakLevel < SPEECH_PEAK_THRESHOLD && blob.size >= 2000) {
+            console.log("[Conversation] skipped: peak audio too low", peakLevel.toFixed(3), "< threshold", SPEECH_PEAK_THRESHOLD);
+          }
           if (conversationActiveRef.current && !processingRef.current) {
             startListening();
           } else {
@@ -219,6 +241,20 @@ export default function Conversation() {
 
           if (isHallucination || !conversationActiveRef.current) {
             console.log("[Conversation] filtered hallucination:", trimmed.substring(0, 40));
+            processingRef.current = false;
+            if (conversationActiveRef.current) startListening();
+            else setChatState("idle");
+            return;
+          }
+
+          // Deduplicate: reject if too similar to any of the last 5 messages
+          const recentMessages = messages.slice(-5);
+          const isDuplicate = recentMessages.some((m) => {
+            const sim = textSimilarity(lower, m.originalText.toLowerCase());
+            return sim > MAX_DUPLICATE_SIMILARITY;
+          });
+          if (isDuplicate) {
+            console.log("[Conversation] rejected duplicate:", trimmed.substring(0, 40));
             processingRef.current = false;
             if (conversationActiveRef.current) startListening();
             else setChatState("idle");
