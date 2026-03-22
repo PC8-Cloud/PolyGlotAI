@@ -26,7 +26,7 @@ import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
-import { playTTS, prepareAudioForSafari, getApiErrorMessage, transcribeAudio } from "../lib/openai";
+import { playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudio } from "../lib/openai";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -296,6 +296,17 @@ export default function Learn() {
   useEffect(() => { apiMessagesRef.current = apiMessages; }, [apiMessages]);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
   useEffect(() => { levelRef.current = level; }, [level]);
+
+  // Cleanup on unmount — stop all audio and recording when leaving the page
+  useEffect(() => {
+    return () => {
+      cancelledRef.current = true;
+      stopListening();
+      muteAudio();
+      // Also stop any HTML5 audio elements
+      document.querySelectorAll("audio").forEach((a) => { a.pause(); a.currentTime = 0; });
+    };
+  }, []);
 
   // Auto-scroll only if user is near the bottom (not reading old messages)
   useEffect(() => {
@@ -585,6 +596,8 @@ export default function Learn() {
   const resetLesson = () => {
     cancelledRef.current = true;
     stopListening();
+    muteAudio();
+    document.querySelectorAll("audio").forEach((a) => { a.pause(); a.currentTime = 0; });
     setPhase("setup");
     setMessages([]);
     setApiMessages([]);
@@ -869,7 +882,7 @@ export default function Learn() {
     return (
       <div className="min-h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans">
         <header className="flex items-center gap-3 p-4 border-b border-[#FFFFFF14] bg-[#0E2666]">
-          <button onClick={() => navigate("/")} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
+          <button onClick={() => { muteAudio(); navigate("/"); }} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
             <ChevronLeft className="w-6 h-6" />
           </button>
           <GraduationCap className="w-5 h-5 text-[#295BDB]" />
