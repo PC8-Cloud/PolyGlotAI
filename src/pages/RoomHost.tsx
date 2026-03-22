@@ -383,6 +383,54 @@ export default function RoomHost() {
     }
   };
 
+  // ─── Clean up garbled SpeechRecognition output ────────────────────────
+
+  /** Remove repetitive patterns from SpeechRecognition output (e.g. "bonjournobonjournobonjourno" → "buongiorno") */
+  const cleanSpeechText = (text: string): string => {
+    let cleaned = text.trim();
+    if (!cleaned) return "";
+
+    // Detect and remove word-level repetitions: "hello hello hello" → "hello"
+    const words = cleaned.split(/\s+/);
+    if (words.length >= 3) {
+      const deduped: string[] = [words[0]];
+      let repeatCount = 0;
+      for (let i = 1; i < words.length; i++) {
+        if (words[i].toLowerCase() === words[i - 1].toLowerCase()) {
+          repeatCount++;
+          if (repeatCount >= 2) continue; // skip after 2 consecutive repeats
+        } else {
+          repeatCount = 0;
+        }
+        deduped.push(words[i]);
+      }
+      cleaned = deduped.join(" ");
+    }
+
+    // Detect substring repetitions: "bonjournobonjournobonjourno" → "bonjourno"
+    // Try pattern lengths from 3 to 20 chars
+    for (let patLen = 3; patLen <= Math.min(20, Math.floor(cleaned.length / 2)); patLen++) {
+      const pattern = cleaned.substring(0, patLen).toLowerCase();
+      const regex = new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+      const matches = cleaned.match(regex);
+      if (matches && matches.length >= 3 && (matches.length * patLen) > cleaned.length * 0.5) {
+        // More than half the text is this repeated pattern — extract just the unique part
+        cleaned = cleaned.substring(0, patLen);
+        break;
+      }
+    }
+
+    return cleaned.trim();
+  };
+
+  /** Check if text is garbled/nonsensical (too repetitive or too short after cleaning) */
+  const isGarbledText = (original: string, cleaned: string): boolean => {
+    if (!cleaned || cleaned.length < 2) return true;
+    // If cleaning removed more than 60% of the text, it was mostly repetition
+    if (cleaned.length < original.length * 0.4 && original.length > 20) return true;
+    return false;
+  };
+
   // ─── Finish and send ───────────────────────────────────────────────────
 
   const finishAndSend = async () => {
@@ -399,12 +447,18 @@ export default function RoomHost() {
       try { recognitionRef.current.stop(); } catch {}
       recognitionRef.current = null;
     }
-    const fullText = transcriptRef.current.trim();
+    const rawText = transcriptRef.current.trim();
     setTranscript("");
     transcriptRef.current = "";
     hasSpokenRef.current = false;
 
-    if (!fullText || !sessionId || !hostId) {
+    // Clean up garbled SpeechRecognition output
+    const fullText = cleanSpeechText(rawText);
+
+    if (!fullText || !sessionId || !hostId || isGarbledText(rawText, fullText)) {
+      if (rawText && isGarbledText(rawText, fullText)) {
+        console.log("[RoomHost] rejected garbled text:", rawText.substring(0, 50), "→ cleaned:", fullText);
+      }
       releaseWakeLock();
       resetIncrementalState();
       processingRef.current = false;
