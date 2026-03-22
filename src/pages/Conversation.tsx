@@ -19,9 +19,10 @@ interface Message {
 }
 
 // Silence detection
-const SILENCE_TIMEOUT = 1.5; // seconds of silence before auto-stop
-const SILENCE_THRESHOLD = 0.05; // raised to ignore background noise (music, TV)
-const MIN_SPEECH_DURATION_MS = 800; // ignore recordings shorter than this
+const SILENCE_TIMEOUT = 1.2; // seconds of silence before auto-stop
+const SILENCE_THRESHOLD = 0.08; // raised to ignore background noise (music, TV)
+const MIN_SPEECH_DURATION_MS = 1200; // ignore recordings shorter than this
+const MIN_TRANSCRIPTION_LENGTH = 5; // ignore transcriptions with fewer characters (filters "tu", "you", etc.)
 
 export default function Conversation() {
   const navigate = useNavigate();
@@ -188,10 +189,15 @@ export default function Conversation() {
           // Filter out empty, too-short, or Whisper hallucination artifacts
           const trimmed = text.trim();
           const lower = trimmed.toLowerCase();
+          const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
           const isHallucination =
             !trimmed ||
-            trimmed.length < 3 ||
+            trimmed.length < MIN_TRANSCRIPTION_LENGTH ||
             /^[\s.,!?…\-—–]+$/.test(trimmed) ||
+            // Single words are almost always noise from background
+            wordCount <= 1 ||
+            // Very short 2-word phrases that are common TV/background noise
+            (wordCount <= 2 && /^(thank you|okay|va bene|oh no|no no|si si|yes yes|hey|ciao|hello|bye|grazie|thanks|sorry|scusa|please|per favore|of course|come on|all right|alright|oh my|oh god|oh well|you know|i know|let's go|andiamo)$/i.test(lower)) ||
             // Whisper common hallucinations
             /^(music|applause|laughter|silence|background|thank you|thanks for watching)/i.test(trimmed) ||
             /^\[.*\]$/.test(trimmed) ||
@@ -412,6 +418,13 @@ export default function Conversation() {
         </button>
         <MessagesSquare className="w-5 h-5 text-[#295BDB]" />
         <h1 className="text-lg font-bold flex-1">{t("conversation")}</h1>
+        <button
+          onClick={handleShareConversation}
+          disabled={messages.length === 0}
+          className="p-2 rounded-xl transition-colors bg-[#123182] text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#295BDB] disabled:opacity-20"
+        >
+          <Upload className="w-5 h-5" />
+        </button>
       </header>
       <div className="flex items-center gap-2 p-4 border-b border-[#FFFFFF14] bg-[#0E2666]/50 shrink-0">
         <select
@@ -446,14 +459,7 @@ export default function Conversation() {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 min-h-0 relative">
-        <button
-          onClick={handleShareConversation}
-          disabled={messages.length === 0}
-          className="sticky top-0 z-10 self-end p-2.5 bg-[#0E2666]/90 backdrop-blur-sm border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/50 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-20 disabled:hover:bg-[#0E2666]/90 disabled:hover:text-[#F4F4F4]/50 shrink-0"
-        >
-          <Upload className="w-5 h-5" />
-        </button>
+      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 min-h-0">
         {messages.length === 0 && !conversationActive && (
           <div className="flex-1 flex items-center justify-center">
             <p className="text-[#F4F4F4]/30 text-sm text-center px-8">{t("conversationAutoDetect")}</p>
