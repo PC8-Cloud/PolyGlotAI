@@ -35,47 +35,6 @@ function textSimilarity(a: string, b: string): number {
   return common / Math.max(wordsA.size, wordsB.size);
 }
 
-/** Clean Whisper transcription: remove repeated words/phrases that Whisper hallucinates */
-function cleanTranscription(text: string): string {
-  let cleaned = text.trim();
-  if (!cleaned) return "";
-
-  // 1. Remove consecutive duplicate words: "ciao ciao ciao" → "ciao"
-  const words = cleaned.split(/\s+/);
-  const deduped: string[] = [words[0]];
-  for (let i = 1; i < words.length; i++) {
-    if (words[i].toLowerCase() !== words[i - 1].toLowerCase()) {
-      deduped.push(words[i]);
-    }
-  }
-  cleaned = deduped.join(" ");
-
-  // 2. Remove repeated 2-3 word phrases: "thank you thank you thank you" → "thank you"
-  for (let phraseLen = 2; phraseLen <= 3; phraseLen++) {
-    const w = cleaned.split(/\s+/);
-    if (w.length < phraseLen * 2) continue;
-    const phrase = w.slice(0, phraseLen).join(" ").toLowerCase();
-    const rest = w.slice(phraseLen).join(" ").toLowerCase();
-    // Check if the rest is just repetitions of the phrase
-    const stripped = rest.replace(new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), "").trim();
-    if (stripped.length < rest.length * 0.3) {
-      cleaned = w.slice(0, phraseLen).join(" ");
-    }
-  }
-
-  // 3. Detect substring repetitions: "bonjournobonjournobonjourno" → "bonjourno"
-  for (let patLen = 3; patLen <= Math.min(20, Math.floor(cleaned.length / 2)); patLen++) {
-    const pattern = cleaned.substring(0, patLen).toLowerCase();
-    const regex = new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
-    const matches = cleaned.match(regex);
-    if (matches && matches.length >= 3 && (matches.length * patLen) > cleaned.length * 0.5) {
-      cleaned = cleaned.substring(0, patLen);
-      break;
-    }
-  }
-
-  return cleaned.trim();
-}
 
 export default function Conversation() {
   const navigate = useNavigate();
@@ -282,11 +241,8 @@ export default function Conversation() {
         processingRef.current = true;
         setChatState("transcribing");
         try {
-          const { text: rawText, language: detectedLang } = await transcribeAudioDetectLang(blob);
-
-          // Clean Whisper repetition artifacts: "ciao ciao ciao" → "ciao"
-          const text = cleanTranscription(rawText);
-          console.log("[Conversation] detected:", { raw: rawText.substring(0, 40), cleaned: text.substring(0, 40), detectedLang });
+          const { text, language: detectedLang } = await transcribeAudioDetectLang(blob);
+          console.log("[Conversation] detected:", { text: text.substring(0, 50), detectedLang, blobSize: blob.size, blobType: blob.type });
 
           // Filter out empty, too-short, or Whisper hallucination artifacts
           const trimmed = text.trim();
@@ -358,7 +314,9 @@ export default function Conversation() {
         }
       };
 
-      recorder.start(500); // timeslice 500ms — iOS Safari needs this to emit ondataavailable
+      // No timeslice — ondataavailable fires once on stop() with complete audio.
+      // Using timeslice caused overlapping chunks on Android = duplicate audio.
+      recorder.start();
       mediaRecorderRef.current = recorder;
       startSilenceDetection(analyser);
 
