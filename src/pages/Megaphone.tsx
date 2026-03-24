@@ -5,7 +5,7 @@ import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLocaleForCode } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
-import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, getRealtimeTranslationConfig } from "../lib/openai";
+import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, getRealtimeTranslationConfig, suspendAudioForMic } from "../lib/openai";
 import { extractTextFromFile } from "../lib/file-reader";
 
 interface Entry {
@@ -127,13 +127,16 @@ export default function MegaphonePage() {
 
   const toggleListening = () => {
     if (isListening) {
+      console.log("[Megaphone] finishAndPlay requested");
       prepareAudioForSafari();
       finishAndPlay();
       return;
     }
     if (isTranslating || isSpeaking || processingRef.current) return;
 
+    console.log("[Megaphone] start SpeechRecognition");
     prepareAudioForSafari();
+    suspendAudioForMic();
 
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;

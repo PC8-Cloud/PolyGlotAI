@@ -6,7 +6,7 @@ import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLocaleForCode } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
-import { translateText, getApiErrorMessage, getRealtimeTranslationConfig } from "../lib/openai";
+import { translateText, getApiErrorMessage, getRealtimeTranslationConfig, suspendAudioForMic } from "../lib/openai";
 import { extractTextFromFile } from "../lib/file-reader";
 import { createRoom, sendMessage } from "../lib/firebase-helpers";
 import { db } from "../firebase";
@@ -331,10 +331,13 @@ export default function RoomHost() {
 
   const toggleListening = () => {
     if (isListening) {
+      console.log("[RoomHost] finishAndSend requested");
       finishAndSend();
       return;
     }
     if (isTranslating || processingRef.current) return;
+    console.log("[RoomHost] start SpeechRecognition");
+    suspendAudioForMic();
 
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;

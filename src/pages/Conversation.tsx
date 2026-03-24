@@ -5,7 +5,7 @@ import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLabelForCode } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
-import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudioDetectLang } from "../lib/openai";
+import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudioDetectLang, suspendAudioForMic } from "../lib/openai";
 
 type MsgStatus = "sent" | "translated" | "playing" | "done";
 
@@ -174,6 +174,8 @@ export default function Conversation() {
 
   const startListening = useCallback(async () => {
     if (!conversationActiveRef.current || processingRef.current) return;
+    console.log("[Conversation] startListening");
+    suspendAudioForMic();
     setChatState("listening");
     setLiveLevel(0);
     peakLevelRef.current = 0;
@@ -339,15 +341,19 @@ export default function Conversation() {
   // ─── Stop listening ───────────────────────────────────────────────────
 
   const stopListening = useCallback(() => {
+    console.log("[Conversation] stopListening");
     cancelAnimationFrame(animFrameRef.current);
     if (mediaRecorderRef.current?.state === "recording") {
       mediaRecorderRef.current.stop();
     }
+    mediaRecorderRef.current = null;
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
     }
     if (audioCtxRef.current) {
       audioCtxRef.current.close().catch(() => {});
+      audioCtxRef.current = null;
     }
     setLiveLevel(0);
   }, []);
@@ -381,6 +387,7 @@ export default function Conversation() {
 
       // Auto-speak translation — wait for TTS to finish before listening again
       if (autoSpeakRef.current && translatedText !== "...") {
+        console.log("[Conversation] play translated TTS", { targetLang, translatedText: translatedText.slice(0, 60) });
         setChatState("speaking");
         setPlayingId(newId);
         setMessages((prev) =>

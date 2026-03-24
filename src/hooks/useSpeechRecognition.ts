@@ -1,10 +1,13 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { getLocaleForCode } from "../lib/languages";
+import { suspendAudioForMic } from "../lib/openai";
 
 export function useSpeechRecognition(language: string = "en") {
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [recognition, setRecognition] = useState<any>(null);
+  const recognitionRef = useRef<any>(null);
+  const stopRequestedRef = useRef(false);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -12,6 +15,9 @@ export function useSpeechRecognition(language: string = "en") {
         (window as any).SpeechRecognition ||
         (window as any).webkitSpeechRecognition;
       if (SpeechRecognition) {
+        try {
+          recognitionRef.current?.abort?.();
+        } catch {}
         const rec = new SpeechRecognition();
         rec.continuous = true;
         rec.interimResults = true;
@@ -25,37 +31,59 @@ export function useSpeechRecognition(language: string = "en") {
           setTranscript(currentTranscript);
         };
 
+        rec.onstart = () => {
+          stopRequestedRef.current = false;
+          setIsListening(true);
+        };
+
         rec.onerror = (event: any) => {
           console.warn("Speech recognition error", event.error);
           setIsListening(false);
         };
 
         rec.onend = () => {
+          if (stopRequestedRef.current) {
+            stopRequestedRef.current = false;
+          }
           setIsListening(false);
         };
 
+        recognitionRef.current = rec;
         setRecognition(rec);
       } else {
         console.warn("Speech recognition not supported in this browser.");
       }
     }
+
+    return () => {
+      try {
+        recognitionRef.current?.abort?.();
+      } catch {}
+      recognitionRef.current = null;
+    };
   }, [language]);
 
   const startListening = useCallback(() => {
-    if (recognition) {
+    if (recognition && !isListening) {
       try {
-        recognition.start();
-        setIsListening(true);
+        suspendAudioForMic();
+        stopRequestedRef.current = false;
         setTranscript("");
+        recognition.start();
       } catch (e) {
         console.warn(e);
       }
     }
-  }, [recognition]);
+  }, [recognition, isListening]);
 
   const stopListening = useCallback(() => {
     if (recognition) {
-      recognition.stop();
+      stopRequestedRef.current = true;
+      try {
+        recognition.stop();
+      } catch (e) {
+        console.warn(e);
+      }
       setIsListening(false);
     }
   }, [recognition]);

@@ -337,6 +337,7 @@ export async function textToSpeech(
 let _audioCtx: AudioContext | null = null;
 // Pre-warmed Audio element — created on user gesture, reused for playback
 let _warmAudio: HTMLAudioElement | null = null;
+const AUDIO_DEBUG = true;
 
 // Tiny silent MP3 (1 frame) — just to unlock playback
 const SILENT_MP3 = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRwLHAAAAAAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRwLHAAAAAAAAAAAAAAAAAAAA";
@@ -344,6 +345,7 @@ const SILENT_MP3 = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Lj
 // Call this synchronously inside EVERY tap/click handler to unlock audio on iOS.
 // Creates AudioContext + warms an Audio element with a silent data URI.
 export function prepareAudioForSafari() {
+  if (AUDIO_DEBUG) console.log("[Audio] prepareAudioForSafari", { audioCtxState: _audioCtx?.state, hasWarmAudio: !!_warmAudio });
   const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
 
   // If AudioContext is closed (e.g. after stopAllAudio), discard and recreate
@@ -370,6 +372,7 @@ export function prepareAudioForSafari() {
 // Suspend AudioContext to release audio session (call before recording).
 // On mobile, the audio session can conflict with the microphone.
 export function suspendAudioForMic() {
+  if (AUDIO_DEBUG) console.log("[Audio] suspendAudioForMic", { audioCtxState: _audioCtx?.state, hasWarmAudio: !!_warmAudio });
   if (_audioCtx?.state === "running") {
     _audioCtx.suspend().catch(() => {});
   }
@@ -382,6 +385,7 @@ export function suspendAudioForMic() {
 
 /** Mute: stop current playback but keep AudioContext alive for future use. */
 export function muteAudio() {
+  if (AUDIO_DEBUG) console.log("[Audio] muteAudio", { audioCtxState: _audioCtx?.state, hasWarmAudio: !!_warmAudio });
   // Suspend (not close) AudioContext — stops current BufferSource nodes
   if (_audioCtx?.state === "running") {
     _audioCtx.suspend().catch(() => {});
@@ -404,6 +408,7 @@ export function muteAudio() {
 /** Stop all audio playback immediately (for background/visibility change).
  *  Closes AudioContext and nulls refs so they get re-created fresh on next user gesture. */
 export function stopAllAudio() {
+  if (AUDIO_DEBUG) console.log("[Audio] stopAllAudio", { audioCtxState: _audioCtx?.state, hasWarmAudio: !!_warmAudio });
   // Close AudioContext entirely — suspend isn't enough on some mobile browsers
   if (_audioCtx) {
     _audioCtx.close().catch(() => {});
@@ -439,11 +444,13 @@ export async function playTTS(
   // If connection is slow or offline, use local TTS
   if (isConnectionSlow() || !isOnlineCheck()) {
     if (canUseLocalTTS()) {
+      if (AUDIO_DEBUG) console.log("[Audio] playTTS -> localTTS", { langCode, textPreview: text.slice(0, 60) });
       return playLocalTTS(text, langCode);
     }
   }
 
   try {
+    if (AUDIO_DEBUG) console.log("[Audio] playTTS start", { langCode, voice: selectedVoice, speed: selectedSpeed, textPreview: text.slice(0, 60), audioCtxState: _audioCtx?.state });
     const start = Date.now();
     const buffer = await textToSpeech(text, selectedVoice, selectedSpeed);
     reportResponseTime(Date.now() - start);
@@ -464,7 +471,10 @@ export async function playTTS(
         source.connect(_audioCtx.destination);
         source.start();
         return new Promise<void>((resolve) => {
-          source.onended = () => resolve();
+          source.onended = () => {
+            if (AUDIO_DEBUG) console.log("[Audio] playTTS end via AudioContext", { langCode, textPreview: text.slice(0, 60) });
+            resolve();
+          };
         });
       } catch (decodeErr) {
         console.warn("AudioContext decode failed, trying Audio element:", decodeErr);
@@ -483,10 +493,12 @@ export async function playTTS(
     return new Promise((resolve, reject) => {
       audio.onended = () => {
         URL.revokeObjectURL(url);
+        if (AUDIO_DEBUG) console.log("[Audio] playTTS end via HTMLAudio", { langCode, textPreview: text.slice(0, 60) });
         resolve();
       };
       audio.onerror = (e) => {
         URL.revokeObjectURL(url);
+        if (AUDIO_DEBUG) console.warn("[Audio] playTTS HTMLAudio error", e);
         if (canUseLocalTTS()) {
           playLocalTTS(text, langCode).then(resolve).catch(reject);
         } else {
@@ -495,6 +507,7 @@ export async function playTTS(
       };
       audio.play().catch((playErr) => {
         URL.revokeObjectURL(url);
+        if (AUDIO_DEBUG) console.warn("[Audio] playTTS audio.play() rejected", playErr);
         if (canUseLocalTTS()) {
           playLocalTTS(text, langCode).then(resolve).catch(reject);
         } else {
@@ -503,6 +516,7 @@ export async function playTTS(
       });
     });
   } catch (e) {
+    if (AUDIO_DEBUG) console.warn("[Audio] playTTS failed, trying fallback", e);
     if (canUseLocalTTS()) {
       return playLocalTTS(text, langCode);
     }

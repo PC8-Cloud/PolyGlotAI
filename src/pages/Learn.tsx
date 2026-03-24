@@ -26,7 +26,7 @@ import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
-import { playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudio } from "../lib/openai";
+import { playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudio, suspendAudioForMic } from "../lib/openai";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -358,6 +358,8 @@ export default function Learn() {
 
   const startListening = useCallback(async () => {
     if (cancelledRef.current) return;
+    console.log("[Learn] startListening");
+    suspendAudioForMic();
     setChatState("listening");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -441,12 +443,15 @@ export default function Learn() {
   // ─── Stop listening ────────────────────────────────────────────────────────
 
   const stopListening = useCallback(() => {
+    console.log("[Learn] stopListening");
     cancelAnimationFrame(animFrameRef.current);
     if (mediaRecorderRef.current?.state === "recording") {
       mediaRecorderRef.current.stop();
     }
+    mediaRecorderRef.current = null;
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
     }
   }, []);
 
@@ -510,6 +515,7 @@ export default function Learn() {
       // Speak tutor reply, then auto-listen
       setChatState("speaking");
       try {
+        console.log("[Learn] play tutor TTS", { textPreview: data.text.slice(0, 60), targetLang });
         await playTTS(data.text, undefined, currentSpeedRef.current, targetLang);
       } catch (e) {
         console.error("TTS error:", e);
@@ -758,8 +764,10 @@ export default function Learn() {
   };
 
   const startVocabListening = async () => {
+    console.log("[Learn] startVocabListening");
     setVocabState("listening");
     prepareAudioForSafari();
+    suspendAudioForMic();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -851,9 +859,11 @@ export default function Learn() {
   };
 
   const stopVocabListening = () => {
+    console.log("[Learn] stopVocabListening");
     if (vocabRecorderRef.current?.state === "recording") {
       vocabRecorderRef.current.stop();
     }
+    vocabRecorderRef.current = null;
   };
 
   const nextVocabWord = () => {
