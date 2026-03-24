@@ -8,6 +8,17 @@ export function useSpeechRecognition(language: string = "en") {
   const [recognition, setRecognition] = useState<any>(null);
   const recognitionRef = useRef<any>(null);
   const stopRequestedRef = useRef(false);
+  const micAccessPrimedRef = useRef(false);
+
+  const ensureMicrophoneAccess = useCallback(async () => {
+    if (micAccessPrimedRef.current) return true;
+    if (!navigator.mediaDevices?.getUserMedia) return false;
+
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach((track) => track.stop());
+    micAccessPrimedRef.current = true;
+    return true;
+  }, []);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -63,18 +74,20 @@ export function useSpeechRecognition(language: string = "en") {
     };
   }, [language]);
 
-  const startListening = useCallback(() => {
+  const startListening = useCallback(async () => {
     if (recognition && !isListening) {
       try {
+        await ensureMicrophoneAccess();
         suspendAudioForMic();
         stopRequestedRef.current = false;
         setTranscript("");
         recognition.start();
       } catch (e) {
         console.warn(e);
+        setIsListening(false);
       }
     }
-  }, [recognition, isListening]);
+  }, [recognition, isListening, ensureMicrophoneAccess]);
 
   const stopListening = useCallback(() => {
     if (recognition) {

@@ -10,6 +10,7 @@ import { playTTS, translateText, prepareAudioForSafari } from "../lib/openai";
 import { db } from "../firebase";
 import { collection, doc, onSnapshot, orderBy, query } from "firebase/firestore";
 import { muteAudio } from "../lib/openai";
+import { canUseLocalTTS, playLocalTTS } from "../lib/offline";
 
 interface Msg {
   id: string;
@@ -47,9 +48,27 @@ export default function RoomJoin() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const prevMsgCountRef = useRef(0);
   const initialLoadRef = useRef(true);
+  const joinedAtRef = useRef<number>(Date.now());
   const spokenMsgIds = useRef<Set<string>>(new Set());
   const ttsQueueRef = useRef<{ text: string; id: string }[]>([]);
   const ttsPlayingRef = useRef(false);
+
+  const getCreatedAtMs = (value: any): number | null => {
+    if (!value) return null;
+    if (typeof value?.toMillis === "function") return value.toMillis();
+    if (typeof value?.seconds === "number") return value.seconds * 1000;
+    if (typeof value === "number") return value;
+    const parsed = Date.parse(String(value));
+    return Number.isNaN(parsed) ? null : parsed;
+  };
+
+  useEffect(() => {
+    return () => {
+      ttsQueueRef.current = [];
+      ttsPlayingRef.current = false;
+      muteAudio();
+    };
+  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -91,10 +110,15 @@ export default function RoomJoin() {
       // Auto-speak logic: wait for translation in myLang before speaking
       if (initialLoadRef.current) {
         initialLoadRef.current = false;
-        // Mark all existing messages as already spoken
-        list.forEach((m) => spokenMsgIds.current.add(m.id));
+        // Mark only true backlog messages as already spoken.
+        // Fresh messages that are still waiting for translation must remain eligible for TTS.
+        list.forEach((m) => {
+          const createdAtMs = getCreatedAtMs(m.createdAt);
+          if (createdAtMs !== null && createdAtMs < joinedAtRef.current - 1500) {
+            spokenMsgIds.current.add(m.id);
+          }
+        });
         prevMsgCountRef.current = list.length;
-        return;
       }
       if (autoSpeak) {
         // Check all BROADCAST messages we haven't spoken yet
@@ -133,6 +157,11 @@ export default function RoomJoin() {
       }
       prepareAudioForSafari(); // unlock audio on user gesture
       const pid = await joinRoom(sid, myLang, name.trim());
+      joinedAtRef.current = Date.now();
+      initialLoadRef.current = true;
+      spokenMsgIds.current.clear();
+      ttsQueueRef.current = [];
+      ttsPlayingRef.current = false;
       setParticipantId(pid);
       setSessionId(sid);
     } catch (e: any) {
@@ -153,7 +182,11 @@ export default function RoomJoin() {
     prepareAudioForSafari();
     setPlayingId(next.id);
     try {
-      await playTTS(next.text, undefined, undefined, myLang);
+      if (canUseLocalTTS()) {
+        await playLocalTTS(next.text, myLang);
+      } else {
+        await playTTS(next.text, undefined, undefined, myLang);
+      }
     } catch (e) {
       console.error("TTS failed:", e);
     } finally {
@@ -167,6 +200,8 @@ export default function RoomJoin() {
   };
 
   const speakText = (text: string, id: string) => {
+    if (!text.trim()) return;
+    if (playingId === id || ttsQueueRef.current.some((item) => item.id === id)) return;
     ttsQueueRef.current.push({ text, id });
     processTTSQueue();
   };
@@ -336,7 +371,11 @@ export default function RoomJoin() {
           onClick={() => {
             const newVal = !autoSpeak;
             setAutoSpeak(newVal);
-            if (!newVal) muteAudio();
+            if (!newVal) {
+              ttsQueueRef.current = [];
+              ttsPlayingRef.current = false;
+              muteAudio();
+            }
             else prepareAudioForSafari();
           }}
           className={`p-2 rounded-xl transition-colors ${

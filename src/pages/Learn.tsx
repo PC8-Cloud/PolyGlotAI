@@ -229,6 +229,26 @@ TEACHER MODE (because the user is a beginner):
 - Use "hint" field often to explain grammar rules, pronunciation tips, or cultural context in ${nativeLang}.` : ''}`;
 }
 
+function buildLessonKickoffPrompt(nativeLang: string, targetLang: string, level: Level, topic: Topic, studentName?: string): string {
+  return `Start the spoken lesson now.
+- Greet ${studentName || "the student"} naturally
+- Speak in ${targetLang}
+- Put the translation in ${nativeLang}
+- Keep the first tutor turn short and easy to answer
+- Ask exactly one question to begin
+- Topic: ${topic}
+- Level: ${level}`;
+}
+
+function normalizeTutorResponse(raw: any): TutorResponse {
+  const text = typeof raw?.text === "string" ? raw.text.trim() : "";
+  const translation = typeof raw?.translation === "string" ? raw.translation.trim() : "";
+  const correction = typeof raw?.correction === "string" && raw.correction.trim() ? raw.correction.trim() : undefined;
+  const hint = typeof raw?.hint === "string" && raw.hint.trim() ? raw.hint.trim() : undefined;
+
+  return { text, translation, correction, hint };
+}
+
 // TTS speed per level — slower for beginners
 const LEVEL_SPEED: Record<Level, number> = {
   molto_base: 0.8,
@@ -289,6 +309,7 @@ export default function Learn() {
   const silenceCyclesRef = useRef(0); // counts consecutive silence cycles for [NO_RESPONSE]
   const levelRef = useRef(level);
   const vocabRecorderRef = useRef<MediaRecorder | null>(null);
+  const chatRequestIdRef = useRef(0);
 
   // Keep refs in sync
   useEffect(() => { autoModeRef.current = autoMode; }, [autoMode]);
@@ -461,8 +482,10 @@ export default function Learn() {
     if (!text || cancelledRef.current) return;
 
     prepareAudioForSafari();
+    muteAudio();
     setInput("");
     setError(null);
+    const requestId = ++chatRequestIdRef.current;
 
     const isNoResponse = text === "[NO_RESPONSE]";
     const userMsg: ChatMessage = { role: "user", text };
@@ -484,18 +507,13 @@ export default function Learn() {
       if (!res.ok) throw { status: res.status, message: "Chat failed" };
 
       const raw = await res.json();
-      if (cancelledRef.current) return;
+      if (cancelledRef.current || requestId !== chatRequestIdRef.current) return;
 
-      // Normalize: sometimes model returns slightly different shapes
-      const data: TutorResponse = {
-        text: raw.text || "",
-        translation: raw.translation || "",
-        correction: raw.correction || undefined,
-        hint: raw.hint || undefined,
-      };
+      const data = normalizeTutorResponse(raw);
 
       // Skip empty responses
       if (!data.text && !data.translation) {
+        setError(t("genericApiError"));
         if (autoModeRef.current) startListening();
         else setChatState("idle");
         return;
@@ -516,12 +534,14 @@ export default function Learn() {
       setChatState("speaking");
       try {
         console.log("[Learn] play tutor TTS", { textPreview: data.text.slice(0, 60), targetLang });
-        await playTTS(data.text, undefined, currentSpeedRef.current, targetLang);
+        if (data.text) {
+          await playTTS(data.text, undefined, currentSpeedRef.current, targetLang);
+        }
       } catch (e) {
         console.error("TTS error:", e);
       }
 
-      if (cancelledRef.current) return;
+      if (cancelledRef.current || requestId !== chatRequestIdRef.current) return;
 
       // After speaking, auto-listen if enabled
       if (autoModeRef.current) {
@@ -540,10 +560,16 @@ export default function Learn() {
 
   const startLesson = async () => {
     prepareAudioForSafari();
+    muteAudio();
     cancelledRef.current = false;
+    const requestId = ++chatRequestIdRef.current;
 
     const systemPrompt = buildSystemPrompt(nativeLangLabel, targetLangLabel, level, topic, userName || undefined, userGender || undefined);
-    const initMessages = [{ role: "system" as const, content: systemPrompt }];
+    const kickoffPrompt = buildLessonKickoffPrompt(nativeLangLabel, targetLangLabel, level, topic, userName || undefined);
+    const initMessages = [
+      { role: "system" as const, content: systemPrompt },
+      { role: "user" as const, content: kickoffPrompt },
+    ];
 
     setPhase("chat");
     setMessages([]);
@@ -560,16 +586,18 @@ export default function Learn() {
       if (!res.ok) throw { status: res.status, message: "Chat failed" };
 
       const raw = await res.json();
-      const data: TutorResponse = {
-        text: raw.text || "",
-        translation: raw.translation || "",
-        correction: raw.correction || undefined,
-        hint: raw.hint || undefined,
-      };
+      if (cancelledRef.current || requestId !== chatRequestIdRef.current) return;
+
+      const data = normalizeTutorResponse(raw);
+      if (!data.text && !data.translation) {
+        throw new Error("Empty tutor response");
+      }
+
       const tutorMsg: ChatMessage = {
         role: "tutor",
         text: data.text,
         translation: data.translation,
+        correction: data.correction,
         hint: data.hint || undefined,
       };
 
@@ -580,12 +608,14 @@ export default function Learn() {
       // Speak, then auto-listen
       setChatState("speaking");
       try {
-        await playTTS(data.text, undefined, currentSpeedRef.current, targetLang);
+        if (data.text) {
+          await playTTS(data.text, undefined, currentSpeedRef.current, targetLang);
+        }
       } catch (e) {
         console.error("TTS error:", e);
       }
 
-      if (autoModeRef.current && !cancelledRef.current) {
+      if (autoModeRef.current && !cancelledRef.current && requestId === chatRequestIdRef.current) {
         startListening();
       } else {
         setChatState("idle");
@@ -601,6 +631,7 @@ export default function Learn() {
 
   const resetLesson = () => {
     cancelledRef.current = true;
+    chatRequestIdRef.current += 1;
     stopListening();
     muteAudio();
     document.querySelectorAll("audio").forEach((a) => { a.pause(); a.currentTime = 0; });
@@ -616,8 +647,10 @@ export default function Learn() {
 
   const pauseConversation = () => {
     cancelledRef.current = true;
+    chatRequestIdRef.current += 1;
     setAutoMode(false);
     stopListening();
+    muteAudio();
     // Stop any playing audio
     if (typeof window !== "undefined") {
       document.querySelectorAll("audio").forEach((a) => { a.pause(); a.currentTime = 0; });
@@ -637,6 +670,7 @@ export default function Learn() {
   const replayLastTutor = async () => {
     const lastTutor = [...messagesRef.current].reverse().find((m) => m.role === "tutor");
     if (!lastTutor) return;
+    muteAudio();
     setChatState("speaking");
     try {
       await playTTS(lastTutor.text, undefined, LEVEL_SPEED[level], targetLang);

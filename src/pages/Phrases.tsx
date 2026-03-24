@@ -188,7 +188,16 @@ export default function Phrases() {
   const [error, setError] = useState<string | null>(null);
 
   // Stop audio on unmount
-  useEffect(() => () => { muteAudio(); }, []);
+  useEffect(() => {
+    setSelectedCategory(null);
+    setLoadingPhrase(null);
+    setPlayingPhrase(null);
+    return () => {
+      busyTranslateRef.current = false;
+      busySpeakRef.current = false;
+      muteAudio();
+    };
+  }, []);
 
   // Pre-load all cached translations for current target language
   React.useEffect(() => {
@@ -206,31 +215,43 @@ export default function Phrases() {
 
   const busyTranslateRef = React.useRef(false);
   const busySpeakRef = React.useRef(false);
+  const speakRequestRef = React.useRef(0);
 
   const handleSpeak = async (text: string) => {
-    if (busySpeakRef.current) return;
+    const requestId = ++speakRequestRef.current;
+    if (busySpeakRef.current) {
+      muteAudio();
+    }
     busySpeakRef.current = true;
     prepareAudioForSafari();
     setPlayingPhrase(text);
     try {
-      // When offline, use device TTS directly
-      if (isOffline && canUseLocalTTS()) {
+      // Useful phrases should prefer immediate local TTS when available.
+      if (canUseLocalTTS()) {
         await playLocalTTS(text, targetLang);
       } else {
         await playTTS(text, undefined, undefined, targetLang);
       }
     } catch (e: any) {
       console.error("TTS failed:", e);
-      // Last resort: try local TTS
-      if (canUseLocalTTS()) {
-        try { await playLocalTTS(text, targetLang); } catch {}
-      } else {
-        const { key: errKey, fallback } = getApiErrorMessage(e);
-        setError((t as any)[errKey] || fallback);
+      // Last resort: try remote TTS if local failed or was unavailable.
+      try {
+        await playTTS(text, undefined, undefined, targetLang);
+      } catch (ttsError: any) {
+        if (canUseLocalTTS()) {
+          try { await playLocalTTS(text, targetLang); } catch {}
+        } else {
+          const { key: errKey, fallback } = getApiErrorMessage(ttsError);
+          setError((t as any)[errKey] || fallback);
+        }
       }
     } finally {
-      setPlayingPhrase(null);
-      busySpeakRef.current = false;
+      if (speakRequestRef.current === requestId) {
+        setPlayingPhrase(null);
+        busySpeakRef.current = false;
+      } else {
+        busySpeakRef.current = false;
+      }
     }
   };
 

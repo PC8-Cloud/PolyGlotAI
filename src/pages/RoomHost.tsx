@@ -60,6 +60,7 @@ export default function RoomHost() {
   const wakeLockRef = useRef<any>(null);
   const processingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const micAccessPrimedRef = useRef(false);
 
   // Incremental translation refs
   const segmentsRef = useRef<string[]>([]);
@@ -280,6 +281,18 @@ export default function RoomHost() {
   const getTargetLangs = () =>
     [...new Set(participants.map((p) => p.language))].filter((l): l is string => l !== speakerLang);
 
+  const ensureMicrophoneAccess = async () => {
+    if (micAccessPrimedRef.current) return true;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("Microphone access is not supported in this browser");
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach((track) => track.stop());
+    micAccessPrimedRef.current = true;
+    return true;
+  };
+
   const translatePendingSegments = () => {
     const newSegments = segmentsRef.current.slice(translatedCountRef.current);
     if (newSegments.length === 0) return;
@@ -329,7 +342,7 @@ export default function RoomHost() {
 
   // ─── Listening ────────────────────────────────────────────────────────────
 
-  const toggleListening = () => {
+  const toggleListening = async () => {
     if (isListening) {
       console.log("[RoomHost] finishAndSend requested");
       finishAndSend();
@@ -337,11 +350,25 @@ export default function RoomHost() {
     }
     if (isTranslating || processingRef.current) return;
     console.log("[RoomHost] start SpeechRecognition");
+    setError(null);
+
+    try {
+      await ensureMicrophoneAccess();
+    } catch (e: any) {
+      console.error("[RoomHost] microphone preflight failed", e);
+      setError(e?.message || "Microphone permission denied");
+      setIsListening(false);
+      return;
+    }
+
     suspendAudioForMic();
 
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
+    if (!SpeechRecognition) {
+      setError("Speech recognition is not supported in this browser");
+      return;
+    }
 
     const rec = new SpeechRecognition();
     rec.continuous = true;
@@ -369,10 +396,18 @@ export default function RoomHost() {
       }
     };
 
-    rec.onerror = () => {
+    rec.onerror = (event: any) => {
+      console.warn("[RoomHost] speech recognition error", event?.error);
       clearPauseTimers();
       setIsListening(false);
       releaseWakeLock();
+      if (event?.error === "not-allowed" || event?.error === "service-not-allowed") {
+        setError("Microphone permission denied in Chrome. Allow mic access in site settings and macOS Privacy > Microphone.");
+      } else if (event?.error === "audio-capture") {
+        setError("No microphone available");
+      } else if (event?.error === "network") {
+        setError("Speech recognition network error");
+      }
     };
 
     rec.onend = () => {
@@ -398,7 +433,9 @@ export default function RoomHost() {
 
     try {
       rec.start();
-    } catch {
+    } catch (e: any) {
+      console.error("[RoomHost] failed to start recognition", e);
+      setError(e?.message || "Microphone could not start");
       setIsListening(false);
       releaseWakeLock();
     }

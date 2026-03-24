@@ -5,7 +5,7 @@ import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
-import { analyzeImage, playTTS, prepareAudioForSafari } from "../lib/openai";
+import { analyzeImage, playTTS, prepareAudioForSafari, muteAudio } from "../lib/openai";
 
 export default function CameraTranslate() {
   const navigate = useNavigate();
@@ -25,6 +25,8 @@ export default function CameraTranslate() {
   } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => () => { muteAudio(); }, []);
 
   const handleCapture = useCallback(() => {
     fileInputRef.current?.click();

@@ -443,7 +443,7 @@ export default function MegaphonePage() {
         <select
           value={speakerLang}
           onChange={(e) => setSpeakerLang(e.target.value)}
-          className="flex-1 bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-3 py-2.5 text-sm text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-center"
+          className="min-w-0 flex-1 bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-3 py-2.5 text-sm text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-center"
         >
           <LanguageOptions />
         </select>
@@ -451,7 +451,7 @@ export default function MegaphonePage() {
         <select
           value={targetLang}
           onChange={(e) => setTargetLang(e.target.value)}
-          className="flex-1 bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-3 py-2.5 text-sm text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-center"
+          className="min-w-0 flex-1 bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-3 py-2.5 text-sm text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none text-center"
         >
           <LanguageOptions />
         </select>
@@ -528,12 +528,16 @@ export default function MegaphonePage() {
           <div key={entry.id} className="bg-[#0E2666] rounded-2xl p-5 border border-[#FFFFFF14] space-y-3">
             <div className="flex items-start gap-2">
               <span className="text-xs text-[#F4F4F4]/40 shrink-0 mt-1">{speakerLangObj?.flag}</span>
-              <p className="text-sm text-[#F4F4F4]/60">{entry.originalText}</p>
+              <p className="min-w-0 flex-1 break-words whitespace-pre-wrap text-sm leading-relaxed text-[#F4F4F4]/60">
+                {entry.originalText}
+              </p>
             </div>
             <div className="border-t border-[#FFFFFF14]" />
             <div className="flex items-start gap-2">
               <span className="text-xs text-[#F4F4F4]/40 shrink-0 mt-1">{targetLangObj?.flag}</span>
-              <p className="text-lg font-bold text-[#295BDB] flex-1">{entry.translatedText}</p>
+              <p className="min-w-0 flex-1 break-words whitespace-pre-wrap text-lg font-bold leading-snug text-[#295BDB]">
+                {entry.translatedText}
+              </p>
             </div>
           </div>
         ))}
