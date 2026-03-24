@@ -566,7 +566,7 @@ export default function Home() {
               {/* About */}
               <div className="text-center space-y-3 py-2">
                 <p className="text-sm font-bold text-[#F4F4F4]/80">PolyGlotAI</p>
-                <p className="text-xs text-[#F4F4F4]/50">Beta 1.0.2</p>
+                <p className="text-xs text-[#F4F4F4]/50">Beta 1.0.3</p>
                 <div className="text-[11px] text-[#F4F4F4]/40 leading-relaxed space-y-2" style={{ fontFamily: "Georgia, 'Times New Roman', serif" }}>
                   <p>PolyGlotAI è un prodotto sviluppato da PC8 S.r.l.<br />Il nome PolyGlotAI è un marchio di PC8 S.r.l.</p>
                   <p>Tutti i contenuti dell'app, inclusi testi, elementi grafici, interfaccia e software, sono protetti ai sensi della normativa applicabile.</p>
