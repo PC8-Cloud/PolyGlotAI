@@ -22,7 +22,6 @@ interface Message {
 const SILENCE_TIMEOUT = 1.2; // seconds of silence before auto-stop
 const SILENCE_THRESHOLD = 0.08; // raised to ignore background noise (music, TV)
 const MIN_SPEECH_DURATION_MS = 1200; // ignore recordings shorter than this
-const MIN_TRANSCRIPTION_LENGTH = 5; // ignore transcriptions with fewer characters
 const SPEECH_PEAK_THRESHOLD = 0.10; // minimum peak audio level during recording to consider it real speech (not distant TV)
 const MAX_DUPLICATE_SIMILARITY = 0.8; // reject if >80% similar to a recent message
 
@@ -34,6 +33,48 @@ function textSimilarity(a: string, b: string): number {
   let common = 0;
   wordsA.forEach((w) => { if (wordsB.has(w)) common++; });
   return common / Math.max(wordsA.size, wordsB.size);
+}
+
+/** Clean Whisper transcription: remove repeated words/phrases that Whisper hallucinates */
+function cleanTranscription(text: string): string {
+  let cleaned = text.trim();
+  if (!cleaned) return "";
+
+  // 1. Remove consecutive duplicate words: "ciao ciao ciao" → "ciao"
+  const words = cleaned.split(/\s+/);
+  const deduped: string[] = [words[0]];
+  for (let i = 1; i < words.length; i++) {
+    if (words[i].toLowerCase() !== words[i - 1].toLowerCase()) {
+      deduped.push(words[i]);
+    }
+  }
+  cleaned = deduped.join(" ");
+
+  // 2. Remove repeated 2-3 word phrases: "thank you thank you thank you" → "thank you"
+  for (let phraseLen = 2; phraseLen <= 3; phraseLen++) {
+    const w = cleaned.split(/\s+/);
+    if (w.length < phraseLen * 2) continue;
+    const phrase = w.slice(0, phraseLen).join(" ").toLowerCase();
+    const rest = w.slice(phraseLen).join(" ").toLowerCase();
+    // Check if the rest is just repetitions of the phrase
+    const stripped = rest.replace(new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), "").trim();
+    if (stripped.length < rest.length * 0.3) {
+      cleaned = w.slice(0, phraseLen).join(" ");
+    }
+  }
+
+  // 3. Detect substring repetitions: "bonjournobonjournobonjourno" → "bonjourno"
+  for (let patLen = 3; patLen <= Math.min(20, Math.floor(cleaned.length / 2)); patLen++) {
+    const pattern = cleaned.substring(0, patLen).toLowerCase();
+    const regex = new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+    const matches = cleaned.match(regex);
+    if (matches && matches.length >= 3 && (matches.length * patLen) > cleaned.length * 0.5) {
+      cleaned = cleaned.substring(0, patLen);
+      break;
+    }
+  }
+
+  return cleaned.trim();
 }
 
 export default function Conversation() {
@@ -241,21 +282,19 @@ export default function Conversation() {
         processingRef.current = true;
         setChatState("transcribing");
         try {
-          const { text, language: detectedLang } = await transcribeAudioDetectLang(blob);
-          console.log("[Conversation] detected:", { text: text.substring(0, 30), detectedLang });
+          const { text: rawText, language: detectedLang } = await transcribeAudioDetectLang(blob);
+
+          // Clean Whisper repetition artifacts: "ciao ciao ciao" → "ciao"
+          const text = cleanTranscription(rawText);
+          console.log("[Conversation] detected:", { raw: rawText.substring(0, 40), cleaned: text.substring(0, 40), detectedLang });
 
           // Filter out empty, too-short, or Whisper hallucination artifacts
           const trimmed = text.trim();
           const lower = trimmed.toLowerCase();
-          const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
           const isHallucination =
             !trimmed ||
-            trimmed.length < MIN_TRANSCRIPTION_LENGTH ||
+            trimmed.length < 2 ||
             /^[\s.,!?…\-—–]+$/.test(trimmed) ||
-            // Single words are almost always noise from background
-            wordCount <= 1 ||
-            // Very short 2-word phrases that are common TV/background noise
-            (wordCount <= 2 && /^(thank you|okay|va bene|oh no|no no|si si|yes yes|hey|ciao|hello|bye|grazie|thanks|sorry|scusa|please|per favore|of course|come on|all right|alright|oh my|oh god|oh well|you know|i know|let's go|andiamo)$/i.test(lower)) ||
             // Whisper common hallucinations
             /^(music|applause|laughter|silence|background|thank you|thanks for watching)/i.test(trimmed) ||
             /^\[.*\]$/.test(trimmed) ||
