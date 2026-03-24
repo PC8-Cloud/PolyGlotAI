@@ -185,7 +185,9 @@ export default function RoomJoin() {
 
       let translations: Record<string, string> = {};
       if (allLangs.length > 0 && allLangs[0] !== myLang) {
-        translations = await translateText(text, myLang, allLangs);
+        translations = await translateText(text, myLang, allLangs, {
+          mode: "question",
+        });
       }
       translations[myLang] = text;
 

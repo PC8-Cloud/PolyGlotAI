@@ -1,5 +1,6 @@
 import { useUserStore } from "./store";
-import { isConnectionSlow, isOnline as isOnlineCheck, reportResponseTime, canUseLocalTTS, playLocalTTS } from "./offline";
+import { getPromptLanguageName } from "./languages";
+import { isConnectionSlow, isOnline as isOnlineCheck, reportResponseTime, canUseLocalTTS, playLocalTTS, getLastResponseTime } from "./offline";
 
 // ─── User-friendly API error messages ────────────────────────────────────────
 
@@ -70,6 +71,75 @@ function getModels() {
   };
 }
 
+export type EffectiveTranslationPerformance = "fast" | "balanced";
+
+export function getEffectiveTranslationPerformance(targetCount = 1): EffectiveTranslationPerformance {
+  const { translationPerformance } = useUserStore.getState();
+  if (translationPerformance === "fast" || translationPerformance === "balanced") {
+    return translationPerformance;
+  }
+
+  const lastResponse = getLastResponseTime();
+  if (!isOnlineCheck() || isConnectionSlow()) return "fast";
+  if (lastResponse > 2200) return "fast";
+  if (targetCount >= 4) return "fast";
+  return "balanced";
+}
+
+export function getRealtimeTranslationConfig(targetCount = 1) {
+  const profile = getEffectiveTranslationPerformance(targetCount);
+  return profile === "fast"
+    ? {
+        profile,
+        previewMinChars: 36,
+        previewMinWords: 6,
+        recomputeFinalAfterPreview: false,
+      }
+    : {
+        profile,
+        previewMinChars: 24,
+        previewMinWords: 4,
+        recomputeFinalAfterPreview: true,
+      };
+}
+
+const TRANSLATION_CACHE_LIMIT = 120;
+const translationCache = new Map<string, Record<string, string>>();
+const inFlightTranslations = new Map<string, Promise<Record<string, string>>>();
+
+function buildTranslationCacheKey(
+  text: string,
+  sourceLanguage: string,
+  targetLanguages: string[],
+  mode: string,
+  glossaryHints: string[],
+) {
+  return JSON.stringify({
+    text: text.trim(),
+    sourceLanguage,
+    targetLanguages: [...targetLanguages].sort(),
+    mode,
+    glossaryHints: [...glossaryHints].sort(),
+  });
+}
+
+function readTranslationCache(cacheKey: string): Record<string, string> | null {
+  const cached = translationCache.get(cacheKey);
+  if (!cached) return null;
+  // LRU touch
+  translationCache.delete(cacheKey);
+  translationCache.set(cacheKey, cached);
+  return { ...cached };
+}
+
+function writeTranslationCache(cacheKey: string, value: Record<string, string>) {
+  translationCache.set(cacheKey, { ...value });
+  if (translationCache.size > TRANSLATION_CACHE_LIMIT) {
+    const oldestKey = translationCache.keys().next().value;
+    if (oldestKey) translationCache.delete(oldestKey);
+  }
+}
+
 // ─── STT ────────────────────────────────────────────────────────────────────
 
 export async function transcribeAudio(
@@ -128,39 +198,93 @@ export async function translateText(
   text: string,
   sourceLanguage: string,
   targetLanguages: string[],
+  options?: {
+    mode?: "general" | "live" | "phrases" | "tourism" | "room" | "question";
+    glossaryHints?: string[];
+    cache?: boolean;
+  },
 ): Promise<Record<string, string>> {
   if (!text.trim() || targetLanguages.length === 0) return {};
 
-  const start = Date.now();
-  const response = await withRetry(() =>
-    apiFetch("translate", {
-      text,
-      sourceLanguage,
-      targetLanguages,
-      model: getModels().text,
-    })
-  );
+  const uniqueTargets = [...new Set(targetLanguages.filter(Boolean))];
+  const normalizedSource = sourceLanguage.trim();
+  const mode = options?.mode || "general";
+  const glossaryHints = options?.glossaryHints || [];
+  const useCache = options?.cache !== false;
+  const cacheKey = buildTranslationCacheKey(text, normalizedSource, uniqueTargets, mode, glossaryHints);
 
-  reportResponseTime(Date.now() - start);
-
-  try {
-    return await response.json();
-  } catch {
-    console.error("Translation parse error");
-    return {};
+  if (useCache) {
+    const cached = readTranslationCache(cacheKey);
+    if (cached) return cached;
+    const inFlight = inFlightTranslations.get(cacheKey);
+    if (inFlight) return inFlight;
   }
+
+  const request = (async () => {
+    const start = Date.now();
+    const response = await withRetry(() =>
+      apiFetch("translate", {
+        text,
+        sourceLanguage: normalizedSource,
+        sourceLanguageName: getPromptLanguageName(normalizedSource),
+        targetLanguages: uniqueTargets,
+        targetLanguageNames: Object.fromEntries(
+          uniqueTargets.map((lang) => [lang, getPromptLanguageName(lang)])
+        ),
+        mode,
+        glossaryHints,
+        model: getModels().text,
+      })
+    );
+
+    reportResponseTime(Date.now() - start);
+
+    try {
+      const data = await response.json();
+      const cleaned: Record<string, string> = {};
+
+      for (const lang of uniqueTargets) {
+        if (lang === normalizedSource) {
+          cleaned[lang] = text;
+          continue;
+        }
+        const translated = data?.[lang];
+        if (typeof translated === "string" && translated.trim()) {
+          cleaned[lang] = translated.trim();
+        }
+      }
+
+      if (useCache && Object.keys(cleaned).length > 0) {
+        writeTranslationCache(cacheKey, cleaned);
+      }
+      return cleaned;
+    } catch {
+      console.error("Translation parse error");
+      return {};
+    } finally {
+      inFlightTranslations.delete(cacheKey);
+    }
+  })();
+
+  if (useCache) {
+    inFlightTranslations.set(cacheKey, request);
+  }
+
+  return request;
 }
 
 // ─── UI Translation (for i18n dynamic translations) ─────────────────────────
 
 export async function translateUIChunk(
   sourceObj: Record<string, string>,
-  targetLanguage: string,
+  targetLanguageCode: string,
+  targetLanguageName?: string,
 ): Promise<Record<string, string>> {
   const response = await withRetry(() =>
     apiFetch("translate-ui", {
       sourceObj,
-      targetLanguage,
+      targetLanguageCode,
+      targetLanguageName: targetLanguageName || getPromptLanguageName(targetLanguageCode),
       model: "gpt-4o",
     })
   );

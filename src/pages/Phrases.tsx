@@ -145,6 +145,32 @@ const CATEGORIES: Category[] = [
   },
 ];
 
+const CATEGORY_GLOSSARY_HINTS: Record<string, string[]> = {
+  emergency: [
+    "Emergency phrases must sound immediate, clear, and practical.",
+    "Prefer the wording a distressed traveler would actually say to get help fast.",
+  ],
+  navigation: [
+    "Navigation phrases should be simple, direct, and easy to understand quickly.",
+  ],
+  restaurant: [
+    "Restaurant phrases should sound natural between customer and staff.",
+    "Translate service terms idiomatically, not literally.",
+  ],
+  hotel: [
+    "Hotel phrases should use hospitality and reception terminology.",
+    "Interpret 'room' as hotel room when relevant.",
+  ],
+  airport: [
+    "Airport phrases should use travel and boarding terminology.",
+    "Interpret 'gate' as boarding gate when relevant.",
+  ],
+  shopping: [
+    "Shopping phrases should sound natural between customer and shop assistant.",
+    "Interpret size, return, receipt, and payment terminology in retail context.",
+  ],
+};
+
 export default function Phrases() {
   const navigate = useNavigate();
   const { uiLanguage } = useUserStore();
@@ -208,7 +234,7 @@ export default function Phrases() {
     }
   };
 
-  const handlePhraseClick = async (phrase: string) => {
+  const handlePhraseClick = async (phrase: string, categoryId?: string) => {
     prepareAudioForSafari(); // unlock audio on user tap
     const key = `${phrase}__${targetLang}`;
 
@@ -236,7 +262,10 @@ export default function Phrases() {
     setLoadingPhrase(phrase);
     setError(null);
     try {
-      const result = await translateText(phrase, "en", [targetLang]);
+      const result = await translateText(phrase, "en", [targetLang], {
+        mode: "phrases",
+        glossaryHints: categoryId ? CATEGORY_GLOSSARY_HINTS[categoryId] || [] : [],
+      });
       const translated = result[targetLang] || "...";
       setTranslations((prev) => ({ ...prev, [key]: translated }));
       savePhraseTranslations({ [key]: translated });
@@ -325,7 +354,7 @@ export default function Phrases() {
               return (
                 <button
                   key={phrase.text}
-                  onClick={() => handlePhraseClick(phrase.text)}
+                  onClick={() => handlePhraseClick(phrase.text, activeCategory?.id)}
                   className="w-full text-left bg-[#0E2666] rounded-2xl p-4 border border-[#FFFFFF14] hover:border-[#FFFFFF14] transition-colors"
                 >
                   <div className="flex items-start gap-3">

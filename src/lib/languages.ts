@@ -143,6 +143,34 @@ export function getLabelForCode(code: string): string {
   return getLanguageByCode(code)?.label || code.toUpperCase();
 }
 
+const PROMPT_LANGUAGE_OVERRIDES: Record<string, string> = {
+  zh: "Chinese (Simplified)",
+  "zh-TW": "Chinese (Traditional)",
+  pt: "Portuguese",
+  tl: "Tagalog",
+};
+
+const englishLanguageNames =
+  typeof Intl !== "undefined" && typeof Intl.DisplayNames === "function"
+    ? new Intl.DisplayNames(["en"], { type: "language" })
+    : null;
+
+/**
+ * Returns an English-friendly language name for prompts sent to the model.
+ * Falls back gracefully to the configured label or the raw code.
+ */
+export function getPromptLanguageName(code: string): string {
+  const normalized = code.trim();
+  if (!normalized) return code;
+  if (PROMPT_LANGUAGE_OVERRIDES[normalized]) return PROMPT_LANGUAGE_OVERRIDES[normalized];
+  return (
+    englishLanguageNames?.of(normalized) ||
+    englishLanguageNames?.of(normalized.split("-")[0]) ||
+    getLanguageByCode(normalized)?.label ||
+    normalized.toUpperCase()
+  );
+}
+
 /** Returns languages split into favorites and rest */
 export function getSortedLanguages(favoriteCodes: string[]): { favorites: Language[]; rest: Language[] } {
   const favSet = new Set(favoriteCodes);

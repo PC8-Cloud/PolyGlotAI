@@ -86,6 +86,7 @@ export default function SessionHost() {
             transcript,
             session.sourceLanguage,
             session.targetLanguages,
+            { mode: "live" },
           );
           await sendMessage(
             sessionId!,
@@ -120,6 +121,7 @@ export default function SessionHost() {
         textToSend,
         session.sourceLanguage,
         session.targetLanguages,
+        { mode: "live" },
       );
       await sendMessage(
         sessionId!,

@@ -73,7 +73,9 @@ export default function SessionAudience() {
           // Translate to host's language
           const translations = await translateText(transcript, language, [
             session.sourceLanguage,
-          ]);
+          ], {
+            mode: "question",
+          });
           await sendMessage(
             sessionId!,
             userId,
@@ -105,7 +107,9 @@ export default function SessionAudience() {
     try {
       const translations = await translateText(textToSend, language, [
         session.sourceLanguage,
-      ]);
+      ], {
+        mode: "question",
+      });
       await sendMessage(
         sessionId!,
         userId,

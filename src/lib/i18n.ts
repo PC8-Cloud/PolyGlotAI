@@ -1941,7 +1941,7 @@ export async function translateUIToLanguage(langCode: string, langLabel: string)
       const sourceObj: Record<string, string> = {};
       for (const k of chunk) sourceObj[k] = enKeys[k];
 
-      const parsed = await translateUIChunk(sourceObj, langLabel);
+      const parsed = await translateUIChunk(sourceObj, langCode, langLabel);
       Object.assign(result, parsed);
     }
 

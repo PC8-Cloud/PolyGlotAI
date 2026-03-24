@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 export type PlanType = "free" | "tourist_weekly" | "tourist" | "pro" | "business";
+export type TranslationPerformanceMode = "auto" | "fast" | "balanced";
 
 interface UserState {
   userId: string | null;
@@ -21,6 +22,7 @@ interface UserState {
   ttsModel: string;
   ttsVoice: string;
   ttsSpeed: number;
+  translationPerformance: TranslationPerformanceMode;
   plan: PlanType;
   planExpiresAt: string | null;
   setUserId: (id: string) => void;
@@ -40,6 +42,7 @@ interface UserState {
   setTtsModel: (model: string) => void;
   setTtsVoice: (voice: string) => void;
   setTtsSpeed: (speed: number) => void;
+  setTranslationPerformance: (mode: TranslationPerformanceMode) => void;
   setPlan: (plan: PlanType, expiresAt?: string | null) => void;
 }
 
@@ -63,6 +66,7 @@ export const useUserStore = create<UserState>()(
       ttsModel: "gpt-4o-mini-tts",
       ttsVoice: "nova",
       ttsSpeed: 1.0,
+      translationPerformance: "auto",
       plan: "free",
       planExpiresAt: null,
       setUserId: (id) => set({ userId: id }),
@@ -82,6 +86,7 @@ export const useUserStore = create<UserState>()(
       setTtsModel: (model) => set({ ttsModel: model }),
       setTtsVoice: (voice) => set({ ttsVoice: voice }),
       setTtsSpeed: (speed) => set({ ttsSpeed: speed }),
+      setTranslationPerformance: (mode) => set({ translationPerformance: mode }),
       setPlan: (plan, expiresAt) => set({ plan, planExpiresAt: expiresAt || null }),
     }),
     {

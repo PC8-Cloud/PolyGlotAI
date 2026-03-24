@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { LANGUAGES, getLanguageByCode, getLocaleForCode, getLabelForCode } from "../src/lib/languages";
+import { LANGUAGES, getLanguageByCode, getLocaleForCode, getLabelForCode, getPromptLanguageName } from "../src/lib/languages";
 
 describe("LANGUAGES array", () => {
   it("has more than 100 languages", () => {
@@ -61,5 +61,12 @@ describe("getLabelForCode", () => {
 
   it("returns uppercased code for unknown", () => {
     expect(getLabelForCode("zzz")).toBe("ZZZ");
+  });
+});
+
+describe("getPromptLanguageName", () => {
+  it("returns English-friendly names for prompt building", () => {
+    expect(getPromptLanguageName("it")).toBeTruthy();
+    expect(getPromptLanguageName("zh-TW")).toContain("Chinese");
   });
 });

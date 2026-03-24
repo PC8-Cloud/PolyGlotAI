@@ -1,0 +1,132 @@
+CHECKLIST PRIMA DEL LANCIO PAID - POLYGLOT
+
+Questo file raccoglie le cose da chiudere prima del passaggio da beta/test a prodotto a pagamento.
+La logica e':
+
+- BLOCCANTI = da completare prima di attivare il modello paid
+- IMPORTANTI = da completare prima di allargare davvero l'uso a utenti esterni
+- MIGLIORAMENTI = non bloccano il lancio, ma aumentano qualita', controllo e affidabilita'
+
+
+BLOCCANTI
+
+1. Sicurezza Firestore
+- Chiudere le regole troppo permissive su sessions, participants e messages.
+- Impedire letture pubbliche non necessarie.
+- Impedire update pubblici di messaggi e partecipanti.
+- Verificare che ogni utente possa leggere e scrivere solo cio' che gli spetta.
+- Separare chiaramente permessi host, guest e admin/backend.
+
+2. Gating server-side delle funzioni a pagamento
+- Non basare l'accesso a feature premium solo sul client.
+- Validare lato server o lato regole backend il piano dell'utente.
+- Bloccare realmente l'uso di room, megaphone, camera premium o altre feature paid se il piano non e' attivo.
+- Verificare che il piano scaduto riporti davvero l'utente a permessi free.
+
+3. Billing Stripe sicuro end-to-end
+- Eliminare ogni placeholder o URL temporaneo.
+- Far passare il portale billing da una funzione autenticata che controlli l'identita' del chiamante.
+- Non accettare UID arbitrari dal client senza verifica.
+- Validare webhook Stripe in modo rigoroso e testare tutti gli eventi principali.
+- Testare acquisto, rinnovo, cancellazione, scadenza e downgrade.
+
+4. Protezione delle API AI
+- Aggiungere rate limit su API translate, transcribe, tts, chat, analyze-image e translate-ui.
+- Aggiungere controlli base anti-abuso e anti-spam.
+- Limitare dimensione input, durata audio, peso immagini e frequenza chiamate.
+- Loggare gli errori e i picchi di utilizzo.
+- Definire budget e soglie di costo per evitare consumo anomalo di token.
+
+5. Autenticazione e identita'
+- Chiarire quali flussi richiedono login obbligatorio e quali no.
+- Ridurre al minimo le operazioni sensibili disponibili ad anonimi.
+- Verificare che room, sessioni e billing non possano essere usati in impersonazione.
+- Ripulire ogni punto in cui l'identita' viene accettata dal client senza controllo forte.
+
+6. Rimozione completa delle protezioni temporanee di beta
+- Eliminare la password beta dal client.
+- Eliminare ogni flag temporaneo lasciato nello store o nell'interfaccia.
+- Verificare che il comportamento finale dipenda da auth e piano, non da scorciatoie da test.
+
+
+IMPORTANTI
+
+1. Osservabilita'
+- Aggiungere logging strutturato per errori backend, fallimenti AI, problemi audio e problemi di pagamento.
+- Aggiungere metriche minime: numero richieste, error rate, tempo medio risposta, uso per feature.
+- Distinguere ambiente test da ambiente produzione.
+
+2. Ambiente e segreti
+- Verificare che tutte le chiavi siano solo server-side dove necessario.
+- Rivedere variabili ambiente di Vercel/Firebase.
+- Controllare che non rimangano campi legacy inutili come openaiApiKey nello store client, se non servono davvero.
+- Separare configurazione dev, test e prod.
+
+3. Hardening delle funzioni serverless
+- Validare sempre input e shape dei payload.
+- Gestire timeout, retry e errori in modo coerente.
+- Evitare risposte troppo permissive o parsing fragile.
+- Aggiungere fallback chiari lato client quando il backend fallisce.
+
+4. Test di flusso reali
+- Eseguire test end-to-end sui flussi chiave:
+- onboarding
+- conversazione live
+- camera translate
+- room host/join
+- pagamento e ritorno utente premium
+- modalita' offline e ritorno online
+
+5. Privacy e dati
+- Decidere quali dati utente conservare davvero.
+- Limitare retention di feedback, messaggi e metadati non necessari.
+- Preparare informativa privacy e consenso analytics, se richiesti dal mercato di lancio.
+
+6. UX dei fallimenti
+- Rendere molto chiaro quando una feature non e' disponibile per piano, rete o errore API.
+- Migliorare i messaggi di errore per billing, audio, traduzione e login.
+- Evitare stati silenziosi in cui l'utente non capisce se il problema e' rete, quota o permessi.
+
+
+MIGLIORAMENTI
+
+1. Pulizia architetturale
+- Ridurre logica complessa dentro componenti molto grandi.
+- Spostare parte della logica in hook o servizi dedicati.
+- Rivedere i punti dove lo stato globale cresce troppo.
+
+2. Coerenza del naming e del packaging
+- Aggiornare nome progetto e metadati se "react-example" e' ancora residuo temporaneo.
+- Uniformare naming tra PolyGlot, PolyGlotAI e branding finale.
+
+3. Copertura test maggiore
+- Aggiungere test su billing, auth edge cases e regole dati.
+- Aggiungere test di regressione sui percorsi premium/free.
+- Aggiungere test su limiti e input malformati delle API.
+
+4. Performance e costi
+- Profilare le feature piu' costose lato AI.
+- Ridurre chiamate inutili o duplicate.
+- Cache dove ha senso senza compromettere privacy o coerenza.
+
+5. Rilascio controllato
+- Fare un soft launch con pochi utenti reali.
+- Monitorare uso, costi, crash e punti di abbandono.
+- Allargare progressivamente solo dopo stabilita' dei flussi critici.
+
+
+ORDINE CONSIGLIATO
+
+1. Chiudere Firestore e auth.
+2. Chiudere billing e gating premium server-side.
+3. Mettere rate limit e protezioni costo/abuso sulle API AI.
+4. Ripulire beta hacks e configurazioni temporanee.
+5. Eseguire test end-to-end dei flussi paid e reali.
+6. Aprire il lancio a pagamento solo dopo una breve fase di soft launch controllato.
+
+
+GIUDIZIO FINALE
+
+L'app ha una base promettente e una direzione prodotto chiara.
+Il passaggio critico non e' inventare nuove feature, ma chiudere bene sicurezza, billing, controllo accessi e osservabilita'.
+Se questi punti vengono eseguiti con rigore, il progetto puo' uscire dalla fase "beta forte" ed entrare in una fase prodotto molto piu' seria.

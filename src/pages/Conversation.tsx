@@ -370,7 +370,9 @@ export default function Conversation() {
     setError(null);
 
     try {
-      const translations = await translateText(text, sourceLang, [targetLang]);
+      const translations = await translateText(text, sourceLang, [targetLang], {
+        mode: "live",
+      });
       const translatedText = translations[targetLang] || "...";
 
       setMessages((prev) =>

@@ -47,11 +47,17 @@ export default function Home() {
     setUserName,
     userGender,
     setUserGender,
+    translationPerformance,
+    setTranslationPerformance,
   } = useUserStore();
 
   const t = useTranslation(uiLanguage);
 
   const [previewingVoice, setPreviewingVoice] = useState<string | null>(null);
+  const translationModeLabel =
+    uiLanguage === "it"
+      ? { title: "Modalita traduzione live", desc: "Auto adatta velocita e qualita in base a rete e carico.", auto: "Auto", fast: "Rapida", balanced: "Bilanciata" }
+      : { title: "Live Translation Mode", desc: "Auto balances speed and quality based on network and load.", auto: "Auto", fast: "Fast", balanced: "Balanced" };
 
   const TTS_VOICES = [
     { id: "alloy", label: "Alloy", descKey: "voiceAlloy" as const },
@@ -144,7 +150,9 @@ export default function Home() {
       for (let i = 0; i < ALL_PHRASE_TEXTS.length; i += BATCH_SIZE) {
         const batch = ALL_PHRASE_TEXTS.slice(i, i + BATCH_SIZE);
         const results = await Promise.all(
-          batch.map((phrase) => translateText(phrase, "en", [langCode])),
+          batch.map((phrase) => translateText(phrase, "en", [langCode], {
+            mode: "phrases",
+          })),
         );
         const toSave: Record<string, string> = {};
         batch.forEach((phrase, idx) => {
@@ -521,6 +529,35 @@ export default function Home() {
                   <span>{t("slow")}</span>
                   <span>{t("normal")}</span>
                   <span>{t("fast")}</span>
+                </div>
+              </div>
+
+              <div className="border-t border-[#FFFFFF14]" />
+
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <MessagesSquare className="w-4 h-4 text-[#F4F4F4]/50" />
+                  <label className="text-sm font-medium text-[#F4F4F4]/80">{translationModeLabel.title}</label>
+                </div>
+                <p className="text-xs text-[#F4F4F4]/40 mb-3">{translationModeLabel.desc}</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    ["auto", translationModeLabel.auto],
+                    ["fast", translationModeLabel.fast],
+                    ["balanced", translationModeLabel.balanced],
+                  ] as const).map(([mode, label]) => (
+                    <button
+                      key={mode}
+                      onClick={() => setTranslationPerformance(mode)}
+                      className={`px-3 py-3 rounded-xl text-sm font-medium transition-colors border ${
+                        translationPerformance === mode
+                          ? "bg-[#295BDB]/20 border-[#295BDB] text-[#295BDB]"
+                          : "bg-[#02114A] border-[#FFFFFF14] text-[#F4F4F4]/60 hover:border-[#FFFFFF30]"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
               </div>
 

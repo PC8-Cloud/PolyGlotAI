@@ -5,7 +5,7 @@ import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLocaleForCode } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
-import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage } from "../lib/openai";
+import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, getRealtimeTranslationConfig } from "../lib/openai";
 import { extractTextFromFile } from "../lib/file-reader";
 
 interface Entry {
@@ -16,7 +16,6 @@ interface Entry {
 
 const SHORT_PAUSE_MS = 2000; // translate chunk in background
 const LONG_PAUSE_MS = 4500;  // stop and play everything
-
 export default function MegaphonePage() {
   const navigate = useNavigate();
   const { uiLanguage } = useUserStore();
@@ -84,13 +83,22 @@ export default function MegaphonePage() {
     if (longTimerRef.current) { clearTimeout(longTimerRef.current); longTimerRef.current = null; }
   };
 
+  const shouldUsePreview = (value: string) => {
+    const { previewMinChars, previewMinWords } = getRealtimeTranslationConfig(1);
+    const trimmed = value.trim();
+    if (trimmed.length < previewMinChars) return false;
+    return trimmed.split(/\s+/).filter(Boolean).length >= previewMinWords;
+  };
+
   const translatePendingSegments = () => {
     const newSegments = segmentsRef.current.slice(translatedCountRef.current);
     if (newSegments.length === 0) return;
     const text = newSegments.join(" ").trim();
-    if (!text) return;
+    if (!text || !shouldUsePreview(text)) return;
     translatedCountRef.current = segmentsRef.current.length;
-    const promise = translateText(text, speakerLang, [targetLang])
+    const promise = translateText(text, speakerLang, [targetLang], {
+      mode: "tourism",
+    })
       .then((r) => r[targetLang] || "...")
       .catch(() => "...");
     translationPromisesRef.current.push(promise);
@@ -148,7 +156,7 @@ export default function MegaphonePage() {
         }
       }
       segmentsRef.current = segments;
-      const combined = segments.join("") + interimText;
+      const combined = [...segments, interimText].filter(Boolean).join(" ");
       setTranscript(combined);
       transcriptRef.current = combined;
       if (combined.trim()) {
@@ -228,13 +236,17 @@ export default function MegaphonePage() {
     }
 
     // Translate any remaining final segments not yet sent
-    translatePendingSegments();
+    if (shouldUsePreview(fullText)) {
+      translatePendingSegments();
+    }
 
     // Check for remaining interim text (not finalized by speech recognition)
-    const finalJoined = segmentsRef.current.join("");
+    const finalJoined = segmentsRef.current.join(" ");
     const remaining = fullText.substring(finalJoined.length).trim();
-    if (remaining) {
-      const promise = translateText(remaining, speakerLang, [targetLang])
+    if (remaining && shouldUsePreview(remaining)) {
+      const promise = translateText(remaining, speakerLang, [targetLang], {
+        mode: "tourism",
+      })
         .then((r) => r[targetLang] || "...")
         .catch(() => "...");
       translationPromisesRef.current.push(promise);
@@ -242,7 +254,9 @@ export default function MegaphonePage() {
 
     // If no chunks at all, translate the whole thing
     if (translationPromisesRef.current.length === 0) {
-      const promise = translateText(fullText, speakerLang, [targetLang])
+      const promise = translateText(fullText, speakerLang, [targetLang], {
+        mode: "tourism",
+      })
         .then((r) => r[targetLang] || "...")
         .catch(() => "...");
       translationPromisesRef.current.push(promise);
@@ -254,15 +268,15 @@ export default function MegaphonePage() {
     setEntries((prev) => [...prev, { id: entryId, originalText: fullText, translatedText: "..." }]);
     setIsSpeaking(true);
 
-    // Play all chunks sequentially — first ones are likely already resolved!
-    let fullTranslation = "";
+    // Preview translation chunks for low-latency playback.
+    let previewTranslation = "";
     try {
       for (const promise of translationPromisesRef.current) {
         const translated = await promise;
-        fullTranslation += (fullTranslation ? " " : "") + translated;
+        previewTranslation += (previewTranslation ? " " : "") + translated;
 
         setEntries((prev) =>
-          prev.map((e) => (e.id === entryId ? { ...e, translatedText: fullTranslation } : e))
+          prev.map((e) => (e.id === entryId ? { ...e, translatedText: previewTranslation } : e))
         );
 
         if (autoSpeak && translated !== "...") {
@@ -273,6 +287,22 @@ export default function MegaphonePage() {
           }
         }
       }
+
+      const canReusePreviewAsFinal =
+        translationPromisesRef.current.length === 1 &&
+        segmentsRef.current.join(" ").trim() === fullText &&
+        !remaining;
+      const { recomputeFinalAfterPreview } = getRealtimeTranslationConfig(1);
+      const finalTranslation = canReusePreviewAsFinal
+        ? previewTranslation || "..."
+        : !recomputeFinalAfterPreview && previewTranslation
+          ? previewTranslation
+          : (await translateText(fullText, speakerLang, [targetLang], {
+              mode: "tourism",
+            }))[targetLang] || previewTranslation || "...";
+      setEntries((prev) =>
+        prev.map((e) => (e.id === entryId ? { ...e, translatedText: finalTranslation } : e))
+      );
     } catch (e: any) {
       console.error("Translation failed:", e);
       const { key, fallback } = getApiErrorMessage(e);
@@ -305,7 +335,9 @@ export default function MegaphonePage() {
     acquireWakeLock();
 
     try {
-      const result = await translateText(text, speakerLang, [targetLang]);
+      const result = await translateText(text, speakerLang, [targetLang], {
+        mode: "tourism",
+      });
       const translated = result[targetLang] || "...";
       setEntries((prev) =>
         prev.map((e) => (e.id === entryId ? { ...e, translatedText: translated } : e))

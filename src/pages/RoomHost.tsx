@@ -6,7 +6,7 @@ import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLocaleForCode } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
-import { translateText, getApiErrorMessage } from "../lib/openai";
+import { translateText, getApiErrorMessage, getRealtimeTranslationConfig } from "../lib/openai";
 import { extractTextFromFile } from "../lib/file-reader";
 import { createRoom, sendMessage } from "../lib/firebase-helpers";
 import { db } from "../firebase";
@@ -29,7 +29,6 @@ interface Msg {
 
 const SHORT_PAUSE_MS = 2000; // translate chunk in background
 const LONG_PAUSE_MS = 4000;  // stop and send everything
-
 export default function RoomHost() {
   const navigate = useNavigate();
   const { uiLanguage } = useUserStore();
@@ -271,6 +270,13 @@ export default function RoomHost() {
     if (longTimerRef.current) { clearTimeout(longTimerRef.current); longTimerRef.current = null; }
   };
 
+  const shouldUsePreview = (value: string) => {
+    const { previewMinChars, previewMinWords } = getRealtimeTranslationConfig(getTargetLangs().length || 1);
+    const trimmed = value.trim();
+    if (trimmed.length < previewMinChars) return false;
+    return trimmed.split(/\s+/).filter(Boolean).length >= previewMinWords;
+  };
+
   const getTargetLangs = () =>
     [...new Set(participants.map((p) => p.language))].filter((l): l is string => l !== speakerLang);
 
@@ -278,11 +284,13 @@ export default function RoomHost() {
     const newSegments = segmentsRef.current.slice(translatedCountRef.current);
     if (newSegments.length === 0) return;
     const text = newSegments.join(" ").trim();
-    if (!text) return;
+    if (!text || !shouldUsePreview(text)) return;
     translatedCountRef.current = segmentsRef.current.length;
     const targetLangs = getTargetLangs();
     if (targetLangs.length === 0) return;
-    const promise = translateText(text, speakerLang, targetLangs).catch(() => ({}));
+    const promise = translateText(text, speakerLang, targetLangs, {
+      mode: "room",
+    }).catch(() => ({}));
     chunkTranslationsRef.current.push(promise);
     promise.then(() => setReadyChunks((c) => c + 1));
   };
@@ -307,6 +315,16 @@ export default function RoomHost() {
     translatedCountRef.current = 0;
     chunkTranslationsRef.current = [];
     setReadyChunks(0);
+  };
+
+  const mergeChunkTranslations = async (targetLangs: string[]) => {
+    const chunks = await Promise.all(chunkTranslationsRef.current);
+    const merged: Record<string, string> = {};
+    for (const lang of targetLangs) {
+      const parts = chunks.map((chunk) => chunk[lang]).filter(Boolean);
+      if (parts.length > 0) merged[lang] = parts.join(" ");
+    }
+    return merged;
   };
 
   // ─── Listening ────────────────────────────────────────────────────────────
@@ -339,7 +357,7 @@ export default function RoomHost() {
         }
       }
       segmentsRef.current = segments;
-      const combined = segments.join("") + interimText;
+      const combined = [...segments, interimText].filter(Boolean).join(" ");
       setTranscript(combined);
       transcriptRef.current = combined;
       if (combined.trim()) {
@@ -472,13 +490,17 @@ export default function RoomHost() {
       const targetLangs = getTargetLangs();
 
       // Translate remaining segments
-      translatePendingSegments();
+      if (shouldUsePreview(fullText)) {
+        translatePendingSegments();
+      }
 
       // Translate remaining interim text
-      const finalJoined = segmentsRef.current.join("");
+      const finalJoined = segmentsRef.current.join(" ");
       const remaining = fullText.substring(finalJoined.length).trim();
-      if (remaining && targetLangs.length > 0) {
-        const promise = translateText(remaining, speakerLang, targetLangs).catch(() => ({}));
+      if (remaining && targetLangs.length > 0 && shouldUsePreview(remaining)) {
+        const promise = translateText(remaining, speakerLang, targetLangs, {
+          mode: "room",
+        }).catch(() => ({}));
         chunkTranslationsRef.current.push(promise);
       }
 
@@ -486,28 +508,20 @@ export default function RoomHost() {
       const initialTranslations: Record<string, string> = { [speakerLang]: fullText };
       const msgId = await sendMessage(sessionId, hostId, "BROADCAST", speakerLang, fullText, initialTranslations);
 
-      // Merge all pre-translated chunks into one translation object
-      if (targetLangs.length > 0 && chunkTranslationsRef.current.length > 0) {
-        const allChunkResults = await Promise.all(chunkTranslationsRef.current);
+      const canReusePreviewAsFinal =
+        chunkTranslationsRef.current.length === 1 &&
+        segmentsRef.current.join(" ").trim() === fullText &&
+        !remaining;
+      const { recomputeFinalAfterPreview } = getRealtimeTranslationConfig(targetLangs.length || 1);
 
-        // Merge: for each target lang, concatenate all chunk translations
-        const mergedTranslations: Record<string, string> = { [speakerLang]: fullText };
-        for (const lang of targetLangs) {
-          const parts: string[] = [];
-          for (const chunkResult of allChunkResults) {
-            if (chunkResult[lang]) parts.push(chunkResult[lang]);
-          }
-          if (parts.length > 0) {
-            mergedTranslations[lang] = parts.join(" ");
-          }
-        }
-
-        if (msgId) {
-          await updateDoc(doc(db, "sessions", sessionId, "messages", msgId), { translations: mergedTranslations });
-        }
-      } else if (targetLangs.length > 0) {
-        // No pre-translated chunks, translate full text
-        const translations = await translateText(fullText, speakerLang, targetLangs);
+      if (targetLangs.length > 0) {
+        const translations = canReusePreviewAsFinal
+          ? await chunkTranslationsRef.current[0]
+          : !recomputeFinalAfterPreview && chunkTranslationsRef.current.length > 0
+            ? await mergeChunkTranslations(targetLangs)
+          : await translateText(fullText, speakerLang, targetLangs, {
+              mode: "room",
+            });
         translations[speakerLang] = fullText;
         if (msgId) {
           await updateDoc(doc(db, "sessions", sessionId, "messages", msgId), { translations });
@@ -557,7 +571,9 @@ export default function RoomHost() {
       const msgId = await sendMessage(sessionId, hostId, "BROADCAST", speakerLang, text, initialTranslations);
 
       if (targetLangs.length > 0) {
-        const translations = await translateText(text, speakerLang, targetLangs);
+        const translations = await translateText(text, speakerLang, targetLangs, {
+          mode: "room",
+        });
         translations[speakerLang] = text;
         if (msgId) {
           await updateDoc(doc(db, "sessions", sessionId, "messages", msgId), { translations });

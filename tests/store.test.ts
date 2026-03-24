@@ -16,6 +16,7 @@ beforeEach(() => {
     ttsModel: "gpt-4o-mini-tts",
     ttsVoice: "nova",
     ttsSpeed: 1.0,
+    translationPerformance: "auto",
     plan: "free",
     planExpiresAt: null,
   });
@@ -29,6 +30,7 @@ describe("useUserStore", () => {
     expect(state.plan).toBe("free");
     expect(state.ttsVoice).toBe("nova");
     expect(state.ttsSpeed).toBe(1.0);
+    expect(state.translationPerformance).toBe("auto");
     expect(state.defaultTargetLanguages).toEqual(["es", "fr", "it", "de"]);
   });
 
@@ -65,6 +67,11 @@ describe("useUserStore", () => {
     useUserStore.getState().setTtsSpeed(1.5);
     expect(useUserStore.getState().ttsVoice).toBe("alloy");
     expect(useUserStore.getState().ttsSpeed).toBe(1.5);
+  });
+
+  it("setTranslationPerformance updates mode", () => {
+    useUserStore.getState().setTranslationPerformance("fast");
+    expect(useUserStore.getState().translationPerformance).toBe("fast");
   });
 
   it("setUserId and setRole work", () => {
