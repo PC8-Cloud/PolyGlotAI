@@ -19,10 +19,11 @@ interface Message {
 }
 
 // Silence detection
-const SILENCE_TIMEOUT = 1.2; // seconds of silence before auto-stop
-const SILENCE_THRESHOLD = 0.08; // raised to ignore background noise (music, TV)
-const MIN_SPEECH_DURATION_MS = 1200; // ignore recordings shorter than this
-const SPEECH_PEAK_THRESHOLD = 0.10; // minimum peak audio level during recording to consider it real speech (not distant TV)
+const SILENCE_TIMEOUT = 1.6; // seconds of silence before auto-stop
+const SILENCE_THRESHOLD = 0.045; // less aggressive: preserve quieter voices and phone mics
+const MIN_SPEECH_DURATION_MS = 450; // short utterances like "si", "ok", "grazie" must survive
+const SPEECH_PEAK_THRESHOLD = 0.03; // keep only the weakest noise out; do final filtering after transcription
+const MIN_AUDIO_BLOB_BYTES = 1000;
 const MAX_DUPLICATE_SIMILARITY = 0.8; // reject if >80% similar to a recent message
 
 /** Simple text similarity (0-1) based on common words */
@@ -72,6 +73,7 @@ export default function Conversation() {
   const animFrameRef = useRef<number>(0);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const peakLevelRef = useRef(0); // track peak audio level during recording
+  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -83,7 +85,12 @@ export default function Conversation() {
   useEffect(() => { conversationActiveRef.current = conversationActive; }, [conversationActive]);
 
   useEffect(() => {
-    return () => { stopListening(); muteAudio(); };
+    return () => {
+      if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+      stopListening();
+      releaseMicResources();
+      muteAudio();
+    };
   }, []);
 
   // ─── Language matching ──────────────────────────────────────────────────
@@ -159,6 +166,73 @@ export default function Conversation() {
     check();
   }, []);
 
+  const releaseMicResources = useCallback(() => {
+    cancelAnimationFrame(animFrameRef.current);
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    if (audioCtxRef.current) {
+      audioCtxRef.current.close().catch(() => {});
+      audioCtxRef.current = null;
+    }
+    analyserRef.current = null;
+    mediaRecorderRef.current = null;
+    setLiveLevel(0);
+  }, []);
+
+  const scheduleListeningRestart = useCallback(() => {
+    if (!conversationActiveRef.current || processingRef.current) {
+      setChatState("idle");
+      return;
+    }
+    if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+    restartTimerRef.current = setTimeout(() => {
+      restartTimerRef.current = null;
+      startListening();
+    }, 180);
+  }, []);
+
+  const ensureMicReady = useCallback(async () => {
+    const hasLiveStream = streamRef.current?.getTracks().some((track) => track.readyState === "live");
+    if (hasLiveStream && analyserRef.current && audioCtxRef.current) {
+      if (audioCtxRef.current.state === "suspended") {
+        await audioCtxRef.current.resume();
+      }
+      return {
+        stream: streamRef.current!,
+        analyser: analyserRef.current,
+      };
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    });
+    streamRef.current = stream;
+
+    const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    if (audioCtx.state === "suspended") {
+      await audioCtx.resume();
+    }
+    audioCtxRef.current = audioCtx;
+
+    const source = audioCtx.createMediaStreamSource(stream);
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 2048;
+    source.connect(analyser);
+    analyserRef.current = analyser;
+
+    return { stream, analyser };
+  }, []);
+
   // ─── Start listening ──────────────────────────────────────────────────
 
   /** Pick a supported MIME type for MediaRecorder (iOS Safari doesn't support webm) */
@@ -173,34 +247,19 @@ export default function Conversation() {
   };
 
   const startListening = useCallback(async () => {
-    if (!conversationActiveRef.current || processingRef.current) return;
+    if (!conversationActiveRef.current || processingRef.current || mediaRecorderRef.current?.state === "recording") return;
     console.log("[Conversation] startListening");
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
     suspendAudioForMic();
     setChatState("listening");
     setLiveLevel(0);
     peakLevelRef.current = 0;
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-      streamRef.current = stream;
-
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      // iOS Safari keeps AudioContext suspended until explicitly resumed
-      if (audioCtx.state === "suspended") {
-        await audioCtx.resume();
-      }
-      audioCtxRef.current = audioCtx;
-      const source = audioCtx.createMediaStreamSource(stream);
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 2048;
-      source.connect(analyser);
-      analyserRef.current = analyser;
+      const { stream, analyser } = await ensureMicReady();
 
       const mimeType = getRecorderMimeType();
       const recorder = mimeType
@@ -214,10 +273,7 @@ export default function Conversation() {
 
       recorder.onstop = async () => {
         cancelAnimationFrame(animFrameRef.current);
-        audioCtx.close().catch(() => {});
-        stream.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-        audioCtxRef.current = null;
+        mediaRecorderRef.current = null;
         setLiveLevel(0);
 
         const recordDuration = Date.now() - recordStartTime;
@@ -226,17 +282,17 @@ export default function Conversation() {
 
         const peakLevel = peakLevelRef.current;
 
-        // Skip if too short, too small, or audio peak too low (distant TV, not direct speech)
-        if (blob.size < 2000 || recordDuration < MIN_SPEECH_DURATION_MS || peakLevel < SPEECH_PEAK_THRESHOLD) {
-          if (peakLevel < SPEECH_PEAK_THRESHOLD && blob.size >= 2000) {
-            console.log("[Conversation] skipped: peak audio too low", peakLevel.toFixed(3), "< threshold", SPEECH_PEAK_THRESHOLD);
-          }
-          if (conversationActiveRef.current && !processingRef.current) {
-            startListening();
-          } else {
-            setChatState("idle");
-          }
+        // Skip only truly empty / accidental taps. Final rejection should happen after transcription.
+        if (blob.size < MIN_AUDIO_BLOB_BYTES || recordDuration < 250) {
+          scheduleListeningRestart();
           return;
+        }
+        if (recordDuration < MIN_SPEECH_DURATION_MS || peakLevel < SPEECH_PEAK_THRESHOLD) {
+          console.log("[Conversation] weak capture, transcribing anyway", {
+            blobSize: blob.size,
+            recordDuration,
+            peakLevel: peakLevel.toFixed(3),
+          });
         }
 
         // Transcribe with language detection
@@ -275,8 +331,7 @@ export default function Conversation() {
           if (isHallucination || !conversationActiveRef.current) {
             console.log("[Conversation] filtered hallucination:", trimmed.substring(0, 40));
             processingRef.current = false;
-            if (conversationActiveRef.current) startListening();
-            else setChatState("idle");
+            scheduleListeningRestart();
             return;
           }
 
@@ -289,8 +344,7 @@ export default function Conversation() {
           if (isDuplicate) {
             console.log("[Conversation] rejected duplicate:", trimmed.substring(0, 40));
             processingRef.current = false;
-            if (conversationActiveRef.current) startListening();
-            else setChatState("idle");
+            scheduleListeningRestart();
             return;
           }
 
@@ -301,8 +355,7 @@ export default function Conversation() {
           if (side === null) {
             console.log("[Conversation] rejected: unrecognized language", detectedLang);
             processingRef.current = false;
-            if (conversationActiveRef.current) startListening();
-            else setChatState("idle");
+            scheduleListeningRestart();
             return;
           }
 
@@ -311,8 +364,7 @@ export default function Conversation() {
           const { key, fallback } = getApiErrorMessage(e);
           setError((t as any)[key] || fallback);
           processingRef.current = false;
-          if (conversationActiveRef.current) startListening();
-          else setChatState("idle");
+          scheduleListeningRestart();
         }
       };
 
@@ -333,10 +385,11 @@ export default function Conversation() {
     } catch (e) {
       console.error("Mic access failed:", e);
       setChatState("idle");
+      releaseMicResources();
       // Fall back to text input
       setShowTextInput(true);
     }
-  }, [startSilenceDetection]);
+  }, [ensureMicReady, releaseMicResources, scheduleListeningRestart, startSilenceDetection]);
 
   // ─── Stop listening ───────────────────────────────────────────────────
 
@@ -345,15 +398,6 @@ export default function Conversation() {
     cancelAnimationFrame(animFrameRef.current);
     if (mediaRecorderRef.current?.state === "recording") {
       mediaRecorderRef.current.stop();
-    }
-    mediaRecorderRef.current = null;
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-    }
-    if (audioCtxRef.current) {
-      audioCtxRef.current.close().catch(() => {});
-      audioCtxRef.current = null;
     }
     setLiveLevel(0);
   }, []);
@@ -419,7 +463,7 @@ export default function Conversation() {
 
     // Continue listening
     if (conversationActiveRef.current) {
-      startListening();
+      scheduleListeningRestart();
     } else {
       setChatState("idle");
     }
@@ -431,6 +475,10 @@ export default function Conversation() {
     prepareAudioForSafari();
     setConversationActive(true);
     conversationActiveRef.current = true;
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
     setMessages([]);
     setError(null);
     startListening();
@@ -440,7 +488,12 @@ export default function Conversation() {
     setConversationActive(false);
     conversationActiveRef.current = false;
     processingRef.current = false;
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
     stopListening();
+    releaseMicResources();
     setChatState("idle");
   };
 
