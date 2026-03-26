@@ -129,6 +129,11 @@ function normalizedSimilarity(a: string, b: string): number {
 // Silence detection threshold (seconds of silence before auto-stop)
 const SILENCE_TIMEOUT = 2.0;
 const SILENCE_THRESHOLD = 0.015; // audio level below this = silence
+const VOCAB_SILENCE_TIMEOUT_MS = 1700;
+const VOCAB_SILENCE_THRESHOLD = 0.02;
+const VOCAB_VOICE_ACTIVITY_THRESHOLD = 0.04;
+const VOCAB_VOICE_ACTIVITY_FRAMES = 3;
+const VOCAB_NO_SPEECH_TIMEOUT_MS = 5000;
 
 // ─── Voice commands (multilingual) ───────────────────────────────────────────
 
@@ -310,6 +315,8 @@ export default function Learn() {
   const levelRef = useRef(level);
   const vocabRecorderRef = useRef<MediaRecorder | null>(null);
   const chatRequestIdRef = useRef(0);
+  const vocabAnimRef = useRef<number>(0);
+  const vocabMaxTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Keep refs in sync
   useEffect(() => { autoModeRef.current = autoMode; }, [autoMode]);
@@ -377,8 +384,20 @@ export default function Learn() {
 
   // ─── Start listening ───────────────────────────────────────────────────────
 
+  /** Pick a supported MIME type for MediaRecorder (Safari/iOS compatibility) */
+  const getRecorderMimeType = (): string => {
+    if (typeof MediaRecorder === "undefined") return "audio/webm";
+    if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) return "audio/webm;codecs=opus";
+    if (MediaRecorder.isTypeSupported("audio/webm")) return "audio/webm";
+    if (MediaRecorder.isTypeSupported("audio/mp4")) return "audio/mp4";
+    if (MediaRecorder.isTypeSupported("audio/aac")) return "audio/aac";
+    if (MediaRecorder.isTypeSupported("audio/ogg")) return "audio/ogg";
+    return "";
+  };
+
   const startListening = useCallback(async () => {
     if (cancelledRef.current) return;
+    if (mediaRecorderRef.current?.state === "recording") return;
     console.log("[Learn] startListening");
     suspendAudioForMic();
     setChatState("listening");
@@ -388,6 +407,9 @@ export default function Learn() {
 
       // Set up analyser for silence detection
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      if (audioCtx.state === "suspended") {
+        await audioCtx.resume();
+      }
       const source = audioCtx.createMediaStreamSource(stream);
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 2048;
@@ -395,7 +417,10 @@ export default function Learn() {
       analyserRef.current = analyser;
 
       // Start recording
-      const recorder = new MediaRecorder(stream);
+      const mimeType = getRecorderMimeType();
+      const recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
       audioChunksRef.current = [];
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) audioChunksRef.current.push(e.data);
@@ -406,7 +431,8 @@ export default function Learn() {
         stream.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
 
-        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        const blobType = recorder.mimeType || mimeType || "audio/webm";
+        const blob = new Blob(audioChunksRef.current, { type: blobType });
         if (blob.size < 1000 || cancelledRef.current) {
           if (cancelledRef.current) { setChatState("idle"); return; }
           // Silence detected — increment counter
@@ -799,27 +825,48 @@ export default function Learn() {
 
   const startVocabListening = async () => {
     console.log("[Learn] startVocabListening");
+    if (vocabRecorderRef.current?.state === "recording") return;
     setVocabState("listening");
+    setError(null);
     prepareAudioForSafari();
     suspendAudioForMic();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      if (audioCtx.state === "suspended") {
+        await audioCtx.resume();
+      }
       const source = audioCtx.createMediaStreamSource(stream);
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 2048;
       source.connect(analyser);
 
-      const recorder = new MediaRecorder(stream);
+      const mimeType = getRecorderMimeType();
+      const recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
       const chunks: Blob[] = [];
+      let noSpeechDetected = false;
       recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
 
       recorder.onstop = async () => {
+        if (vocabAnimRef.current) cancelAnimationFrame(vocabAnimRef.current);
+        if (vocabMaxTimerRef.current) {
+          clearTimeout(vocabMaxTimerRef.current);
+          vocabMaxTimerRef.current = null;
+        }
+        vocabRecorderRef.current = null;
         audioCtx.close().catch(() => {});
         stream.getTracks().forEach((tr) => tr.stop());
 
-        const blob = new Blob(chunks, { type: "audio/webm" });
-        if (blob.size < 800) {
+        if (noSpeechDetected) {
+          setVocabState("ready");
+          return;
+        }
+
+        const blobType = recorder.mimeType || mimeType || "audio/webm";
+        const blob = new Blob(chunks, { type: blobType });
+        if (blob.size < 700) {
           setVocabState("ready");
           return;
         }
@@ -857,7 +904,9 @@ export default function Learn() {
       // Silence detection for single word
       const dataArray = new Uint8Array(analyser.fftSize);
       let silenceStart: number | null = null;
-      let hasSpoken = false;
+      let hasSpeechStarted = false;
+      let speechFrames = 0;
+      const listenStart = Date.now();
 
       const checkSilence = () => {
         if (recorder.state !== "recording") return;
@@ -869,22 +918,36 @@ export default function Learn() {
         }
         const rms = Math.sqrt(sum / dataArray.length);
 
-        if (rms >= SILENCE_THRESHOLD) {
-          hasSpoken = true;
-          silenceStart = null;
-        } else if (hasSpoken) {
-          if (!silenceStart) silenceStart = Date.now();
-          else if (Date.now() - silenceStart > 1500) {
-            recorder.stop();
-            return;
+        if (rms >= VOCAB_VOICE_ACTIVITY_THRESHOLD) {
+          speechFrames += 1;
+          if (speechFrames >= VOCAB_VOICE_ACTIVITY_FRAMES) {
+            hasSpeechStarted = true;
           }
+        } else {
+          speechFrames = 0;
         }
-        requestAnimationFrame(checkSilence);
+
+        if (hasSpeechStarted) {
+          if (rms < VOCAB_SILENCE_THRESHOLD) {
+            if (!silenceStart) silenceStart = Date.now();
+            else if (Date.now() - silenceStart > VOCAB_SILENCE_TIMEOUT_MS) {
+              recorder.stop();
+              return;
+            }
+          } else {
+            silenceStart = null;
+          }
+        } else if (Date.now() - listenStart > VOCAB_NO_SPEECH_TIMEOUT_MS) {
+          noSpeechDetected = true;
+          recorder.stop();
+          return;
+        }
+        vocabAnimRef.current = requestAnimationFrame(checkSilence);
       };
       checkSilence();
 
       // Max 5 seconds
-      setTimeout(() => {
+      vocabMaxTimerRef.current = setTimeout(() => {
         if (recorder.state === "recording") recorder.stop();
       }, 5000);
     } catch {
@@ -894,6 +957,11 @@ export default function Learn() {
 
   const stopVocabListening = () => {
     console.log("[Learn] stopVocabListening");
+    if (vocabAnimRef.current) cancelAnimationFrame(vocabAnimRef.current);
+    if (vocabMaxTimerRef.current) {
+      clearTimeout(vocabMaxTimerRef.current);
+      vocabMaxTimerRef.current = null;
+    }
     if (vocabRecorderRef.current?.state === "recording") {
       vocabRecorderRef.current.stop();
     }

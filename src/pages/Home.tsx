@@ -583,6 +583,15 @@ export default function Home() {
 
               <div className="border-t border-[#FFFFFF14]" />
 
+              <button
+                onClick={handleSaveSettings}
+                className="w-full bg-[#295BDB] hover:bg-[#295BDB]/80 text-[#F4F4F4] font-bold py-4 rounded-xl transition-colors text-sm"
+              >
+                {t("save")}
+              </button>
+
+              <div className="border-t border-[#FFFFFF14]" />
+
               {/* About */}
               <div className="text-center space-y-3 py-2">
                 <p className="text-sm font-bold text-[#F4F4F4]/80">PolyGlotAI</p>
@@ -593,13 +602,6 @@ export default function Home() {
                   <p>© 2026 PC8 S.r.l. Tutti i diritti riservati.</p>
                 </div>
               </div>
-
-              <button
-                onClick={handleSaveSettings}
-                className="w-full bg-[#295BDB] hover:bg-[#295BDB]/80 text-[#F4F4F4] font-bold py-4 rounded-xl transition-colors text-sm"
-              >
-                {t("save")}
-              </button>
 
             </div>
           </div>

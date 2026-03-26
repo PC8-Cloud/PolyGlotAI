@@ -21,6 +21,9 @@ interface Message {
 // Silence detection
 const SILENCE_TIMEOUT = 1.6; // seconds of silence before auto-stop
 const SILENCE_THRESHOLD = 0.045; // less aggressive: preserve quieter voices and phone mics
+const VOICE_ACTIVITY_THRESHOLD = 0.055; // require clear activity before treating silence as end-of-utterance
+const VOICE_ACTIVITY_FRAMES = 3; // consecutive frames over threshold to mark speech-start
+const NO_SPEECH_TIMEOUT_MS = 5000; // if no speech at all, recycle mic loop without transcribing
 const MIN_SPEECH_DURATION_MS = 450; // short utterances like "si", "ok", "grazie" must survive
 const SPEECH_PEAK_THRESHOLD = 0.03; // keep only the weakest noise out; do final filtering after transcription
 const MIN_AUDIO_BLOB_BYTES = 1000;
@@ -74,6 +77,7 @@ export default function Conversation() {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const peakLevelRef = useRef(0); // track peak audio level during recording
   const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const noSpeechCaptureRef = useRef(false);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -122,6 +126,8 @@ export default function Conversation() {
     let silenceStart: number | null = null;
     let allZeroCount = 0; // detect if analyser returns no data (iOS AudioContext issue)
     const startTime = Date.now();
+    let speechFrames = 0;
+    let hasSpeechStarted = false;
 
     const check = () => {
       analyser.getByteTimeDomainData(dataArray);
@@ -135,6 +141,17 @@ export default function Conversation() {
 
       // Track peak level to distinguish real speech from distant TV
       if (rms > peakLevelRef.current) peakLevelRef.current = rms;
+
+      // Voice activity gate: require stable speech activity before enabling
+      // silence-based stop. This avoids fast open/close loops on background noise.
+      if (rms >= VOICE_ACTIVITY_THRESHOLD) {
+        speechFrames += 1;
+        if (speechFrames >= VOICE_ACTIVITY_FRAMES) {
+          hasSpeechStarted = true;
+        }
+      } else {
+        speechFrames = 0;
+      }
 
       // iOS fallback: if analyser reads near-zero for 15+ seconds, stop and let
       // onstop handle the recording (the audio data may still be valid even if
@@ -151,14 +168,20 @@ export default function Conversation() {
         allZeroCount = 0;
       }
 
-      if (rms < SILENCE_THRESHOLD) {
-        if (!silenceStart) silenceStart = Date.now();
-        else if ((Date.now() - silenceStart) / 1000 > SILENCE_TIMEOUT) {
-          stopListening();
-          return;
+      if (hasSpeechStarted) {
+        if (rms < SILENCE_THRESHOLD) {
+          if (!silenceStart) silenceStart = Date.now();
+          else if ((Date.now() - silenceStart) / 1000 > SILENCE_TIMEOUT) {
+            stopListening();
+            return;
+          }
+        } else {
+          silenceStart = null;
         }
-      } else {
-        silenceStart = null;
+      } else if ((Date.now() - startTime) > NO_SPEECH_TIMEOUT_MS) {
+        noSpeechCaptureRef.current = true;
+        stopListening();
+        return;
       }
 
       animFrameRef.current = requestAnimationFrame(check);
@@ -194,7 +217,7 @@ export default function Conversation() {
     restartTimerRef.current = setTimeout(() => {
       restartTimerRef.current = null;
       startListening();
-    }, 180);
+    }, 260);
   }, []);
 
   const ensureMicReady = useCallback(async () => {
@@ -257,6 +280,7 @@ export default function Conversation() {
     setChatState("listening");
     setLiveLevel(0);
     peakLevelRef.current = 0;
+    noSpeechCaptureRef.current = false;
 
     try {
       const { stream, analyser } = await ensureMicReady();
@@ -282,6 +306,12 @@ export default function Conversation() {
 
         const peakLevel = peakLevelRef.current;
 
+        if (noSpeechCaptureRef.current) {
+          noSpeechCaptureRef.current = false;
+          scheduleListeningRestart();
+          return;
+        }
+
         // Skip only truly empty / accidental taps. Final rejection should happen after transcription.
         if (blob.size < MIN_AUDIO_BLOB_BYTES || recordDuration < 250) {
           scheduleListeningRestart();
@@ -305,6 +335,10 @@ export default function Conversation() {
           // Filter out empty, too-short, or Whisper hallucination artifacts
           const trimmed = text.trim();
           const lower = trimmed.toLowerCase();
+          const cleanedLower = lower.replace(/[^\p{L}\p{N}\s]/gu, "").trim();
+          const isWeakCapture = recordDuration < 900 || peakLevel < 0.05;
+          const isSilenceToken =
+            /^(you|uh|um|hmm+|mm+|eh+|ah+|ok+|okay)$/.test(cleanedLower);
           const isHallucination =
             !trimmed ||
             trimmed.length < 2 ||
@@ -326,7 +360,8 @@ export default function Conversation() {
             // TV/News/broadcast artifacts
             /\bnews\b/i.test(trimmed) ||
             /\b(mbc|cnn|bbc|fox|nbc|abc|cbs|sky|rai|tg[1-5])\b/i.test(trimmed) ||
-            /\b(reporter|anchor|correspondent|breaking|headline)\b/i.test(trimmed);
+            /\b(reporter|anchor|correspondent|breaking|headline)\b/i.test(trimmed) ||
+            (isWeakCapture && isSilenceToken);
 
           if (isHallucination || !conversationActiveRef.current) {
             console.log("[Conversation] filtered hallucination:", trimmed.substring(0, 40));
@@ -563,13 +598,6 @@ export default function Conversation() {
         </button>
         <MessagesSquare className="w-5 h-5 text-[#295BDB]" />
         <h1 className="text-lg font-bold flex-1">{t("conversation")}</h1>
-        <button
-          onClick={handleShareConversation}
-          disabled={messages.length === 0}
-          className="p-2 rounded-xl transition-colors bg-[#123182] text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#295BDB] disabled:opacity-20"
-        >
-          <Upload className="w-5 h-5" />
-        </button>
       </header>
       <div className="flex items-center gap-2 p-4 border-b border-[#FFFFFF14] bg-[#0E2666]/50 shrink-0">
         <select
@@ -603,6 +631,19 @@ export default function Conversation() {
           <button onClick={() => setError(null)} className="text-red-400 hover:text-[#F4F4F4] text-xs shrink-0">✕</button>
         </div>
       )}
+
+      {/* Fixed actions inside conversation box */}
+      <div className="px-4 pt-3 shrink-0">
+        <div className="bg-[#0E2666] border border-[#FFFFFF14] rounded-xl p-2 flex justify-end">
+          <button
+            onClick={handleShareConversation}
+            disabled={messages.length === 0}
+            className="p-2 rounded-lg transition-colors bg-[#123182] text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#295BDB] disabled:opacity-20"
+          >
+            <Upload className="w-5 h-5" />
+          </button>
+        </div>
+      </div>
 
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 min-h-0">
         {messages.length === 0 && !conversationActive && (

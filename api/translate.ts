@@ -52,6 +52,63 @@ function sanitizeTranslation(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function startsWithAny(text: string, candidates: string[]): boolean {
+  return candidates.some((candidate) => text.startsWith(candidate));
+}
+
+function isLikelyQuestion(text: string, sourceCode: string): boolean {
+  const trimmed = String(text || "").trim();
+  if (!trimmed) return false;
+  if (/[?？]$/.test(trimmed)) return true;
+
+  const normalized = trimmed
+    .toLowerCase()
+    .replace(/^[\s"'`([{]+/, "")
+    .replace(/\s+/g, " ");
+
+  const lang = String(sourceCode || "").toLowerCase().split("-")[0];
+
+  if (lang === "en") {
+    const aux = [
+      "do ", "does ", "did ",
+      "is ", "are ", "am ", "was ", "were ",
+      "have ", "has ", "had ",
+      "can ", "could ", "will ", "would ", "should ", "shall ", "may ", "might ", "must ",
+    ];
+    const wh = ["who ", "what ", "when ", "where ", "why ", "how ", "which ", "whose ", "whom "];
+    return startsWithAny(normalized, aux) || startsWithAny(normalized, wh);
+  }
+
+  if (lang === "it") {
+    const starters = [
+      "hai ", "ha ", "hanno ", "avete ", "abbiamo ",
+      "sei ", "siete ", "sono ", "è ", "era ",
+      "puoi ", "puo ", "potete ", "posso ",
+      "dove ", "come ", "quando ", "perche ", "perché ", "chi ", "cosa ", "quale ",
+    ];
+    return startsWithAny(normalized, starters);
+  }
+
+  if (lang === "es" || lang === "fr" || lang === "de") {
+    const starters = [
+      "donde ", "dónde ", "como ", "cómo ", "cuando ", "cuándo ", "por que ", "por qué ", "quien ", "quién ", "que ", "qué ",
+      "où ", "quand ", "comment ", "pourquoi ", "qui ", "que ", "est-ce que ",
+      "wo ", "wann ", "wie ", "warum ", "wer ", "was ", "welche ",
+    ];
+    return startsWithAny(normalized, starters);
+  }
+
+  return false;
+}
+
+function enforceQuestionPunctuation(text: string, shouldBeQuestion: boolean): string {
+  const trimmed = String(text || "").trim();
+  if (!trimmed || !shouldBeQuestion) return trimmed;
+  if (/[?？]$/.test(trimmed)) return trimmed;
+  if (/[.!]$/.test(trimmed)) return `${trimmed.slice(0, -1)}?`;
+  return `${trimmed}?`;
+}
+
 function getModeInstructions(mode: string): string[] {
   switch (mode) {
     case "live":
@@ -140,6 +197,7 @@ function buildTranslationMessages(
   targets: Array<{ code: string; name: string }>,
   mode: string,
   contextualHints: string[],
+  likelyQuestion: boolean,
 ) {
   return [
     {
@@ -151,6 +209,7 @@ function buildTranslationMessages(
         "Do not explain.",
         "Do not transliterate unless needed for the target language.",
         "If the source is incomplete, translate naturally without inventing extra content.",
+        "Preserve sentence intent: if source is a question, translation must remain a clear question.",
         ...getModeInstructions(mode),
         ...(contextualHints.length > 0 ? ["Use these glossary/context hints when relevant:", ...contextualHints] : []),
       ].join(" "),
@@ -162,6 +221,7 @@ function buildTranslationMessages(
         mode,
         source_language: sourceLanguage,
         targets,
+        likely_question: likelyQuestion,
         rules: {
           preserve_line_breaks: true,
           preserve_placeholders: true,
@@ -182,15 +242,18 @@ async function requestSingleTranslation(
   model: string,
   mode: string,
   contextualHints: string[],
+  likelyQuestion: boolean,
 ): Promise<string | null> {
   const response = await client.chat.completions.create({
     model,
     temperature: 0.15,
     max_tokens: 1600,
     response_format: { type: "json_object" },
-    messages: buildTranslationMessages(text, sourceLanguage, [target], mode, contextualHints),
+    messages: buildTranslationMessages(text, sourceLanguage, [target], mode, contextualHints, likelyQuestion),
   });
-  return sanitizeTranslation(safeParseJson(response.choices[0].message.content)[target.code]);
+  const translated = sanitizeTranslation(safeParseJson(response.choices[0].message.content)[target.code]);
+  if (!translated) return null;
+  return enforceQuestionPunctuation(translated, likelyQuestion);
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -208,13 +271,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const targets = normalizeTargets(targetLanguages, targetLanguageNames);
     if (!source.code || targets.length === 0) return res.json({});
     const contextualHints = buildGlossaryHints(text, translationMode, glossaryHints);
+    const likelyQuestion = isLikelyQuestion(text, source.code);
 
     const response = await client.chat.completions.create({
       model: modelName,
       temperature: 0.15,
       max_tokens: 1600,
       response_format: { type: "json_object" },
-      messages: buildTranslationMessages(text, source, targets, translationMode, contextualHints),
+      messages: buildTranslationMessages(text, source, targets, translationMode, contextualHints, likelyQuestion),
     });
     const parsed = safeParseJson(response.choices[0].message.content);
     const result: Record<string, string> = {};
@@ -230,11 +294,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         missingTargets.push(target);
         continue;
       }
-      result[target.code] = translated!;
+      result[target.code] = enforceQuestionPunctuation(translated!, likelyQuestion);
     }
 
     for (const target of missingTargets) {
-      const translated = await requestSingleTranslation(text, source, target, modelName, translationMode, contextualHints);
+      const translated = await requestSingleTranslation(
+        text,
+        source,
+        target,
+        modelName,
+        translationMode,
+        contextualHints,
+        likelyQuestion,
+      );
       if (translated) {
         result[target.code] = translated;
       }
