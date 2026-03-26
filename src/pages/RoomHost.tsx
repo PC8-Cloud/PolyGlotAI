@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Mic, Radio, Users, MessageCircleQuestion, LogOut, QrCode, X, Upload, Share2, RotateCcw, Printer, Check, Download, ClipboardPaste, FolderOpen } from "lucide-react";
+import { ChevronLeft, Mic, Radio, Users, MessageCircleQuestion, LogOut, QrCode, X, Upload, Share2, RotateCcw, Printer, Check, Download, ClipboardPaste, FolderOpen, MessageCircle } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
@@ -11,6 +11,7 @@ import { extractTextFromFile } from "../lib/file-reader";
 import { createRoom, sendMessage } from "../lib/firebase-helpers";
 import { db } from "../firebase";
 import { collection, doc, getDoc, onSnapshot, orderBy, query, updateDoc, where, getDocs, limit } from "firebase/firestore";
+import { openWhatsAppShare } from "../lib/share";
 
 interface Participant {
   id: string;
@@ -211,6 +212,12 @@ export default function RoomHost() {
       await navigator.clipboard.writeText(url);
       alert(t("linkCopied"));
     }
+  };
+
+  const handleWhatsAppShare = () => {
+    if (!roomCode) return;
+    const url = `${window.location.origin}/join?code=${roomCode}`;
+    openWhatsAppShare(`PolyGlot AI\n${t("joinRoom")} - ${t("roomCode")}: ${roomCode}\n${url}`);
   };
 
   // ─── Print QR ────────────────────────────────────────────────────────────
@@ -675,6 +682,18 @@ export default function RoomHost() {
     }
   };
 
+  const handleWhatsAppShareMessages = () => {
+    if (messages.length === 0) return;
+    const text = messages.map((msg) => {
+      const isQuestion = msg.type === "QUESTION";
+      return isQuestion
+        ? `[${t("questionFrom")} ${msg.senderName || "?"}] ${msg.sourceText}`
+        : msg.sourceText;
+    }).join("\n\n");
+    const shareText = `${t("multilingualRoom")} — ${roomCode}\n\n${text}`;
+    openWhatsAppShare(shareText);
+  };
+
   // ─── Render: room not created yet ─────────────────────────────────────────
 
   if (!roomCode || !sessionId) {
@@ -757,8 +776,8 @@ export default function RoomHost() {
   // ─── Render: room active ──────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans">
-      <header className="flex items-center gap-3 p-4 border-b border-[#FFFFFF14] bg-[#0E2666]">
+    <div className="h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans overflow-hidden">
+      <header className="flex items-center gap-3 p-4 border-b border-[#FFFFFF14] bg-[#0E2666] shrink-0">
         <button onClick={() => navigate("/group")} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
           <ChevronLeft className="w-6 h-6" />
         </button>
@@ -775,7 +794,7 @@ export default function RoomHost() {
         </div>
       </header>
 
-      <div className="bg-[#0E2666] border-b border-[#FFFFFF14] p-4 flex items-center justify-center gap-3">
+      <div className="bg-[#0E2666] border-b border-[#FFFFFF14] p-4 flex items-center justify-center gap-3 shrink-0">
         <span className="text-[#F4F4F4]/40 text-sm">{t("roomCode")}:</span>
         <span className="text-4xl font-mono font-black tracking-[0.3em] text-[#295BDB]">{roomCode}</span>
         <button
@@ -787,7 +806,7 @@ export default function RoomHost() {
       </div>
 
       {participants.length > 0 && (
-        <div className="px-4 py-3 flex flex-wrap gap-2 border-b border-[#FFFFFF14]">
+        <div className="px-4 py-3 flex flex-wrap gap-2 border-b border-[#FFFFFF14] shrink-0">
           {Object.entries(langCounts).map(([lang, count]) => {
             const langObj = LANGUAGES.find((l) => l.code === lang);
             return (
@@ -804,13 +823,13 @@ export default function RoomHost() {
       )}
 
       {error && (
-        <div className="mx-4 mt-3 p-3 bg-red-500/20 border border-red-500/30 rounded-xl flex items-center gap-3">
+        <div className="mx-4 mt-3 p-3 bg-red-500/20 border border-red-500/30 rounded-xl flex items-center gap-3 shrink-0">
           <p className="text-sm text-red-400 flex-1">{error}</p>
           <button onClick={() => setError(null)} className="text-red-400 hover:text-[#F4F4F4] text-xs shrink-0">✕</button>
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
+      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3 min-h-0">
         {/* Import & Share icons */}
         {participants.length > 0 && (
           <div className="flex items-center sticky top-0 z-10 bg-[#02114A]/90 backdrop-blur-sm -mx-4 px-4 py-2 -mt-4">
@@ -853,6 +872,13 @@ export default function RoomHost() {
               )}
             </div>
             <div className="flex-1" />
+            <button
+              onClick={handleWhatsAppShareMessages}
+              disabled={messages.length === 0}
+              className="p-2.5 mr-2 bg-green-600 rounded-xl text-white hover:bg-green-500 transition-colors disabled:opacity-20"
+            >
+              <MessageCircle className="w-5 h-5" />
+            </button>
             <button
               onClick={handleShareMessages}
               disabled={messages.length === 0}
@@ -934,7 +960,7 @@ export default function RoomHost() {
         <div ref={bottomRef} />
       </div>
 
-      <div className="border-t border-[#FFFFFF14] bg-[#0E2666] p-6 flex flex-col items-center gap-3">
+      <div className="border-t border-[#FFFFFF14] bg-[#0E2666] p-6 flex flex-col items-center gap-3 shrink-0">
         <button
           onClick={toggleListening}
           disabled={isTranslating || participants.length === 0}
@@ -989,6 +1015,12 @@ export default function RoomHost() {
                 className="flex-1 flex items-center justify-center gap-2 bg-[#123182] hover:bg-[#123182]/80 text-[#F4F4F4] py-3 rounded-xl transition-colors"
               >
                 <Share2 className="w-5 h-5" />
+              </button>
+              <button
+                onClick={handleWhatsAppShare}
+                className="flex-1 flex items-center justify-center gap-2 bg-green-600 hover:bg-green-500 text-white py-3 rounded-xl transition-colors"
+              >
+                <MessageCircle className="w-5 h-5" />
               </button>
               <button
                 onClick={handlePrintQR}

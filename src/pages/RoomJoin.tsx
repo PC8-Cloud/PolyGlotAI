@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { ChevronLeft, Radio, Volume2, VolumeX, Send, MessageCircleQuestion, Upload } from "lucide-react";
+import { ChevronLeft, Radio, Volume2, VolumeX, Send, MessageCircleQuestion, Upload, MessageCircle } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES } from "../lib/languages";
@@ -11,6 +11,7 @@ import { db } from "../firebase";
 import { collection, doc, onSnapshot, orderBy, query } from "firebase/firestore";
 import { muteAudio } from "../lib/openai";
 import { canUseLocalTTS, playLocalTTS } from "../lib/offline";
+import { openWhatsAppShare } from "../lib/share";
 
 interface Msg {
   id: string;
@@ -253,11 +254,23 @@ export default function RoomJoin() {
     }
   };
 
+  const handleWhatsAppShare = () => {
+    const broadcasts = messages.filter((m) => m.type === "BROADCAST");
+    if (broadcasts.length === 0) return;
+    const text = broadcasts
+      .map((msg) => {
+        const myText = msg.translations[myLang] || msg.sourceText;
+        return msg.sourceText !== myText ? `${myText}\n  → ${msg.sourceText}` : myText;
+      })
+      .join("\n\n");
+    openWhatsAppShare(text);
+  };
+
   // ─── Join screen ──────────────────────────────────────────────────────────
 
   if (!sessionId) {
     return (
-      <div className="min-h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans">
+      <div className="h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans overflow-hidden">
         <header className="flex items-center gap-3 p-4 border-b border-[#FFFFFF14] bg-[#0E2666]">
           <button onClick={() => navigate("/")} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
             <ChevronLeft className="w-6 h-6" />
@@ -331,18 +344,27 @@ export default function RoomJoin() {
   if (roomClosed) {
     const hasBroadcasts = messages.filter((m) => m.type === "BROADCAST").length > 0;
     return (
-      <div className="min-h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans">
+      <div className="h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans overflow-hidden">
         <div className="flex-1 flex flex-col items-center justify-center p-6 gap-6">
           <Radio className="w-20 h-20 text-[#F4F4F4]/10" />
           <p className="text-lg font-bold text-[#F4F4F4]/60">{t("roomClosed")}</p>
           {hasBroadcasts && (
-            <button
-              onClick={handleShare}
-              className="flex items-center gap-2 bg-[#295BDB] hover:bg-[#295BDB]/80 text-[#F4F4F4] font-bold py-3 px-6 rounded-xl transition-colors"
-            >
-              <Upload className="w-5 h-5" />
-              {t("shareRoom")}
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleShare}
+                className="flex items-center gap-2 bg-[#295BDB] hover:bg-[#295BDB]/80 text-[#F4F4F4] font-bold py-3 px-6 rounded-xl transition-colors"
+              >
+                <Upload className="w-5 h-5" />
+                {t("shareRoom")}
+              </button>
+              <button
+                onClick={handleWhatsAppShare}
+                className="flex items-center gap-2 bg-green-600 hover:bg-green-500 text-white font-bold py-3 px-6 rounded-xl transition-colors"
+              >
+                <MessageCircle className="w-5 h-5" />
+                WhatsApp
+              </button>
+            </div>
           )}
           <button
             onClick={() => navigate("/")}
@@ -358,8 +380,8 @@ export default function RoomJoin() {
   // ─── In-room screen ───────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans">
-      <header className="flex items-center gap-3 p-4 border-b border-[#FFFFFF14] bg-[#0E2666]">
+    <div className="h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans overflow-hidden">
+      <header className="flex items-center gap-3 p-4 border-b border-[#FFFFFF14] bg-[#0E2666] shrink-0">
         <button onClick={() => navigate("/")} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
           <ChevronLeft className="w-6 h-6" />
         </button>
@@ -386,10 +408,16 @@ export default function RoomJoin() {
         </button>
       </header>
 
-      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 min-h-0">
         {messages.filter((m) => m.type === "BROADCAST").length > 0 && (
           <div className="flex items-center sticky top-0 z-10 bg-[#02114A]/90 backdrop-blur-sm -mx-4 px-4 py-2 -mt-4">
             <div className="flex-1" />
+            <button
+              onClick={handleWhatsAppShare}
+              className="p-2.5 mr-2 bg-green-600 rounded-xl text-white hover:bg-green-500 transition-colors"
+            >
+              <MessageCircle className="w-5 h-5" />
+            </button>
             <button
               onClick={handleShare}
               className="p-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/50 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors"
@@ -467,7 +495,7 @@ export default function RoomJoin() {
       </div>
 
       {/* Question input */}
-      <div className="border-t border-[#FFFFFF14] bg-[#0E2666] p-3 flex items-center gap-2">
+      <div className="border-t border-[#FFFFFF14] bg-[#0E2666] p-3 flex items-center gap-2 shrink-0">
         <input
           type="text"
           value={questionText}

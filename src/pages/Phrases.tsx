@@ -306,9 +306,9 @@ export default function Phrases() {
   const selectedLang = LANGUAGES.find((l) => l.code === targetLang);
 
   return (
-    <div className="min-h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans">
+    <div className="h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans overflow-hidden">
       {/* Header */}
-      <header className="flex items-center gap-3 p-4 border-b border-[#FFFFFF14] bg-[#0E2666]">
+      <header className="flex items-center gap-3 p-4 border-b border-[#FFFFFF14] bg-[#0E2666] shrink-0">
         <button
           onClick={() => {
             if (selectedCategory) setSelectedCategory(null);
@@ -325,7 +325,7 @@ export default function Phrases() {
       </header>
 
       {/* Language selector */}
-      <div className="p-4 flex items-center gap-3 border-b border-[#FFFFFF14] bg-[#0E2666]/50">
+      <div className="p-4 flex items-center gap-3 border-b border-[#FFFFFF14] bg-[#0E2666]/50 shrink-0">
         <span className="text-[#F4F4F4]/40 text-lg">→</span>
         <select
           value={targetLang}
@@ -338,14 +338,14 @@ export default function Phrases() {
 
       {/* Error banner */}
       {error && (
-        <div className="mx-4 mt-3 p-3 bg-red-500/20 border border-red-500/30 rounded-xl flex items-center gap-3">
+        <div className="mx-4 mt-3 p-3 bg-red-500/20 border border-red-500/30 rounded-xl flex items-center gap-3 shrink-0">
           <p className="text-sm text-red-400 flex-1">{error}</p>
           <button onClick={() => setError(null)} className="text-red-400 hover:text-[#F4F4F4] text-xs shrink-0">✕</button>
         </div>
       )}
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 overflow-y-auto p-4 min-h-0">
         {!selectedCategory ? (
           /* Category grid */
           <div className="grid grid-cols-2 gap-3 max-w-sm mx-auto">

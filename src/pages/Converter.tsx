@@ -478,8 +478,8 @@ export default function Converter() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans">
-      <header className="flex items-center gap-3 p-4 border-b border-[#FFFFFF14] bg-[#0E2666]">
+    <div className="h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans overflow-hidden">
+      <header className="flex items-center gap-3 p-4 border-b border-[#FFFFFF14] bg-[#0E2666] shrink-0">
         <button onClick={() => navigate("/")} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
           <ChevronLeft className="w-6 h-6" />
         </button>
@@ -488,7 +488,7 @@ export default function Converter() {
       </header>
 
       {/* Tabs — scrollable */}
-      <div className="flex overflow-x-auto border-b border-[#FFFFFF14] bg-[#0E2666] no-scrollbar">
+      <div className="flex overflow-x-auto border-b border-[#FFFFFF14] bg-[#0E2666] no-scrollbar shrink-0">
         {TABS.map(({ key, icon: Icon, label }) => (
           <button
             key={key}
@@ -503,7 +503,7 @@ export default function Converter() {
         ))}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 overflow-y-auto p-4 min-h-0">
         <div className="w-full max-w-sm mx-auto space-y-4">
 
           {/* ═══ CURRENCY ═══ */}

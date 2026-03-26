@@ -33,6 +33,10 @@ export default function Home() {
   const [tempLang, setTempLang] = useState("");
   const [tempVoice, setTempVoice] = useState("");
   const [tempSpeed, setTempSpeed] = useState(1.0);
+  const [settingsLang, setSettingsLang] = useState("");
+  const [settingsVoice, setSettingsVoice] = useState("");
+  const [settingsSpeed, setSettingsSpeed] = useState(1.0);
+  const [settingsTranslationPerformance, setSettingsTranslationPerformance] = useState<"auto" | "fast" | "balanced">("auto");
 
   const {
     uiLanguage,
@@ -74,6 +78,22 @@ export default function Home() {
 
   const previewAbortRef = useRef(false);
 
+  const openSettings = () => {
+    setSettingsLang(uiLanguage);
+    setSettingsVoice(ttsVoice);
+    setSettingsSpeed(ttsSpeed);
+    setSettingsTranslationPerformance(translationPerformance);
+    setShowSettings(true);
+  };
+
+  const handleSaveSettings = () => {
+    setUiLanguage(settingsLang);
+    setTtsVoice(settingsVoice);
+    setTtsSpeed(settingsSpeed);
+    setTranslationPerformance(settingsTranslationPerformance);
+    setShowSettings(false);
+  };
+
   const handlePreviewVoice = async (voiceId: string) => {
     // If already previewing, just switch — don't block
     previewAbortRef.current = true;
@@ -85,7 +105,7 @@ export default function Home() {
     previewAbortRef.current = false;
 
     try {
-      await playTTS("Hello! This is how I sound.", voiceId as any, 1.0, "en");
+      await playTTS("Hello! This is how I sound.", voiceId as any, settingsSpeed || 1.0, "en");
     } catch (e) {
       console.error("Voice preview failed:", e);
     } finally {
@@ -232,7 +252,7 @@ export default function Home() {
           <FeatureButton route="/camera" icon={Camera} label={t("camera")} />
           <FeatureButton route="/converter" icon={Coins} label={t("convertUnits")} />
           <FeatureButton icon={WifiOff} label={t("offlineFunctions")} onClick={() => setShowOffline(true)} />
-          <FeatureButton icon={Settings} label={t("settings")} onClick={() => setShowSettings(true)} />
+          <FeatureButton icon={Settings} label={t("settings")} onClick={openSettings} />
         </div>
       </div>
 
@@ -389,8 +409,8 @@ export default function Home() {
                 </div>
                 <p className="text-xs text-[#F4F4F4]/40 mb-3">{t("systemLanguageDesc")}</p>
                 <select
-                  value={uiLanguage}
-                  onChange={(e) => setUiLanguage(e.target.value)}
+                  value={settingsLang}
+                  onChange={(e) => setSettingsLang(e.target.value)}
                   className="w-full bg-[#02114A] border border-[#FFFFFF14] rounded-xl p-4 text-[#F4F4F4] appearance-none focus:ring-2 focus:ring-[#295BDB] outline-none"
                 >
                   <LanguageOptions />
@@ -489,11 +509,11 @@ export default function Home() {
                     <button
                       key={v.id}
                       onClick={() => {
-                        setTtsVoice(v.id);
+                        setSettingsVoice(v.id);
                         handlePreviewVoice(v.id);
                       }}
                       className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors border ${
-                        ttsVoice === v.id
+                        settingsVoice === v.id
                           ? "bg-[#295BDB]/20 border-[#295BDB] text-[#295BDB]"
                           : "bg-[#02114A] border-[#FFFFFF14] text-[#F4F4F4]/60 hover:border-[#FFFFFF30]"
                       }`}
@@ -514,15 +534,15 @@ export default function Home() {
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <label className="text-sm font-medium text-[#F4F4F4]/80">{t("voiceSpeed")}</label>
-                  <span className="text-sm font-mono text-[#295BDB]">{ttsSpeed.toFixed(1)}x</span>
+                  <span className="text-sm font-mono text-[#295BDB]">{settingsSpeed.toFixed(1)}x</span>
                 </div>
                 <input
                   type="range"
                   min="0.7"
                   max="1.5"
                   step="0.1"
-                  value={ttsSpeed}
-                  onChange={(e) => setTtsSpeed(parseFloat(e.target.value))}
+                  value={settingsSpeed}
+                  onChange={(e) => setSettingsSpeed(parseFloat(e.target.value))}
                   className="w-full accent-[#295BDB]"
                 />
                 <div className="flex justify-between text-[10px] text-[#F4F4F4]/30 mt-1">
@@ -548,9 +568,9 @@ export default function Home() {
                   ] as const).map(([mode, label]) => (
                     <button
                       key={mode}
-                      onClick={() => setTranslationPerformance(mode)}
+                      onClick={() => setSettingsTranslationPerformance(mode)}
                       className={`px-3 py-3 rounded-xl text-sm font-medium transition-colors border ${
-                        translationPerformance === mode
+                        settingsTranslationPerformance === mode
                           ? "bg-[#295BDB]/20 border-[#295BDB] text-[#295BDB]"
                           : "bg-[#02114A] border-[#FFFFFF14] text-[#F4F4F4]/60 hover:border-[#FFFFFF30]"
                       }`}
@@ -573,6 +593,13 @@ export default function Home() {
                   <p>© 2026 PC8 S.r.l. Tutti i diritti riservati.</p>
                 </div>
               </div>
+
+              <button
+                onClick={handleSaveSettings}
+                className="w-full bg-[#295BDB] hover:bg-[#295BDB]/80 text-[#F4F4F4] font-bold py-4 rounded-xl transition-colors text-sm"
+              >
+                {t("save")}
+              </button>
 
             </div>
           </div>

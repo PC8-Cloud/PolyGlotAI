@@ -439,7 +439,9 @@ export async function playTTS(
 ): Promise<void> {
   const state = useUserStore.getState();
   const selectedVoice = (voice || state.ttsVoice || "nova") as TTSVoice;
-  const selectedSpeed = speed !== 1.0 ? speed : (state.ttsSpeed || 1.0);
+  const userSpeed = state.ttsSpeed || 1.0;
+  const baseSpeed = typeof speed === "number" ? speed : 1.0;
+  const selectedSpeed = Math.max(0.7, Math.min(1.8, baseSpeed * userSpeed));
 
   // If connection is slow or offline, use local TTS
   if (isConnectionSlow() || !isOnlineCheck()) {
