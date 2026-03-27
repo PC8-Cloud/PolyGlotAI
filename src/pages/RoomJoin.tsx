@@ -53,6 +53,7 @@ export default function RoomJoin() {
   const spokenMsgIds = useRef<Set<string>>(new Set());
   const ttsQueueRef = useRef<{ text: string; id: string }[]>([]);
   const ttsPlayingRef = useRef(false);
+  const wakeLockRef = useRef<any>(null);
 
   const getCreatedAtMs = (value: any): number | null => {
     if (!value) return null;
@@ -63,13 +64,51 @@ export default function RoomJoin() {
     return Number.isNaN(parsed) ? null : parsed;
   };
 
+  const acquireWakeLock = async () => {
+    try {
+      if (!("wakeLock" in navigator)) return;
+      if (wakeLockRef.current) return;
+      wakeLockRef.current = await (navigator as any).wakeLock.request("screen");
+    } catch {
+      // best effort
+    }
+  };
+
+  const releaseWakeLock = () => {
+    if (wakeLockRef.current) {
+      wakeLockRef.current.release().catch(() => {});
+      wakeLockRef.current = null;
+    }
+  };
+
   useEffect(() => {
     return () => {
       ttsQueueRef.current = [];
       ttsPlayingRef.current = false;
+      releaseWakeLock();
       muteAudio();
     };
   }, []);
+
+  useEffect(() => {
+    if (sessionId) {
+      acquireWakeLock();
+    } else {
+      releaseWakeLock();
+    }
+  }, [sessionId]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible" && sessionId) {
+        acquireWakeLock();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [sessionId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });

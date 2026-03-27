@@ -101,6 +101,15 @@ export default function RoomHost() {
     }
   };
   useEffect(() => () => releaseWakeLock(), []);
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible" && (isListeningRef.current || isTranslating || processingRef.current)) {
+        acquireWakeLock();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [isTranslating]);
 
   // Subscribe to participants
   useEffect(() => {

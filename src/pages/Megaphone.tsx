@@ -75,6 +75,15 @@ export default function MegaphonePage() {
     }
   };
   useEffect(() => () => { releaseWakeLock(); muteAudio(); }, []);
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible" && (isListeningRef.current || isSpeaking || isTranslating)) {
+        acquireWakeLock();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [isSpeaking, isTranslating]);
 
   // ─── Pause timers ──────────────────────────────────────────────────────────
 

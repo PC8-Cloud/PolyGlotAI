@@ -317,6 +317,7 @@ export default function Learn() {
   const chatRequestIdRef = useRef(0);
   const vocabAnimRef = useRef<number>(0);
   const vocabMaxTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wakeLockRef = useRef<any>(null);
 
   // Keep refs in sync
   useEffect(() => { autoModeRef.current = autoMode; }, [autoMode]);
@@ -325,16 +326,53 @@ export default function Learn() {
   useEffect(() => { messagesRef.current = messages; }, [messages]);
   useEffect(() => { levelRef.current = level; }, [level]);
 
+  const acquireWakeLock = useCallback(async () => {
+    try {
+      if (!("wakeLock" in navigator)) return;
+      if (wakeLockRef.current) return;
+      wakeLockRef.current = await (navigator as any).wakeLock.request("screen");
+    } catch {
+      // best effort
+    }
+  }, []);
+
+  const releaseWakeLock = useCallback(() => {
+    if (wakeLockRef.current) {
+      wakeLockRef.current.release().catch(() => {});
+      wakeLockRef.current = null;
+    }
+  }, []);
+
   // Cleanup on unmount — stop all audio and recording when leaving the page
   useEffect(() => {
     return () => {
       cancelledRef.current = true;
       stopListening();
+      stopVocabListening();
+      releaseWakeLock();
       muteAudio();
       // Also stop any HTML5 audio elements
       document.querySelectorAll("audio").forEach((a) => { a.pause(); a.currentTime = 0; });
     };
-  }, []);
+  }, [releaseWakeLock]);
+
+  useEffect(() => {
+    if (phase === "chat" || phase === "vocab") {
+      acquireWakeLock();
+    } else {
+      releaseWakeLock();
+    }
+  }, [phase, acquireWakeLock, releaseWakeLock]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible" && (phase === "chat" || phase === "vocab")) {
+        acquireWakeLock();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [phase, acquireWakeLock]);
 
   // Auto-scroll only if user is near the bottom (not reading old messages)
   useEffect(() => {
@@ -659,6 +697,8 @@ export default function Learn() {
     cancelledRef.current = true;
     chatRequestIdRef.current += 1;
     stopListening();
+    stopVocabListening();
+    releaseWakeLock();
     muteAudio();
     document.querySelectorAll("audio").forEach((a) => { a.pause(); a.currentTime = 0; });
     setPhase("setup");
@@ -770,6 +810,7 @@ export default function Learn() {
 
   const startVocab = async () => {
     prepareAudioForSafari();
+    acquireWakeLock();
     setPhase("vocab");
     setVocabState("loading");
     setVocabIndex(0);
@@ -811,6 +852,7 @@ export default function Learn() {
     } catch (e: any) {
       setError(e.message || "Failed to generate vocabulary");
       setPhase("setup");
+      releaseWakeLock();
     }
   };
 

@@ -78,6 +78,7 @@ export default function Conversation() {
   const peakLevelRef = useRef(0); // track peak audio level during recording
   const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const noSpeechCaptureRef = useRef(false);
+  const wakeLockRef = useRef<any>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -88,14 +89,54 @@ export default function Conversation() {
   useEffect(() => { autoSpeakRef.current = autoSpeak; }, [autoSpeak]);
   useEffect(() => { conversationActiveRef.current = conversationActive; }, [conversationActive]);
 
+  const acquireWakeLock = useCallback(async () => {
+    try {
+      if (!conversationActiveRef.current) return;
+      if (!("wakeLock" in navigator)) return;
+      if (wakeLockRef.current) return;
+      wakeLockRef.current = await (navigator as any).wakeLock.request("screen");
+    } catch {
+      // Best effort only; some browsers/devices don't support or allow it.
+    }
+  }, []);
+
+  const releaseWakeLock = useCallback(() => {
+    if (wakeLockRef.current) {
+      wakeLockRef.current.release().catch(() => {});
+      wakeLockRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     return () => {
       if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
       stopListening();
       releaseMicResources();
+      releaseWakeLock();
       muteAudio();
     };
-  }, []);
+  }, [releaseWakeLock]);
+
+  useEffect(() => {
+    if (conversationActive) {
+      acquireWakeLock();
+    } else {
+      releaseWakeLock();
+    }
+  }, [conversationActive, acquireWakeLock, releaseWakeLock]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible" && conversationActiveRef.current) {
+        acquireWakeLock();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [acquireWakeLock]);
 
   // ─── Language matching ──────────────────────────────────────────────────
 
@@ -510,6 +551,7 @@ export default function Conversation() {
     prepareAudioForSafari();
     setConversationActive(true);
     conversationActiveRef.current = true;
+    acquireWakeLock();
     if (restartTimerRef.current) {
       clearTimeout(restartTimerRef.current);
       restartTimerRef.current = null;
@@ -523,6 +565,7 @@ export default function Conversation() {
     setConversationActive(false);
     conversationActiveRef.current = false;
     processingRef.current = false;
+    releaseWakeLock();
     if (restartTimerRef.current) {
       clearTimeout(restartTimerRef.current);
       restartTimerRef.current = null;
