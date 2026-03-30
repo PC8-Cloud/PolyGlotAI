@@ -5,7 +5,7 @@ import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLabelForCode } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
-import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudioDetectLang, suspendAudioForMic } from "../lib/openai";
+import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudio, suspendAudioForMic } from "../lib/openai";
 
 type MsgStatus = "sent" | "translated" | "playing" | "done";
 
@@ -19,12 +19,12 @@ interface Message {
 }
 
 // Silence detection
-const SILENCE_TIMEOUT = 1.6; // seconds of silence before auto-stop
+const SILENCE_TIMEOUT = 1.2; // faster cut when speaker pauses
 const SILENCE_THRESHOLD = 0.045; // less aggressive: preserve quieter voices and phone mics
-const VOICE_ACTIVITY_THRESHOLD = 0.055; // require clear activity before treating silence as end-of-utterance
-const VOICE_ACTIVITY_FRAMES = 3; // consecutive frames over threshold to mark speech-start
-const NO_SPEECH_TIMEOUT_MS = 5000; // if no speech at all, recycle mic loop without transcribing
-const MIN_SPEECH_DURATION_MS = 450; // short utterances like "si", "ok", "grazie" must survive
+const VOICE_ACTIVITY_THRESHOLD = 0.042; // accept weaker pronunciation and distant phone mics
+const VOICE_ACTIVITY_FRAMES = 2; // quicker speech start detection
+const NO_SPEECH_TIMEOUT_MS = 3200; // recycle loop sooner when nothing is spoken
+const MIN_SPEECH_DURATION_MS = 320; // keep short utterances like "si", "ok", "grazie"
 const SPEECH_PEAK_THRESHOLD = 0.03; // keep only the weakest noise out; do final filtering after transcription
 const MIN_AUDIO_BLOB_BYTES = 1000;
 const MAX_DUPLICATE_SIMILARITY = 0.8; // reject if >80% similar to a recent message
@@ -37,6 +37,31 @@ function textSimilarity(a: string, b: string): number {
   let common = 0;
   wordsA.forEach((w) => { if (wordsB.has(w)) common++; });
   return common / Math.max(wordsA.size, wordsB.size);
+}
+
+const LANGUAGE_HINTS: Record<string, string[]> = {
+  en: ["the", "a", "an", "and", "is", "are", "do", "does", "did", "have", "has", "you", "we", "they", "can"],
+  it: ["il", "lo", "la", "gli", "le", "un", "una", "e", "sei", "sono", "hai", "avete", "come", "dove", "perche"],
+  es: ["el", "la", "los", "las", "un", "una", "y", "es", "eres", "tienes", "como", "donde", "por", "que"],
+  fr: ["le", "la", "les", "un", "une", "et", "est", "suis", "etes", "avez", "comme", "ou", "pourquoi"],
+  de: ["der", "die", "das", "ein", "eine", "und", "ist", "sind", "hast", "haben", "wie", "wo", "warum"],
+};
+
+function languageScoreFromText(text: string, langCode: string): number {
+  const base = String(langCode || "").toLowerCase().split("-")[0];
+  const hints = LANGUAGE_HINTS[base];
+  if (!hints) return 0;
+  const words = text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+  if (words.length === 0) return 0;
+  let score = 0;
+  for (const word of words) {
+    if (hints.includes(word)) score += 1;
+  }
+  return score;
 }
 
 
@@ -61,6 +86,7 @@ export default function Conversation() {
   const [liveLevel, setLiveLevel] = useState(0); // mic audio level for visual feedback
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesRef = useRef<Message[]>([]);
   const msgIdRef = useRef(0);
   const conversationActiveRef = useRef(false);
   const processingRef = useRef(false);
@@ -79,33 +105,89 @@ export default function Conversation() {
   const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const noSpeechCaptureRef = useRef(false);
   const wakeLockRef = useRef<any>(null);
+  const keepAliveCtxRef = useRef<AudioContext | null>(null);
+  const keepAliveOscRef = useRef<OscillatorNode | null>(null);
+  const wakeLockReleaseHandlerRef = useRef<(() => void) | null>(null);
+  const lastDetectedSideRef = useRef<"you" | "them" | null>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, chatState]);
 
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
   useEffect(() => { yourLangRef.current = yourLang; }, [yourLang]);
   useEffect(() => { theirLangRef.current = theirLang; }, [theirLang]);
   useEffect(() => { autoSpeakRef.current = autoSpeak; }, [autoSpeak]);
   useEffect(() => { conversationActiveRef.current = conversationActive; }, [conversationActive]);
+
+  const startKeepAliveFallback = useCallback(async () => {
+    if (keepAliveCtxRef.current) return;
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.value = 30;
+      gain.gain.value = 0.00001;
+      oscillator.connect(gain);
+      gain.connect(ctx.destination);
+      oscillator.start();
+      await ctx.resume();
+      keepAliveCtxRef.current = ctx;
+      keepAliveOscRef.current = oscillator;
+    } catch {
+      // best effort
+    }
+  }, []);
+
+  const stopKeepAliveFallback = useCallback(() => {
+    try {
+      keepAliveOscRef.current?.stop();
+    } catch {}
+    keepAliveOscRef.current = null;
+    if (keepAliveCtxRef.current) {
+      keepAliveCtxRef.current.close().catch(() => {});
+      keepAliveCtxRef.current = null;
+    }
+  }, []);
 
   const acquireWakeLock = useCallback(async () => {
     try {
       if (!conversationActiveRef.current) return;
       if (!("wakeLock" in navigator)) return;
       if (wakeLockRef.current) return;
-      wakeLockRef.current = await (navigator as any).wakeLock.request("screen");
+      const lock = await (navigator as any).wakeLock.request("screen");
+      const handleRelease = () => {
+        wakeLockRef.current = null;
+        if (conversationActiveRef.current && document.visibilityState === "visible") {
+          void acquireWakeLock();
+        } else {
+          startKeepAliveFallback();
+        }
+      };
+      lock.addEventListener?.("release", handleRelease);
+      wakeLockReleaseHandlerRef.current = handleRelease;
+      wakeLockRef.current = lock;
+      stopKeepAliveFallback();
     } catch {
-      // Best effort only; some browsers/devices don't support or allow it.
+      // Fallback for browsers where Screen Wake Lock is unavailable/restricted.
+      startKeepAliveFallback();
     }
-  }, []);
+  }, [startKeepAliveFallback, stopKeepAliveFallback]);
 
   const releaseWakeLock = useCallback(() => {
     if (wakeLockRef.current) {
+      if (wakeLockReleaseHandlerRef.current) {
+        wakeLockRef.current.removeEventListener?.("release", wakeLockReleaseHandlerRef.current);
+      }
       wakeLockRef.current.release().catch(() => {});
       wakeLockRef.current = null;
     }
-  }, []);
+    wakeLockReleaseHandlerRef.current = null;
+    stopKeepAliveFallback();
+  }, [stopKeepAliveFallback]);
 
   useEffect(() => {
     return () => {
@@ -138,26 +220,18 @@ export default function Conversation() {
     };
   }, [acquireWakeLock]);
 
-  // ─── Language matching ──────────────────────────────────────────────────
+  const detectSideFromText = (text: string): "you" | "them" => {
+    const yourCode = yourLangRef.current;
+    const theirCode = theirLangRef.current;
+    const yourScore = languageScoreFromText(text, yourCode);
+    const theirScore = languageScoreFromText(text, theirCode);
 
-  /** Map Whisper detected language code to "you" or "them", or null if unrecognized language */
-  const detectSide = (detectedLang: string): "you" | "them" | null => {
-    const dl = detectedLang.toLowerCase().trim();
-    const yourCode = yourLangRef.current.toLowerCase();
-    const theirCode = theirLangRef.current.toLowerCase();
+    if (yourScore > theirScore + 1) return "you";
+    if (theirScore > yourScore + 1) return "them";
 
-    // Direct match
-    if (dl === yourCode || dl.startsWith(yourCode) || yourCode.startsWith(dl)) return "you";
-    if (dl === theirCode || dl.startsWith(theirCode) || theirCode.startsWith(dl)) return "them";
-
-    // Whisper returns full language names sometimes (e.g., "english", "italian")
-    const yourLabel = (LANGUAGES.find((l) => l.code === yourLangRef.current)?.label || "").toLowerCase();
-    const theirLabel = (LANGUAGES.find((l) => l.code === theirLangRef.current)?.label || "").toLowerCase();
-    if (dl.includes(yourLabel) || yourLabel.includes(dl)) return "you";
-    if (dl.includes(theirLabel) || theirLabel.includes(dl)) return "them";
-
-    // Unrecognized language (e.g. Korean when configured IT/EN) — reject
-    return null;
+    if (lastDetectedSideRef.current === "you") return "them";
+    if (lastDetectedSideRef.current === "them") return "you";
+    return "you";
   };
 
   // ─── Silence detection ────────────────────────────────────────────────
@@ -258,7 +332,7 @@ export default function Conversation() {
     restartTimerRef.current = setTimeout(() => {
       restartTimerRef.current = null;
       startListening();
-    }, 260);
+    }, 140);
   }, []);
 
   const ensureMicReady = useCallback(async () => {
@@ -370,8 +444,8 @@ export default function Conversation() {
         processingRef.current = true;
         setChatState("transcribing");
         try {
-          const { text, language: detectedLang } = await transcribeAudioDetectLang(blob);
-          console.log("[Conversation] detected:", { text: text.substring(0, 50), detectedLang, blobSize: blob.size, blobType: blob.type });
+          const text = await transcribeAudio(blob);
+          console.log("[Conversation] detected:", { text: text.substring(0, 50), blobSize: blob.size, blobType: blob.type });
 
           // Filter out empty, too-short, or Whisper hallucination artifacts
           const trimmed = text.trim();
@@ -412,7 +486,7 @@ export default function Conversation() {
           }
 
           // Deduplicate: reject if too similar to any of the last 5 messages
-          const recentMessages = messages.slice(-5);
+          const recentMessages = messagesRef.current.slice(-5);
           const isDuplicate = recentMessages.some((m) => {
             const sim = textSimilarity(lower, m.originalText.toLowerCase());
             return sim > MAX_DUPLICATE_SIMILARITY;
@@ -424,16 +498,9 @@ export default function Conversation() {
             return;
           }
 
-          const side = detectSide(detectedLang);
+          const side = detectSideFromText(trimmed);
+          lastDetectedSideRef.current = side;
           console.log("[Conversation] side:", side, "yourLang:", yourLangRef.current, "theirLang:", theirLangRef.current);
-
-          // Reject if detected language doesn't match either configured language
-          if (side === null) {
-            console.log("[Conversation] rejected: unrecognized language", detectedLang);
-            processingRef.current = false;
-            scheduleListeningRestart();
-            return;
-          }
 
           await processMessage(side, text.trim());
         } catch (e: any) {
