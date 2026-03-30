@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronLeft, Mic, Volume2, VolumeX, Megaphone, Check, Upload, Download, ClipboardPaste, FolderOpen } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
@@ -14,8 +14,8 @@ interface Entry {
   translatedText: string;
 }
 
-const SHORT_PAUSE_MS = 2000; // translate chunk in background
-const LONG_PAUSE_MS = 4500;  // stop and play everything
+const SHORT_PAUSE_MS = 1600; // translate chunk in background, faster feedback
+const LONG_PAUSE_MS = 3200;  // stop and play everything sooner
 export default function MegaphonePage() {
   const navigate = useNavigate();
   const { uiLanguage } = useUserStore();
@@ -38,10 +38,15 @@ export default function MegaphonePage() {
   const recognitionRef = useRef<any>(null);
   const transcriptRef = useRef("");
   const isListeningRef = useRef(false);
+  const isSpeakingRef = useRef(false);
+  const isTranslatingRef = useRef(false);
   const hasSpokenRef = useRef(false);
   const entryIdRef = useRef(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const wakeLockRef = useRef<any>(null);
+  const wakeLockReleaseHandlerRef = useRef<(() => void) | null>(null);
+  const keepAliveCtxRef = useRef<AudioContext | null>(null);
+  const keepAliveOscRef = useRef<OscillatorNode | null>(null);
   const processingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -59,22 +64,91 @@ export default function MegaphonePage() {
   useEffect(() => {
     isListeningRef.current = isListening;
   }, [isListening]);
+  useEffect(() => { isSpeakingRef.current = isSpeaking; }, [isSpeaking]);
+  useEffect(() => { isTranslatingRef.current = isTranslating; }, [isTranslating]);
 
   // Wake Lock
-  const acquireWakeLock = async () => {
+  const startKeepAliveFallback = useCallback(async () => {
+    if (keepAliveCtxRef.current) return;
     try {
-      if ("wakeLock" in navigator) {
-        wakeLockRef.current = await (navigator as any).wakeLock.request("screen");
-      }
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.value = 30;
+      gain.gain.value = 0.00001;
+      oscillator.connect(gain);
+      gain.connect(ctx.destination);
+      oscillator.start();
+      await ctx.resume();
+      keepAliveCtxRef.current = ctx;
+      keepAliveOscRef.current = oscillator;
     } catch {}
-  };
-  const releaseWakeLock = () => {
+  }, []);
+
+  const stopKeepAliveFallback = useCallback(() => {
+    try {
+      keepAliveOscRef.current?.stop();
+    } catch {}
+    keepAliveOscRef.current = null;
+    if (keepAliveCtxRef.current) {
+      keepAliveCtxRef.current.close().catch(() => {});
+      keepAliveCtxRef.current = null;
+    }
+  }, []);
+
+  const acquireWakeLock = useCallback(async () => {
+    try {
+      const shouldKeepAwake =
+        isListeningRef.current || isSpeakingRef.current || isTranslatingRef.current || processingRef.current;
+      if (!shouldKeepAwake) return;
+      if (!("wakeLock" in navigator)) {
+        await startKeepAliveFallback();
+        return;
+      }
+      if (wakeLockRef.current) return;
+      const lock = await (navigator as any).wakeLock.request("screen");
+      const handleRelease = () => {
+        wakeLockRef.current = null;
+        if (document.visibilityState === "visible") {
+          void acquireWakeLock();
+        } else {
+          void startKeepAliveFallback();
+        }
+      };
+      lock.addEventListener?.("release", handleRelease);
+      wakeLockReleaseHandlerRef.current = handleRelease;
+      wakeLockRef.current = lock;
+      stopKeepAliveFallback();
+    } catch {
+      await startKeepAliveFallback();
+    }
+  }, [startKeepAliveFallback, stopKeepAliveFallback]);
+
+  const releaseWakeLock = useCallback(() => {
     if (wakeLockRef.current) {
+      if (wakeLockReleaseHandlerRef.current) {
+        wakeLockRef.current.removeEventListener?.("release", wakeLockReleaseHandlerRef.current);
+      }
       wakeLockRef.current.release().catch(() => {});
       wakeLockRef.current = null;
     }
-  };
-  useEffect(() => () => { releaseWakeLock(); muteAudio(); }, []);
+    wakeLockReleaseHandlerRef.current = null;
+    stopKeepAliveFallback();
+  }, [stopKeepAliveFallback]);
+
+  useEffect(() => () => { releaseWakeLock(); muteAudio(); }, [releaseWakeLock]);
+
+  useEffect(() => {
+    if (isListening || isSpeaking || isTranslating || processingRef.current) {
+      acquireWakeLock();
+    } else {
+      releaseWakeLock();
+    }
+  }, [isListening, isSpeaking, isTranslating, acquireWakeLock, releaseWakeLock]);
+
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible" && (isListeningRef.current || isSpeaking || isTranslating)) {
@@ -83,7 +157,7 @@ export default function MegaphonePage() {
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [isSpeaking, isTranslating]);
+  }, [isSpeaking, isTranslating, acquireWakeLock]);
 
   // ─── Pause timers ──────────────────────────────────────────────────────────
 
@@ -180,6 +254,7 @@ export default function MegaphonePage() {
     rec.onerror = (event: any) => {
       console.warn("Speech recognition error:", event.error);
       clearPauseTimers();
+      isListeningRef.current = false;
       setIsListening(false);
       releaseWakeLock();
     };
@@ -189,6 +264,7 @@ export default function MegaphonePage() {
         finishAndPlay();
       } else if (isListeningRef.current) {
         clearPauseTimers();
+        isListeningRef.current = false;
         setIsListening(false);
         setTranscript("");
         releaseWakeLock();
@@ -213,6 +289,7 @@ export default function MegaphonePage() {
       rec.start();
     } catch (e) {
       console.warn("Failed to start:", e);
+      isListeningRef.current = false;
       setIsListening(false);
       releaseWakeLock();
     }

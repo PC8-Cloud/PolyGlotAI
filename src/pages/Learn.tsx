@@ -127,13 +127,16 @@ function normalizedSimilarity(a: string, b: string): number {
 }
 
 // Silence detection threshold (seconds of silence before auto-stop)
-const SILENCE_TIMEOUT = 2.0;
-const SILENCE_THRESHOLD = 0.015; // audio level below this = silence
+const SILENCE_TIMEOUT = 1.4;
+const SILENCE_THRESHOLD = 0.018; // audio level below this = silence
+const VOICE_ACTIVITY_THRESHOLD = 0.03;
+const VOICE_ACTIVITY_FRAMES = 2;
+const NO_SPEECH_TIMEOUT_MS = 3500;
 const VOCAB_SILENCE_TIMEOUT_MS = 1700;
 const VOCAB_SILENCE_THRESHOLD = 0.02;
 const VOCAB_VOICE_ACTIVITY_THRESHOLD = 0.04;
-const VOCAB_VOICE_ACTIVITY_FRAMES = 3;
-const VOCAB_NO_SPEECH_TIMEOUT_MS = 5000;
+const VOCAB_VOICE_ACTIVITY_FRAMES = 2;
+const VOCAB_NO_SPEECH_TIMEOUT_MS = 3500;
 
 // ─── Voice commands (multilingual) ───────────────────────────────────────────
 
@@ -318,6 +321,10 @@ export default function Learn() {
   const vocabAnimRef = useRef<number>(0);
   const vocabMaxTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wakeLockRef = useRef<any>(null);
+  const wakeLockReleaseHandlerRef = useRef<(() => void) | null>(null);
+  const keepAliveCtxRef = useRef<AudioContext | null>(null);
+  const keepAliveOscRef = useRef<OscillatorNode | null>(null);
+  const phaseRef = useRef<"setup" | "chat" | "vocab">("setup");
 
   // Keep refs in sync
   useEffect(() => { autoModeRef.current = autoMode; }, [autoMode]);
@@ -325,23 +332,79 @@ export default function Learn() {
   useEffect(() => { apiMessagesRef.current = apiMessages; }, [apiMessages]);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
   useEffect(() => { levelRef.current = level; }, [level]);
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
+
+  const startKeepAliveFallback = useCallback(async () => {
+    if (keepAliveCtxRef.current) return;
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.value = 30;
+      gain.gain.value = 0.00001;
+      oscillator.connect(gain);
+      gain.connect(ctx.destination);
+      oscillator.start();
+      await ctx.resume();
+      keepAliveCtxRef.current = ctx;
+      keepAliveOscRef.current = oscillator;
+    } catch {}
+  }, []);
+
+  const stopKeepAliveFallback = useCallback(() => {
+    try {
+      keepAliveOscRef.current?.stop();
+    } catch {}
+    keepAliveOscRef.current = null;
+    if (keepAliveCtxRef.current) {
+      keepAliveCtxRef.current.close().catch(() => {});
+      keepAliveCtxRef.current = null;
+    }
+  }, []);
 
   const acquireWakeLock = useCallback(async () => {
     try {
-      if (!("wakeLock" in navigator)) return;
+      const active = phaseRef.current === "chat" || phaseRef.current === "vocab";
+      if (!active) return;
+      if (!("wakeLock" in navigator)) {
+        await startKeepAliveFallback();
+        return;
+      }
       if (wakeLockRef.current) return;
-      wakeLockRef.current = await (navigator as any).wakeLock.request("screen");
+      const lock = await (navigator as any).wakeLock.request("screen");
+      const handleRelease = () => {
+        wakeLockRef.current = null;
+        if (phaseRef.current === "chat" || phaseRef.current === "vocab") {
+          if (document.visibilityState === "visible") {
+            void acquireWakeLock();
+          } else {
+            void startKeepAliveFallback();
+          }
+        }
+      };
+      lock.addEventListener?.("release", handleRelease);
+      wakeLockReleaseHandlerRef.current = handleRelease;
+      wakeLockRef.current = lock;
+      stopKeepAliveFallback();
     } catch {
-      // best effort
+      await startKeepAliveFallback();
     }
-  }, []);
+  }, [startKeepAliveFallback, stopKeepAliveFallback]);
 
   const releaseWakeLock = useCallback(() => {
     if (wakeLockRef.current) {
+      if (wakeLockReleaseHandlerRef.current) {
+        wakeLockRef.current.removeEventListener?.("release", wakeLockReleaseHandlerRef.current);
+      }
       wakeLockRef.current.release().catch(() => {});
       wakeLockRef.current = null;
     }
-  }, []);
+    wakeLockReleaseHandlerRef.current = null;
+    stopKeepAliveFallback();
+  }, [stopKeepAliveFallback]);
 
   // Cleanup on unmount — stop all audio and recording when leaving the page
   useEffect(() => {
@@ -393,6 +456,9 @@ export default function Learn() {
   const startSilenceDetection = useCallback((analyser: AnalyserNode) => {
     const dataArray = new Uint8Array(analyser.fftSize);
     let silenceStart: number | null = null;
+    let speechFrames = 0;
+    let hasSpeechStarted = false;
+    const startTime = Date.now();
 
     const check = () => {
       analyser.getByteTimeDomainData(dataArray);
@@ -404,15 +470,29 @@ export default function Learn() {
       }
       const rms = Math.sqrt(sum / dataArray.length);
 
-      if (rms < SILENCE_THRESHOLD) {
-        if (!silenceStart) silenceStart = Date.now();
-        else if ((Date.now() - silenceStart) / 1000 > SILENCE_TIMEOUT) {
-          // Silence detected — stop recording
-          stopListening();
-          return;
+      if (rms >= VOICE_ACTIVITY_THRESHOLD) {
+        speechFrames += 1;
+        if (speechFrames >= VOICE_ACTIVITY_FRAMES) {
+          hasSpeechStarted = true;
         }
       } else {
-        silenceStart = null; // reset on speech
+        speechFrames = 0;
+      }
+
+      if (hasSpeechStarted) {
+        if (rms < SILENCE_THRESHOLD) {
+          if (!silenceStart) silenceStart = Date.now();
+          else if ((Date.now() - silenceStart) / 1000 > SILENCE_TIMEOUT) {
+            // Silence detected — stop recording
+            stopListening();
+            return;
+          }
+        } else {
+          silenceStart = null; // reset on speech
+        }
+      } else if ((Date.now() - startTime) > NO_SPEECH_TIMEOUT_MS) {
+        stopListening();
+        return;
       }
 
       animFrameRef.current = requestAnimationFrame(check);

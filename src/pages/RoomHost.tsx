@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronLeft, Mic, Radio, Users, MessageCircleQuestion, LogOut, QrCode, X, Upload, Share2, RotateCcw, Printer, Check, Download, ClipboardPaste, FolderOpen, MessageCircle } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
@@ -28,8 +28,8 @@ interface Msg {
   sourceLanguage?: string;
 }
 
-const SHORT_PAUSE_MS = 2000; // translate chunk in background
-const LONG_PAUSE_MS = 4000;  // stop and send everything
+const SHORT_PAUSE_MS = 1600; // translate chunk in background, faster feedback
+const LONG_PAUSE_MS = 3200;  // stop and send everything sooner
 export default function RoomHost() {
   const navigate = useNavigate();
   const { uiLanguage } = useUserStore();
@@ -57,8 +57,12 @@ export default function RoomHost() {
   const transcriptRef = useRef("");
   const isListeningRef = useRef(false);
   const hasSpokenRef = useRef(false);
+  const isTranslatingRef = useRef(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const wakeLockRef = useRef<any>(null);
+  const wakeLockReleaseHandlerRef = useRef<(() => void) | null>(null);
+  const keepAliveCtxRef = useRef<AudioContext | null>(null);
+  const keepAliveOscRef = useRef<OscillatorNode | null>(null);
   const processingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const micAccessPrimedRef = useRef(false);
@@ -85,22 +89,90 @@ export default function RoomHost() {
   useEffect(() => {
     isListeningRef.current = isListening;
   }, [isListening]);
+  useEffect(() => { isTranslatingRef.current = isTranslating; }, [isTranslating]);
 
   // Wake Lock
-  const acquireWakeLock = async () => {
+  const startKeepAliveFallback = useCallback(async () => {
+    if (keepAliveCtxRef.current) return;
     try {
-      if ("wakeLock" in navigator) {
-        wakeLockRef.current = await (navigator as any).wakeLock.request("screen");
-      }
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.value = 30;
+      gain.gain.value = 0.00001;
+      oscillator.connect(gain);
+      gain.connect(ctx.destination);
+      oscillator.start();
+      await ctx.resume();
+      keepAliveCtxRef.current = ctx;
+      keepAliveOscRef.current = oscillator;
     } catch {}
-  };
-  const releaseWakeLock = () => {
+  }, []);
+
+  const stopKeepAliveFallback = useCallback(() => {
+    try {
+      keepAliveOscRef.current?.stop();
+    } catch {}
+    keepAliveOscRef.current = null;
+    if (keepAliveCtxRef.current) {
+      keepAliveCtxRef.current.close().catch(() => {});
+      keepAliveCtxRef.current = null;
+    }
+  }, []);
+
+  const acquireWakeLock = useCallback(async () => {
+    try {
+      const shouldKeepAwake =
+        !!sessionId || isListeningRef.current || isTranslatingRef.current || processingRef.current;
+      if (!shouldKeepAwake) return;
+      if (!("wakeLock" in navigator)) {
+        await startKeepAliveFallback();
+        return;
+      }
+      if (wakeLockRef.current) return;
+      const lock = await (navigator as any).wakeLock.request("screen");
+      const handleRelease = () => {
+        wakeLockRef.current = null;
+        if (document.visibilityState === "visible") {
+          void acquireWakeLock();
+        } else {
+          void startKeepAliveFallback();
+        }
+      };
+      lock.addEventListener?.("release", handleRelease);
+      wakeLockReleaseHandlerRef.current = handleRelease;
+      wakeLockRef.current = lock;
+      stopKeepAliveFallback();
+    } catch {
+      await startKeepAliveFallback();
+    }
+  }, [sessionId, startKeepAliveFallback, stopKeepAliveFallback]);
+
+  const releaseWakeLock = useCallback(() => {
     if (wakeLockRef.current) {
+      if (wakeLockReleaseHandlerRef.current) {
+        wakeLockRef.current.removeEventListener?.("release", wakeLockReleaseHandlerRef.current);
+      }
       wakeLockRef.current.release().catch(() => {});
       wakeLockRef.current = null;
     }
-  };
-  useEffect(() => () => releaseWakeLock(), []);
+    wakeLockReleaseHandlerRef.current = null;
+    stopKeepAliveFallback();
+  }, [stopKeepAliveFallback]);
+
+  useEffect(() => () => releaseWakeLock(), [releaseWakeLock]);
+
+  useEffect(() => {
+    if (sessionId || isListening || isTranslating || processingRef.current) {
+      acquireWakeLock();
+    } else {
+      releaseWakeLock();
+    }
+  }, [sessionId, isListening, isTranslating, acquireWakeLock, releaseWakeLock]);
+
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible" && (isListeningRef.current || isTranslating || processingRef.current)) {
@@ -109,7 +181,7 @@ export default function RoomHost() {
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [isTranslating]);
+  }, [isTranslating, acquireWakeLock]);
 
   // Subscribe to participants
   useEffect(() => {
@@ -415,6 +487,7 @@ export default function RoomHost() {
     rec.onerror = (event: any) => {
       console.warn("[RoomHost] speech recognition error", event?.error);
       clearPauseTimers();
+      isListeningRef.current = false;
       setIsListening(false);
       releaseWakeLock();
       if (event?.error === "not-allowed" || event?.error === "service-not-allowed") {
@@ -431,6 +504,7 @@ export default function RoomHost() {
         finishAndSend();
       } else if (isListeningRef.current) {
         clearPauseTimers();
+        isListeningRef.current = false;
         setIsListening(false);
         setTranscript("");
         releaseWakeLock();
@@ -452,6 +526,7 @@ export default function RoomHost() {
     } catch (e: any) {
       console.error("[RoomHost] failed to start recognition", e);
       setError(e?.message || "Microphone could not start");
+      isListeningRef.current = false;
       setIsListening(false);
       releaseWakeLock();
     }

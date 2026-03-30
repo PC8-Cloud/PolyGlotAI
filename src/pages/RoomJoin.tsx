@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ChevronLeft, Radio, Volume2, VolumeX, Send, MessageCircleQuestion, Upload, MessageCircle } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
@@ -54,6 +54,10 @@ export default function RoomJoin() {
   const ttsQueueRef = useRef<{ text: string; id: string }[]>([]);
   const ttsPlayingRef = useRef(false);
   const wakeLockRef = useRef<any>(null);
+  const wakeLockReleaseHandlerRef = useRef<(() => void) | null>(null);
+  const keepAliveCtxRef = useRef<AudioContext | null>(null);
+  const keepAliveOscRef = useRef<OscillatorNode | null>(null);
+  const roomActiveRef = useRef(false);
 
   const getCreatedAtMs = (value: any): number | null => {
     if (!value) return null;
@@ -64,22 +68,78 @@ export default function RoomJoin() {
     return Number.isNaN(parsed) ? null : parsed;
   };
 
-  const acquireWakeLock = async () => {
-    try {
-      if (!("wakeLock" in navigator)) return;
-      if (wakeLockRef.current) return;
-      wakeLockRef.current = await (navigator as any).wakeLock.request("screen");
-    } catch {
-      // best effort
-    }
-  };
+  useEffect(() => {
+    roomActiveRef.current = !!sessionId;
+  }, [sessionId]);
 
-  const releaseWakeLock = () => {
+  const startKeepAliveFallback = useCallback(async () => {
+    if (keepAliveCtxRef.current) return;
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.value = 30;
+      gain.gain.value = 0.00001;
+      oscillator.connect(gain);
+      gain.connect(ctx.destination);
+      oscillator.start();
+      await ctx.resume();
+      keepAliveCtxRef.current = ctx;
+      keepAliveOscRef.current = oscillator;
+    } catch {}
+  }, []);
+
+  const stopKeepAliveFallback = useCallback(() => {
+    try {
+      keepAliveOscRef.current?.stop();
+    } catch {}
+    keepAliveOscRef.current = null;
+    if (keepAliveCtxRef.current) {
+      keepAliveCtxRef.current.close().catch(() => {});
+      keepAliveCtxRef.current = null;
+    }
+  }, []);
+
+  const acquireWakeLock = useCallback(async () => {
+    try {
+      if (!roomActiveRef.current) return;
+      if (!("wakeLock" in navigator)) {
+        await startKeepAliveFallback();
+        return;
+      }
+      if (wakeLockRef.current) return;
+      const lock = await (navigator as any).wakeLock.request("screen");
+      const handleRelease = () => {
+        wakeLockRef.current = null;
+        if (roomActiveRef.current && document.visibilityState === "visible") {
+          void acquireWakeLock();
+        } else {
+          void startKeepAliveFallback();
+        }
+      };
+      lock.addEventListener?.("release", handleRelease);
+      wakeLockReleaseHandlerRef.current = handleRelease;
+      wakeLockRef.current = lock;
+      stopKeepAliveFallback();
+    } catch {
+      await startKeepAliveFallback();
+    }
+  }, [startKeepAliveFallback, stopKeepAliveFallback]);
+
+  const releaseWakeLock = useCallback(() => {
     if (wakeLockRef.current) {
+      if (wakeLockReleaseHandlerRef.current) {
+        wakeLockRef.current.removeEventListener?.("release", wakeLockReleaseHandlerRef.current);
+      }
       wakeLockRef.current.release().catch(() => {});
       wakeLockRef.current = null;
     }
-  };
+    wakeLockReleaseHandlerRef.current = null;
+    stopKeepAliveFallback();
+  }, [stopKeepAliveFallback]);
 
   useEffect(() => {
     return () => {
@@ -88,7 +148,7 @@ export default function RoomJoin() {
       releaseWakeLock();
       muteAudio();
     };
-  }, []);
+  }, [releaseWakeLock]);
 
   useEffect(() => {
     if (sessionId) {
@@ -96,7 +156,7 @@ export default function RoomJoin() {
     } else {
       releaseWakeLock();
     }
-  }, [sessionId]);
+  }, [sessionId, acquireWakeLock, releaseWakeLock]);
 
   useEffect(() => {
     const handleVisibilityChange = () => {
@@ -108,7 +168,7 @@ export default function RoomJoin() {
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [sessionId]);
+  }, [sessionId, acquireWakeLock]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
