@@ -742,20 +742,18 @@ export default function Conversation() {
         </div>
       )}
 
-      {/* Fixed actions inside conversation box */}
-      <div className="px-4 pt-3 shrink-0">
-        <div className="bg-[#0E2666] border border-[#FFFFFF14] rounded-xl p-2 flex justify-end">
+      <div className="flex-1 min-h-0 relative">
+        <div className="absolute top-3 right-4 z-10">
           <button
             onClick={handleShareConversation}
             disabled={messages.length === 0}
-            className="p-2 rounded-lg transition-colors bg-[#123182] text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#295BDB] disabled:opacity-20"
+            className="p-2.5 rounded-xl border border-[#FFFFFF26] bg-[#0E2666]/90 backdrop-blur-sm transition-colors text-[#F4F4F4]/70 hover:text-[#F4F4F4] hover:bg-[#123182] disabled:opacity-20"
           >
             <Upload className="w-5 h-5" />
           </button>
         </div>
-      </div>
 
-      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 min-h-0">
+      <div className="h-full overflow-y-auto p-4 pt-14 flex flex-col gap-4 min-h-0">
         {messages.length === 0 && !conversationActive && (
           <div className="flex-1 flex items-center justify-center">
             <p className="text-[#F4F4F4]/30 text-sm text-center px-8">{t("conversationAutoDetect")}</p>
@@ -825,6 +823,7 @@ export default function Conversation() {
         )}
 
         <div ref={messagesEndRef} />
+      </div>
       </div>
 
       {/* Text input fallback */}
