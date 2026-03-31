@@ -588,7 +588,7 @@ export default function Learn() {
 
   const handleTextTranslatePaste = useCallback(async () => {
     try {
-      const pasted = await readClipboardText({ manualPrompt: t("loadTextPaste") });
+      const pasted = await readClipboardText();
       if (!pasted.trim()) return;
       setTextTranslateInput(pasted.trim());
       await translatePlainText(pasted);

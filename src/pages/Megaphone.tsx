@@ -458,7 +458,7 @@ export default function MegaphonePage() {
 
   const handlePaste = async () => {
     try {
-      const text = await readClipboardText({ manualPrompt: t("loadTextPaste") });
+      const text = await readClipboardText();
       if (text.trim()) handleLoadedText(text.trim());
     } catch {
       setError("Clipboard access denied");
