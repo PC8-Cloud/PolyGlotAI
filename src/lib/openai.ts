@@ -529,6 +529,10 @@ export async function playTTS(
 // ─── Image analysis (vision) ────────────────────────────────────────────────
 
 export interface ImageAnalysisResult {
+  mode?: "ocr" | "object";
+  detectedLanguage?: string;
+  extractedText?: string;
+  translatedText?: string;
   objectName: string;
   translation: string;
   pronunciation?: string;

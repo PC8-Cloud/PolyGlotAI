@@ -5,7 +5,86 @@ import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
-import { analyzeImage, playTTS, prepareAudioForSafari, muteAudio } from "../lib/openai";
+import { analyzeImage, playTTS, prepareAudioForSafari, muteAudio, type ImageAnalysisResult } from "../lib/openai";
+
+const CAMERA_MAX_SIDE = 1600;
+const CAMERA_JPEG_QUALITY = 0.82;
+
+async function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("File read failed"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function compressImageToDataUrl(file: File): Promise<string> {
+  const srcDataUrl = await readFileAsDataUrl(file);
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error("Image load failed"));
+    el.src = srcDataUrl;
+  });
+
+  const width = img.naturalWidth || img.width;
+  const height = img.naturalHeight || img.height;
+  const maxSide = Math.max(width, height);
+  const scale = maxSide > CAMERA_MAX_SIDE ? CAMERA_MAX_SIDE / maxSide : 1;
+  const outW = Math.max(1, Math.round(width * scale));
+  const outH = Math.max(1, Math.round(height * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = outW;
+  canvas.height = outH;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return srcDataUrl;
+  ctx.drawImage(img, 0, 0, outW, outH);
+  return canvas.toDataURL("image/jpeg", CAMERA_JPEG_QUALITY);
+}
+
+function getCameraLabels(uiLanguage: string) {
+  const base = String(uiLanguage || "en").toLowerCase().split("-")[0];
+  if (base === "it") {
+    return {
+      detectedText: "Testo rilevato",
+      detectedLanguage: "Lingua rilevata",
+      translatedText: "Traduzione",
+      noText: "Nessun testo leggibile trovato. Ho tradotto l'oggetto principale.",
+    };
+  }
+  if (base === "es") {
+    return {
+      detectedText: "Texto detectado",
+      detectedLanguage: "Idioma detectado",
+      translatedText: "Traducción",
+      noText: "No se encontró texto legible. Traduje el objeto principal.",
+    };
+  }
+  if (base === "fr") {
+    return {
+      detectedText: "Texte détecté",
+      detectedLanguage: "Langue détectée",
+      translatedText: "Traduction",
+      noText: "Aucun texte lisible détecté. J'ai traduit l'objet principal.",
+    };
+  }
+  if (base === "de") {
+    return {
+      detectedText: "Erkannter Text",
+      detectedLanguage: "Erkannte Sprache",
+      translatedText: "Übersetzung",
+      noText: "Kein lesbarer Text erkannt. Ich habe das Hauptobjekt übersetzt.",
+    };
+  }
+  return {
+    detectedText: "Detected text",
+    detectedLanguage: "Detected language",
+    translatedText: "Translation",
+    noText: "No readable text found. I translated the main object.",
+  };
+}
 
 export default function CameraTranslate() {
   const navigate = useNavigate();
@@ -18,15 +97,12 @@ export default function CameraTranslate() {
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [playing, setPlaying] = useState(false);
-  const [result, setResult] = useState<{
-    objectName: string;
-    translation: string;
-    pronunciation?: string;
-  } | null>(null);
+  const [result, setResult] = useState<ImageAnalysisResult | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   React.useEffect(() => () => { muteAudio(); }, []);
+  const cameraLabels = getCameraLabels(uiLanguage);
 
   const handleCapture = useCallback(() => {
     fileInputRef.current?.click();
@@ -35,10 +111,8 @@ export default function CameraTranslate() {
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async (ev) => {
-      const dataUrl = ev.target?.result as string;
+    try {
+      const dataUrl = await compressImageToDataUrl(file);
       setCapturedImage(dataUrl);
       setResult(null);
 
@@ -46,20 +120,17 @@ export default function CameraTranslate() {
       if (!base64) return;
 
       setAnalyzing(true);
-      try {
-        const langLabel =
-          LANGUAGES.find((l) => l.code === targetLang)?.label || targetLang;
-        const uiLangLabel = LANGUAGES.find((l) => l.code === uiLanguage)?.label || uiLanguage;
-        const analysis = await analyzeImage(base64, langLabel, uiLangLabel);
-        setResult(analysis);
-      } catch (err) {
-        console.error("Analysis failed:", err);
-      } finally {
-        setAnalyzing(false);
-      }
-    };
-    reader.readAsDataURL(file);
-    e.target.value = "";
+      const langLabel =
+        LANGUAGES.find((l) => l.code === targetLang)?.label || targetLang;
+      const uiLangLabel = LANGUAGES.find((l) => l.code === uiLanguage)?.label || uiLanguage;
+      const analysis = await analyzeImage(base64, langLabel, uiLangLabel);
+      setResult(analysis);
+    } catch (err) {
+      console.error("Analysis failed:", err);
+    } finally {
+      setAnalyzing(false);
+      e.target.value = "";
+    }
   };
 
   const handleRetake = () => {
@@ -152,37 +223,78 @@ export default function CameraTranslate() {
 
             {result && (
               <div className="w-full max-w-sm bg-[#0E2666] rounded-2xl p-5 border border-[#FFFFFF14] space-y-3">
-                <div className="text-center">
-                  <p className="text-[#F4F4F4]/60 text-sm">{t("thisIs")}</p>
-                  <p className="text-xl font-bold mt-1">{result.objectName}</p>
-                </div>
-                <div className="border-t border-[#FFFFFF14]" />
-                <div className="text-center">
-                  <p className="text-[#F4F4F4]/60 text-sm flex items-center justify-center gap-1">
-                    {selectedLang?.flag} {selectedLang?.label}
-                  </p>
-                  <div className="flex items-center justify-center gap-3 mt-1">
-                    <p className="text-3xl font-bold text-[#295BDB]">
-                      {result.translation}
-                    </p>
-                    <button
-                      onClick={() => handleSpeak(result.translation)}
-                      disabled={playing}
-                      className={`p-2 rounded-lg transition-colors ${
-                        playing
-                          ? "text-[#295BDB] animate-pulse"
-                          : "text-[#F4F4F4]/40 hover:text-[#F4F4F4] hover:bg-[#123182]"
-                      }`}
-                    >
-                      <Volume2 className="w-5 h-5" />
-                    </button>
-                  </div>
-                  {result.pronunciation && (
-                    <p className="text-[#F4F4F4]/40 text-sm mt-2 italic">
-                      /{result.pronunciation}/
-                    </p>
-                  )}
-                </div>
+                {result.mode === "ocr" && result.extractedText ? (
+                  <>
+                    <div>
+                      <p className="text-[#F4F4F4]/60 text-xs uppercase tracking-wide">{cameraLabels.detectedText}</p>
+                      <p className="text-sm text-[#F4F4F4]/85 whitespace-pre-wrap leading-relaxed mt-2">
+                        {result.extractedText}
+                      </p>
+                      {result.detectedLanguage && (
+                        <p className="text-xs text-[#F4F4F4]/40 mt-2">
+                          {cameraLabels.detectedLanguage}: {result.detectedLanguage}
+                        </p>
+                      )}
+                    </div>
+                    <div className="border-t border-[#FFFFFF14]" />
+                    <div>
+                      <p className="text-[#F4F4F4]/60 text-xs uppercase tracking-wide flex items-center gap-1">
+                        {selectedLang?.flag} {cameraLabels.translatedText}
+                      </p>
+                      <div className="flex items-start justify-between gap-3 mt-2">
+                        <p className="text-lg font-bold text-[#295BDB] whitespace-pre-wrap leading-relaxed">
+                          {result.translatedText || result.translation}
+                        </p>
+                        <button
+                          onClick={() => handleSpeak(result.translatedText || result.translation)}
+                          disabled={playing}
+                          className={`p-2 rounded-lg transition-colors shrink-0 ${
+                            playing
+                              ? "text-[#295BDB] animate-pulse"
+                              : "text-[#F4F4F4]/40 hover:text-[#F4F4F4] hover:bg-[#123182]"
+                          }`}
+                        >
+                          <Volume2 className="w-5 h-5" />
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-xs text-[#F4F4F4]/50 text-center">{cameraLabels.noText}</p>
+                    <div className="text-center">
+                      <p className="text-[#F4F4F4]/60 text-sm">{t("thisIs")}</p>
+                      <p className="text-xl font-bold mt-1">{result.objectName}</p>
+                    </div>
+                    <div className="border-t border-[#FFFFFF14]" />
+                    <div className="text-center">
+                      <p className="text-[#F4F4F4]/60 text-sm flex items-center justify-center gap-1">
+                        {selectedLang?.flag} {selectedLang?.label}
+                      </p>
+                      <div className="flex items-center justify-center gap-3 mt-1">
+                        <p className="text-3xl font-bold text-[#295BDB]">
+                          {result.translation}
+                        </p>
+                        <button
+                          onClick={() => handleSpeak(result.translation)}
+                          disabled={playing}
+                          className={`p-2 rounded-lg transition-colors ${
+                            playing
+                              ? "text-[#295BDB] animate-pulse"
+                              : "text-[#F4F4F4]/40 hover:text-[#F4F4F4] hover:bg-[#123182]"
+                          }`}
+                        >
+                          <Volume2 className="w-5 h-5" />
+                        </button>
+                      </div>
+                      {result.pronunciation && (
+                        <p className="text-[#F4F4F4]/40 text-sm mt-2 italic">
+                          /{result.pronunciation}/
+                        </p>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             )}
 

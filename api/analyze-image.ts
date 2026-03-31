@@ -14,19 +14,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const response = await client.chat.completions.create({
       model: model || "gpt-4.1-mini",
-      temperature: 0.3,
+      temperature: 0.2,
       response_format: { type: "json_object" },
       messages: [
         {
           role: "system",
-          content: `You identify objects in images and provide translations. Return a JSON object with: "objectName" (name of the object in ${nameLang}), "translation" (in the target language), "pronunciation" (phonetic guide for the translation).`,
+          content:
+            `You are an OCR + translation assistant for photos (restaurant menus, street signs, notices, labels).
+Return ONLY a JSON object with this schema:
+{
+  "mode": "ocr" | "object",
+  "detectedLanguage": "language name in English or empty",
+  "extractedText": "all readable text from image in original language, preserving line breaks",
+  "translatedText": "full translation of extractedText in ${targetLanguage}",
+  "objectName": "short object name in ${nameLang}",
+  "translation": "translation of objectName in ${targetLanguage}",
+  "pronunciation": "optional pronunciation for translation"
+}
+Rules:
+- If readable text exists, set mode="ocr" and fill extractedText + translatedText.
+- Keep numbers, prices, symbols and line breaks intact when possible.
+- If text is unclear or absent, set mode="object" and focus on objectName + translation.
+- Never add markdown, comments, or extra keys.`,
         },
         {
           role: "user",
           content: [
             {
               type: "text",
-              text: `What is the main object in this image? Give its name in ${nameLang} and translate it to ${targetLanguage}.`,
+              text: `Analyze this photo. First do OCR of visible text and translate it to ${targetLanguage}. If no readable text, identify the main object. Return strict JSON only.`,
             },
             {
               type: "image_url",
@@ -38,7 +54,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
 
     const parsed = JSON.parse(response.choices[0].message.content || "{}");
-    res.json(parsed);
+    res.json({
+      mode: parsed.mode === "ocr" ? "ocr" : "object",
+      detectedLanguage:
+        typeof parsed.detectedLanguage === "string" ? parsed.detectedLanguage.trim() : "",
+      extractedText:
+        typeof parsed.extractedText === "string" ? parsed.extractedText.trim() : "",
+      translatedText:
+        typeof parsed.translatedText === "string" ? parsed.translatedText.trim() : "",
+      objectName:
+        typeof parsed.objectName === "string" && parsed.objectName.trim()
+          ? parsed.objectName.trim()
+          : "Unknown",
+      translation:
+        typeof parsed.translation === "string" && parsed.translation.trim()
+          ? parsed.translation.trim()
+          : "...",
+      pronunciation:
+        typeof parsed.pronunciation === "string" && parsed.pronunciation.trim()
+          ? parsed.pronunciation.trim()
+          : undefined,
+    });
   } catch (err: any) {
     const status = err?.status || 500;
     res.status(status).json({ error: err?.message || "Image analysis failed", status });
