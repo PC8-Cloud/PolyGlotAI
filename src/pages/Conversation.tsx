@@ -5,7 +5,7 @@ import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLabelForCode } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
-import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudio, suspendAudioForMic } from "../lib/openai";
+import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudioDetectLang, suspendAudioForMic } from "../lib/openai";
 
 type MsgStatus = "sent" | "translated" | "playing" | "done";
 
@@ -45,6 +45,15 @@ const LANGUAGE_HINTS: Record<string, string[]> = {
   es: ["el", "la", "los", "las", "un", "una", "y", "es", "eres", "tienes", "como", "donde", "por", "que"],
   fr: ["le", "la", "les", "un", "une", "et", "est", "suis", "etes", "avez", "comme", "ou", "pourquoi"],
   de: ["der", "die", "das", "ein", "eine", "und", "ist", "sind", "hast", "haben", "wie", "wo", "warum"],
+};
+
+const LANGUAGE_ALIASES: Record<string, string[]> = {
+  en: ["english", "inglese", "inglés", "anglais", "englisch"],
+  de: ["german", "deutsch", "tedesco", "alemán", "allemand"],
+  it: ["italian", "italiano", "italien"],
+  es: ["spanish", "espanol", "español", "spagnolo", "espagnol", "spanisch"],
+  fr: ["french", "francais", "français", "francese", "franzosisch", "französisch"],
+  pt: ["portuguese", "portugues", "português", "portoghese", "portugiesisch", "portugiesisch"],
 };
 
 function languageScoreFromText(text: string, langCode: string): number {
@@ -232,6 +241,46 @@ export default function Conversation() {
     if (lastDetectedSideRef.current === "you") return "them";
     if (lastDetectedSideRef.current === "them") return "you";
     return "you";
+  };
+
+  const normalizeLangValue = (value: string): string => {
+    return String(value || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim();
+  };
+
+  const languageMatches = (detectedLanguage: string, configuredCode: string): boolean => {
+    const detected = normalizeLangValue(detectedLanguage);
+    if (!detected) return false;
+    const code = normalizeLangValue(configuredCode);
+    const baseCode = code.split("-")[0];
+
+    if (detected === code || detected === baseCode || detected.startsWith(`${baseCode}-`)) return true;
+    if (code.startsWith(`${detected}-`) || baseCode === detected.split("-")[0]) return true;
+
+    const label = normalizeLangValue(LANGUAGES.find((l) => l.code === configuredCode)?.label || "");
+    if (label && (detected.includes(label) || label.includes(detected))) return true;
+
+    const aliases = LANGUAGE_ALIASES[baseCode] || [];
+    return aliases.some((alias) => detected === alias || detected.includes(alias) || alias.includes(detected));
+  };
+
+  const detectSideFromLanguage = (detectedLanguage: string): "you" | "them" | null => {
+    if (languageMatches(detectedLanguage, yourLangRef.current)) return "you";
+    if (languageMatches(detectedLanguage, theirLangRef.current)) return "them";
+    return null;
+  };
+
+  const getUnexpectedLanguageMessage = (detectedLanguage?: string): string => {
+    const langA = getLabelForCode(yourLangRef.current);
+    const langB = getLabelForCode(theirLangRef.current);
+    const detected = detectedLanguage ? ` (${detectedLanguage})` : "";
+    if (String(uiLanguage).toLowerCase().startsWith("it")) {
+      return `Lingua non prevista${detected}. Parla solo in ${langA} o ${langB}.`;
+    }
+    return `Unexpected language${detected}. Please speak only ${langA} or ${langB}.`;
   };
 
   // ─── Silence detection ────────────────────────────────────────────────
@@ -444,8 +493,8 @@ export default function Conversation() {
         processingRef.current = true;
         setChatState("transcribing");
         try {
-          const text = await transcribeAudio(blob);
-          console.log("[Conversation] detected:", { text: text.substring(0, 50), blobSize: blob.size, blobType: blob.type });
+          const { text, language: detectedLang } = await transcribeAudioDetectLang(blob);
+          console.log("[Conversation] detected:", { text: text.substring(0, 50), language: detectedLang, blobSize: blob.size, blobType: blob.type });
 
           // Filter out empty, too-short, or Whisper hallucination artifacts
           const trimmed = text.trim();
@@ -498,7 +547,33 @@ export default function Conversation() {
             return;
           }
 
-          const side = detectSideFromText(trimmed);
+          const sideFromLanguage = detectSideFromLanguage(detectedLang || "");
+          const wordCount = cleanedLower ? cleanedLower.split(/\s+/).filter(Boolean).length : 0;
+          const yourScore = languageScoreFromText(trimmed, yourLangRef.current);
+          const theirScore = languageScoreFromText(trimmed, theirLangRef.current);
+          const shortUtterance = wordCount <= 2;
+          const hasTextLanguageSignal = Math.max(yourScore, theirScore) >= 1;
+          const normalizedDetected = normalizeLangValue(detectedLang || "");
+          const hasExplicitForeignDetection =
+            !!normalizedDetected &&
+            !["unknown", "und", "auto"].includes(normalizedDetected) &&
+            sideFromLanguage === null;
+
+          if (hasExplicitForeignDetection && !shortUtterance) {
+            setError(getUnexpectedLanguageMessage(detectedLang));
+            processingRef.current = false;
+            scheduleListeningRestart();
+            return;
+          }
+
+          if (!sideFromLanguage && !shortUtterance && !hasTextLanguageSignal) {
+            setError(getUnexpectedLanguageMessage(detectedLang || ""));
+            processingRef.current = false;
+            scheduleListeningRestart();
+            return;
+          }
+
+          const side = sideFromLanguage || detectSideFromText(trimmed);
           lastDetectedSideRef.current = side;
           console.log("[Conversation] side:", side, "yourLang:", yourLangRef.current, "theirLang:", theirLangRef.current);
 
