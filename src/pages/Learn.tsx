@@ -21,12 +21,14 @@ import {
   Square,
   Upload,
   GraduationCap,
+  Link2,
+  Play,
 } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
-import { playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudio, suspendAudioForMic, translateText, analyzeImage } from "../lib/openai";
+import { playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudio, suspendAudioForMic, translateText, analyzeImage, transcribeMediaWithTimestamps, textToSpeech } from "../lib/openai";
 import { extractTextFromFile } from "../lib/file-reader";
 import { readClipboardText } from "../lib/clipboard";
 import pdfjsWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
@@ -58,6 +60,15 @@ interface VocabWord {
   word: string;
   translation: string;
   phonetic: string;
+}
+
+interface VideoDubSegment {
+  id: string;
+  start: number;
+  end: number;
+  sourceText: string;
+  translatedText: string;
+  audioUrl: string;
 }
 
 const LEVELS: { id: Level; labelKey: string; emoji: string }[] = [
@@ -141,6 +152,8 @@ const VOCAB_VOICE_ACTIVITY_THRESHOLD = 0.04;
 const VOCAB_VOICE_ACTIVITY_FRAMES = 2;
 const VOCAB_NO_SPEECH_TIMEOUT_MS = 3500;
 const SCANNED_PDF_MAX_PAGES = 4;
+const VIDEO_MAX_DURATION_SEC = 15 * 60;
+const VIDEO_MAX_SEGMENTS = 120;
 
 // ─── Voice commands (multilingual) ───────────────────────────────────────────
 
@@ -304,6 +317,14 @@ export default function Learn() {
   const [textTranslateInput, setTextTranslateInput] = useState("");
   const [textTranslateOutput, setTextTranslateOutput] = useState("");
   const [textTranslateBusy, setTextTranslateBusy] = useState(false);
+  const [videoLinkInput, setVideoLinkInput] = useState("");
+  const [videoSourceUrl, setVideoSourceUrl] = useState<string | null>(null);
+  const [videoSourceName, setVideoSourceName] = useState("");
+  const [videoProcessing, setVideoProcessing] = useState(false);
+  const [videoSegments, setVideoSegments] = useState<VideoDubSegment[]>([]);
+  const [videoDetectedLanguage, setVideoDetectedLanguage] = useState("");
+  const [videoSubtitleIndex, setVideoSubtitleIndex] = useState(-1);
+  const [videoDubActive, setVideoDubActive] = useState(false);
 
   // Speed ref (can be changed by voice commands)
   const currentSpeedRef = useRef(LEVEL_SPEED[level]);
@@ -333,6 +354,11 @@ export default function Learn() {
   const keepAliveOscRef = useRef<OscillatorNode | null>(null);
   const phaseRef = useRef<"setup" | "chat" | "vocab">("setup");
   const textFileInputRef = useRef<HTMLInputElement>(null);
+  const videoFileInputRef = useRef<HTMLInputElement>(null);
+  const videoElementRef = useRef<HTMLVideoElement>(null);
+  const activeDubAudioRef = useRef<HTMLAudioElement | null>(null);
+  const dubTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const videoObjectUrlRef = useRef<string | null>(null);
 
   // Keep refs in sync
   useEffect(() => { autoModeRef.current = autoMode; }, [autoMode]);
@@ -375,7 +401,11 @@ export default function Learn() {
 
   const acquireWakeLock = useCallback(async () => {
     try {
-      const active = phaseRef.current === "chat" || phaseRef.current === "vocab";
+      const active =
+        phaseRef.current === "chat" ||
+        phaseRef.current === "vocab" ||
+        videoProcessing ||
+        videoDubActive;
       if (!active) return;
       if (!("wakeLock" in navigator)) {
         await startKeepAliveFallback();
@@ -400,7 +430,7 @@ export default function Learn() {
     } catch {
       await startKeepAliveFallback();
     }
-  }, [startKeepAliveFallback, stopKeepAliveFallback]);
+  }, [startKeepAliveFallback, stopKeepAliveFallback, videoDubActive, videoProcessing]);
 
   const releaseWakeLock = useCallback(() => {
     if (wakeLockRef.current) {
@@ -428,22 +458,25 @@ export default function Learn() {
   }, [releaseWakeLock]);
 
   useEffect(() => {
-    if (phase === "chat" || phase === "vocab") {
+    if (phase === "chat" || phase === "vocab" || videoProcessing || videoDubActive) {
       acquireWakeLock();
     } else {
       releaseWakeLock();
     }
-  }, [phase, acquireWakeLock, releaseWakeLock]);
+  }, [phase, videoProcessing, videoDubActive, acquireWakeLock, releaseWakeLock]);
 
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible" && (phase === "chat" || phase === "vocab")) {
+      if (
+        document.visibilityState === "visible" &&
+        (phase === "chat" || phase === "vocab" || videoProcessing || videoDubActive)
+      ) {
         acquireWakeLock();
       }
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [phase, acquireWakeLock]);
+  }, [phase, videoProcessing, videoDubActive, acquireWakeLock]);
 
   // Auto-scroll only if user is near the bottom (not reading old messages)
   useEffect(() => {
@@ -461,6 +494,37 @@ export default function Learn() {
 
   const getUiLabel = (it: string, en: string) =>
     String(uiLanguage).toLowerCase().startsWith("it") ? it : en;
+
+  const stopDubPlayback = useCallback(() => {
+    if (dubTimerRef.current) {
+      clearInterval(dubTimerRef.current);
+      dubTimerRef.current = null;
+    }
+    if (activeDubAudioRef.current) {
+      activeDubAudioRef.current.pause();
+      activeDubAudioRef.current.currentTime = 0;
+      activeDubAudioRef.current = null;
+    }
+    setVideoDubActive(false);
+  }, []);
+
+  const clearVideoState = useCallback(() => {
+    stopDubPlayback();
+    setVideoSubtitleIndex(-1);
+    setVideoSegments((prev) => {
+      prev.forEach((s) => {
+        try { URL.revokeObjectURL(s.audioUrl); } catch {}
+      });
+      return [];
+    });
+    setVideoDetectedLanguage("");
+    if (videoObjectUrlRef.current) {
+      try { URL.revokeObjectURL(videoObjectUrlRef.current); } catch {}
+      videoObjectUrlRef.current = null;
+    }
+    setVideoSourceUrl(null);
+    setVideoSourceName("");
+  }, [stopDubPlayback]);
 
   const translatePlainText = useCallback(async (text: string) => {
     const source = text.trim();
@@ -580,6 +644,239 @@ export default function Learn() {
       if (textFileInputRef.current) textFileInputRef.current.value = "";
     }
   }, [getUiLabel, nativeLang, nativeLangLabel, ocrPdfWithVision, t, targetLang, targetLangLabel]);
+
+  useEffect(() => {
+    return () => {
+      clearVideoState();
+    };
+  }, [clearVideoState]);
+
+  const mergeTranscribedSegments = useCallback((segments: Array<{ start: number; end: number; text: string }>) => {
+    const normalized = segments
+      .map((s) => ({
+        start: Number.isFinite(s.start) ? s.start : 0,
+        end: Number.isFinite(s.end) ? s.end : 0,
+        text: (s.text || "").trim(),
+      }))
+      .filter((s) => s.text);
+
+    const merged: Array<{ start: number; end: number; text: string }> = [];
+    for (const seg of normalized) {
+      const prev = merged[merged.length - 1];
+      if (!prev) {
+        merged.push({ ...seg });
+        continue;
+      }
+      const charLen = prev.text.length;
+      const gap = Math.max(0, seg.start - prev.end);
+      const canMerge = charLen < 170 && gap <= 1.2 && (seg.end - prev.start) <= 10;
+      if (canMerge) {
+        prev.text = `${prev.text} ${seg.text}`.trim();
+        prev.end = Math.max(prev.end, seg.end);
+      } else {
+        merged.push({ ...seg });
+      }
+    }
+    return merged.slice(0, VIDEO_MAX_SEGMENTS);
+  }, []);
+
+  const buildDubbedSegments = useCallback(async (
+    rawSegments: Array<{ start: number; end: number; text: string }>,
+    sourceLanguage: string,
+  ): Promise<VideoDubSegment[]> => {
+    const merged = mergeTranscribedSegments(rawSegments);
+    const out: VideoDubSegment[] = [];
+
+    for (let i = 0; i < merged.length; i++) {
+      const seg = merged[i];
+      const translatedObj = await translateText(seg.text, sourceLanguage, [targetLang], { mode: "general" });
+      const translatedText = (translatedObj[targetLang] || "").trim();
+      if (!translatedText) continue;
+      const audioBuffer = await textToSpeech(translatedText, undefined, 1.0);
+      const audioBlob = new Blob([audioBuffer]);
+      const audioUrl = URL.createObjectURL(audioBlob);
+      out.push({
+        id: `seg-${i}`,
+        start: seg.start,
+        end: seg.end > seg.start ? seg.end : seg.start + 2.5,
+        sourceText: seg.text,
+        translatedText,
+        audioUrl,
+      });
+    }
+
+    return out;
+  }, [mergeTranscribedSegments, targetLang]);
+
+  const processVideoBlob = useCallback(async (blob: Blob, sourceName: string) => {
+    setVideoProcessing(true);
+    setError(null);
+    stopDubPlayback();
+    setVideoSubtitleIndex(-1);
+
+    setVideoSegments((prev) => {
+      prev.forEach((s) => {
+        try { URL.revokeObjectURL(s.audioUrl); } catch {}
+      });
+      return [];
+    });
+
+    try {
+      const objectUrl = URL.createObjectURL(blob);
+      const durationSec = await new Promise<number>((resolve) => {
+        const v = document.createElement("video");
+        v.preload = "metadata";
+        v.onloadedmetadata = () => resolve(Number.isFinite(v.duration) ? v.duration : 0);
+        v.onerror = () => resolve(0);
+        v.src = objectUrl;
+      });
+
+      if (durationSec > VIDEO_MAX_DURATION_SEC) {
+        throw new Error("video_too_long");
+      }
+
+      if (videoObjectUrlRef.current) {
+        try { URL.revokeObjectURL(videoObjectUrlRef.current); } catch {}
+      }
+      videoObjectUrlRef.current = objectUrl;
+      setVideoSourceUrl(objectUrl);
+      setVideoSourceName(sourceName);
+
+      const transcription = await transcribeMediaWithTimestamps(blob);
+      const sourceLanguage = (transcription.language || nativeLang || "auto").trim();
+      setVideoDetectedLanguage(sourceLanguage);
+
+      const rawSegments = transcription.segments.length > 0
+        ? transcription.segments
+        : [{ start: 0, end: Math.max(3, Math.min(8, durationSec || 5)), text: transcription.text || "" }];
+
+      if (!rawSegments.some((s) => s.text.trim())) {
+        throw new Error("video_no_speech");
+      }
+
+      const dubbedSegments = await buildDubbedSegments(rawSegments, sourceLanguage);
+      if (dubbedSegments.length === 0) {
+        throw new Error("video_translate_empty");
+      }
+      setVideoSegments(dubbedSegments);
+    } catch (e: any) {
+      const code = String(e?.message || "");
+      if (code === "video_too_long") {
+        setError(getUiLabel(
+          "Video troppo lungo. Limite consigliato: 15 minuti.",
+          "Video too long. Recommended limit: 15 minutes."
+        ));
+      } else if (code === "video_no_speech") {
+        setError(getUiLabel(
+          "Non ho rilevato parlato nel video.",
+          "No speech detected in the video."
+        ));
+      } else if (code === "video_translate_empty") {
+        setError(getUiLabel(
+          "Trascrizione rilevata ma traduzione audio non disponibile.",
+          "Transcription found but translated audio is not available."
+        ));
+      } else {
+        const { fallback } = getApiErrorMessage(e);
+        setError((t as any).genericApiError || fallback);
+      }
+    } finally {
+      setVideoProcessing(false);
+    }
+  }, [buildDubbedSegments, getUiLabel, nativeLang, stopDubPlayback, t]);
+
+  const handleVideoFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      await processVideoBlob(file, file.name || "video");
+    } finally {
+      if (videoFileInputRef.current) videoFileInputRef.current.value = "";
+    }
+  }, [processVideoBlob]);
+
+  const handleVideoLink = useCallback(async () => {
+    const url = videoLinkInput.trim();
+    if (!url) return;
+    setVideoProcessing(true);
+    setError(null);
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("video_link_fetch_failed");
+      const blob = await res.blob();
+      await processVideoBlob(blob, url);
+    } catch {
+      setError(getUiLabel(
+        "Link video non supportato o bloccato (CORS). Usa un link diretto .mp4/.webm oppure carica il file.",
+        "Video link unsupported or blocked (CORS). Use a direct .mp4/.webm link or upload the file."
+      ));
+    } finally {
+      setVideoProcessing(false);
+    }
+  }, [getUiLabel, processVideoBlob, videoLinkInput]);
+
+  const startDubbedPlayback = useCallback(async () => {
+    const video = videoElementRef.current;
+    if (!video || videoSegments.length === 0) return;
+
+    stopDubPlayback();
+    setVideoDubActive(true);
+    setVideoSubtitleIndex(-1);
+    video.muted = true;
+    video.currentTime = 0;
+    try {
+      await video.play();
+    } catch {
+      setVideoDubActive(false);
+      return;
+    }
+
+    dubTimerRef.current = setInterval(() => {
+      const currentTime = video.currentTime || 0;
+      const idx = videoSegments.findIndex((s) => currentTime >= s.start && currentTime < s.end);
+      setVideoSubtitleIndex(idx);
+
+      if (idx >= 0) {
+        const seg = videoSegments[idx];
+        const active = activeDubAudioRef.current as any;
+        if (!active || active.__segId !== seg.id) {
+          if (activeDubAudioRef.current) {
+            activeDubAudioRef.current.pause();
+            activeDubAudioRef.current.currentTime = 0;
+          }
+          const audio = new Audio(seg.audioUrl) as any;
+          audio.__segId = seg.id;
+          activeDubAudioRef.current = audio;
+          audio.play().catch(() => {});
+        }
+      }
+
+      if (video.ended) {
+        stopDubPlayback();
+      }
+    }, 120);
+  }, [stopDubPlayback, videoSegments]);
+
+  useEffect(() => {
+    const video = videoElementRef.current;
+    if (!video) return;
+    const onPause = () => {
+      if (!video.ended) stopDubPlayback();
+    };
+    const onSeeked = () => {
+      if (videoDubActive && activeDubAudioRef.current) {
+        activeDubAudioRef.current.pause();
+        activeDubAudioRef.current.currentTime = 0;
+        activeDubAudioRef.current = null;
+      }
+    };
+    video.addEventListener("pause", onPause);
+    video.addEventListener("seeked", onSeeked);
+    return () => {
+      video.removeEventListener("pause", onPause);
+      video.removeEventListener("seeked", onSeeked);
+    };
+  }, [stopDubPlayback, videoDubActive]);
 
   // ─── Silence detection ─────────────────────────────────────────────────────
 
@@ -1454,12 +1751,114 @@ export default function Learn() {
               )}
             </>
           ) : (
-            <div className="bg-[#0E2666] border border-[#FFFFFF14] rounded-2xl p-4 text-center space-y-2">
-              <p className="text-sm text-[#F4F4F4]/80">{getUiLabel("Traduci video", "Translate video")}</p>
-              <p className="text-xs text-[#F4F4F4]/50">
-                {getUiLabel("Bottone pronto. Dimmi come vuoi gestire questa funzione e la implemento.", "Button ready. Tell me how you want this flow and I will implement it.")}
-              </p>
-            </div>
+            <>
+              <input
+                ref={videoFileInputRef}
+                type="file"
+                accept="video/*,.mp4,.mov,.m4v,.webm,.mkv,.avi"
+                onChange={handleVideoFile}
+                className="hidden"
+              />
+
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-[#F4F4F4]/60">
+                  {getUiLabel("Link video", "Video link")}
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    value={videoLinkInput}
+                    onChange={(e) => setVideoLinkInput(e.target.value)}
+                    placeholder={getUiLabel("Incolla un link diretto .mp4/.webm", "Paste a direct .mp4/.webm link")}
+                    className="flex-1 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl px-3 py-2.5 text-sm text-[#F4F4F4] outline-none focus:ring-2 focus:ring-[#295BDB]"
+                  />
+                  <button
+                    onClick={handleVideoLink}
+                    disabled={!videoLinkInput.trim() || videoProcessing}
+                    className="px-3 py-2.5 rounded-xl bg-[#123182] text-[#F4F4F4]/80 hover:bg-[#123182]/80 disabled:opacity-40 transition-colors"
+                  >
+                    <Link2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              <button
+                onClick={() => videoFileInputRef.current?.click()}
+                disabled={videoProcessing}
+                className="w-full py-3 rounded-xl bg-[#123182] text-[#F4F4F4]/80 hover:bg-[#123182]/80 disabled:opacity-40 transition-colors text-sm font-medium flex items-center justify-center gap-2"
+              >
+                <Upload className="w-4 h-4" />
+                {getUiLabel("Carica video", "Upload video")}
+              </button>
+
+              {videoSourceUrl && (
+                <div className="bg-[#0E2666] border border-[#FFFFFF14] rounded-2xl p-3 space-y-3">
+                  <p className="text-xs text-[#F4F4F4]/45 truncate">
+                    {videoSourceName}
+                  </p>
+                  {videoDetectedLanguage && (
+                    <p className="text-xs text-[#F4F4F4]/45">
+                      {getUiLabel("Lingua rilevata", "Detected language")}: {videoDetectedLanguage}
+                    </p>
+                  )}
+                  <video
+                    ref={videoElementRef}
+                    src={videoSourceUrl}
+                    controls
+                    playsInline
+                    className="w-full rounded-xl bg-black/30"
+                  />
+
+                  <div className="flex gap-2">
+                    <button
+                      onClick={startDubbedPlayback}
+                      disabled={videoProcessing || videoSegments.length === 0}
+                      className="flex-1 py-2.5 rounded-xl bg-[#295BDB] text-[#F4F4F4] hover:bg-[#295BDB]/80 disabled:opacity-40 transition-colors text-sm font-medium flex items-center justify-center gap-2"
+                    >
+                      <Play className="w-4 h-4" />
+                      {getUiLabel("Riproduci doppiato", "Play dubbed")}
+                    </button>
+                    <button
+                      onClick={stopDubPlayback}
+                      disabled={!videoDubActive}
+                      className="px-4 py-2.5 rounded-xl bg-red-500/20 text-red-400 hover:bg-red-500/30 disabled:opacity-40 transition-colors text-sm font-medium"
+                    >
+                      {getUiLabel("Ferma", "Stop")}
+                    </button>
+                  </div>
+
+                  <div className="bg-[#02114A] border border-[#FFFFFF14] rounded-xl p-3 min-h-[84px] space-y-1">
+                    <p className="text-[11px] uppercase tracking-wide text-[#F4F4F4]/40">
+                      {getUiLabel("Sottotitoli tradotti", "Translated subtitles")}
+                    </p>
+                    {videoSubtitleIndex >= 0 && videoSegments[videoSubtitleIndex] ? (
+                      <>
+                        <p className="text-xs text-[#F4F4F4]/45 whitespace-pre-wrap">
+                          {videoSegments[videoSubtitleIndex].sourceText}
+                        </p>
+                        <p className="text-sm text-[#295BDB] font-semibold whitespace-pre-wrap">
+                          {videoSegments[videoSubtitleIndex].translatedText}
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-xs text-[#F4F4F4]/40">
+                        {videoSegments.length > 0
+                          ? getUiLabel("Premi 'Riproduci doppiato' per iniziare.", "Tap 'Play dubbed' to start.")
+                          : getUiLabel("Elaborazione in corso o nessun segmento disponibile.", "Processing or no segments available.")}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {videoProcessing && (
+                <div className="bg-[#0E2666] border border-[#FFFFFF14] rounded-2xl p-4 flex items-center gap-3">
+                  <Loader2 className="w-5 h-5 animate-spin text-[#295BDB]" />
+                  <p className="text-sm text-[#F4F4F4]/70">
+                    {getUiLabel("Trascrivo, traduco e creo il doppiaggio…", "Transcribing, translating, and generating dubbing…")}
+                  </p>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

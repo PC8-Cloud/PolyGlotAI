@@ -37,6 +37,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const filePart = parts.find((p) => p.name === "file");
       const languagePart = parts.find((p) => p.name === "language");
       const modelPart = parts.find((p) => p.name === "model");
+      const includeTimestampsPart = parts.find((p) => p.name === "include_timestamps");
 
       if (!filePart?.data) return res.status(400).json({ error: "No audio file" });
 
@@ -49,16 +50,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       const detectLangPart = parts.find((p) => p.name === "detect_language");
       const detectLang = detectLangPart?.data?.toString() === "true";
+      const includeTimestamps = includeTimestampsPart?.data?.toString() === "true";
 
-      if (detectLang) {
+      if (detectLang || includeTimestamps) {
         // Use whisper-1 with verbose_json to detect language reliably
         // (gpt-4o-transcribe does NOT return the language field)
         const response = await client.audio.transcriptions.create({
           model: "whisper-1",
           file,
           response_format: "verbose_json",
+          ...(includeTimestamps ? { timestamp_granularities: ["segment"] as any } : {}),
         } as any);
-        return res.json({ text: (response as any).text, language: (response as any).language });
+        const rawSegments = Array.isArray((response as any).segments) ? (response as any).segments : [];
+        const segments = rawSegments
+          .map((s: any) => ({
+            start: typeof s?.start === "number" ? s.start : 0,
+            end: typeof s?.end === "number" ? s.end : 0,
+            text: typeof s?.text === "string" ? s.text.trim() : "",
+          }))
+          .filter((s: any) => s.text);
+        return res.json({
+          text: (response as any).text,
+          language: (response as any).language,
+          ...(includeTimestamps ? { segments } : {}),
+        });
       }
 
       const response = await client.audio.transcriptions.create({

@@ -192,6 +192,50 @@ export async function transcribeAudioDetectLang(
   return { text: data.text || "", language: data.language || "" };
 }
 
+export interface TimestampedSegment {
+  start: number;
+  end: number;
+  text: string;
+}
+
+export async function transcribeMediaWithTimestamps(
+  mediaBlob: Blob,
+): Promise<{ text: string; language: string; segments: TimestampedSegment[] }> {
+  const formData = new FormData();
+  formData.append("file", mediaBlob, "media.mp4");
+  formData.append("include_timestamps", "true");
+  formData.append("detect_language", "true");
+
+  const response = await withRetry(async () => {
+    const res = await fetch("/api/transcribe", {
+      method: "POST",
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Transcription failed", status: res.status }));
+      throw new ApiError(err.error || "Transcription failed", err.status || res.status);
+    }
+    return res;
+  });
+
+  const data = await response.json();
+  const segments = Array.isArray(data?.segments)
+    ? data.segments
+      .map((s: any) => ({
+        start: Number.isFinite(s?.start) ? Number(s.start) : 0,
+        end: Number.isFinite(s?.end) ? Number(s.end) : 0,
+        text: typeof s?.text === "string" ? s.text.trim() : "",
+      }))
+      .filter((s: TimestampedSegment) => s.text)
+    : [];
+
+  return {
+    text: typeof data?.text === "string" ? data.text : "",
+    language: typeof data?.language === "string" ? data.language : "",
+    segments,
+  };
+}
+
 // ─── Translation ────────────────────────────────────────────────────────────
 
 export async function translateText(
