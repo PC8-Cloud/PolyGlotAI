@@ -21,6 +21,7 @@ import {
   Square,
   Upload,
   GraduationCap,
+  Link2,
   Play,
 } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
@@ -316,6 +317,9 @@ export default function Learn() {
   const [textTranslateInput, setTextTranslateInput] = useState("");
   const [textTranslateOutput, setTextTranslateOutput] = useState("");
   const [textTranslateBusy, setTextTranslateBusy] = useState(false);
+  const [videoLinkInput, setVideoLinkInput] = useState("");
+  const [youtubeVideoId, setYoutubeVideoId] = useState<string | null>(null);
+  const [youtubeAutoplayNonce, setYoutubeAutoplayNonce] = useState(0);
   const [videoSourceUrl, setVideoSourceUrl] = useState<string | null>(null);
   const [videoSourceName, setVideoSourceName] = useState("");
   const [videoProcessing, setVideoProcessing] = useState(false);
@@ -357,6 +361,7 @@ export default function Learn() {
   const activeDubAudioRef = useRef<HTMLAudioElement | null>(null);
   const dubTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const videoObjectUrlRef = useRef<string | null>(null);
+  const youtubeDubStartedAtRef = useRef<number | null>(null);
 
   // Keep refs in sync
   useEffect(() => { autoModeRef.current = autoMode; }, [autoMode]);
@@ -508,6 +513,10 @@ export default function Learn() {
 
   const clearVideoState = useCallback(() => {
     stopDubPlayback();
+    setYoutubeVideoId(null);
+    setYoutubeAutoplayNonce(0);
+    setVideoLinkInput("");
+    youtubeDubStartedAtRef.current = null;
     setVideoSubtitleIndex(-1);
     setVideoSegments((prev) => {
       prev.forEach((s) => {
@@ -737,6 +746,7 @@ export default function Learn() {
         try { URL.revokeObjectURL(videoObjectUrlRef.current); } catch {}
       }
       videoObjectUrlRef.current = objectUrl;
+      setYoutubeVideoId(null);
       setVideoSourceUrl(objectUrl);
       setVideoSourceName(sourceName);
 
@@ -793,24 +803,120 @@ export default function Learn() {
     }
   }, [processVideoBlob]);
 
+  const extractYoutubeId = (value: string): string => {
+    const input = value.trim();
+    if (!input) return "";
+    if (/^[a-zA-Z0-9_-]{11}$/.test(input)) return input;
+    try {
+      const u = new URL(input);
+      if (u.hostname.includes("youtu.be")) {
+        return (u.pathname.split("/").filter(Boolean)[0] || "").trim();
+      }
+      if (u.hostname.includes("youtube.com")) {
+        return (u.searchParams.get("v") || "").trim();
+      }
+    } catch {}
+    const match = input.match(/(?:v=|\/)([a-zA-Z0-9_-]{11})(?:[?&]|$)/);
+    return match?.[1] || "";
+  };
+
+  const handleVideoLink = useCallback(async () => {
+    const input = videoLinkInput.trim();
+    if (!input) return;
+    const videoId = extractYoutubeId(input);
+    if (!videoId) {
+      setError(getUiLabel(
+        "Link YouTube non valido.",
+        "Invalid YouTube link."
+      ));
+      return;
+    }
+
+    setVideoProcessing(true);
+    setError(null);
+    stopDubPlayback();
+    setVideoSubtitleIndex(-1);
+    setVideoSegments((prev) => {
+      prev.forEach((s) => {
+        try { URL.revokeObjectURL(s.audioUrl); } catch {}
+      });
+      return [];
+    });
+
+    try {
+      const resp = await fetch("/api/youtube-transcript", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: input }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data?.error || "youtube_transcript_failed");
+
+      const title = typeof data?.title === "string" ? data.title : `YouTube ${videoId}`;
+      const sourceLanguage = typeof data?.language === "string" && data.language ? data.language : nativeLang;
+      const rawSegments = Array.isArray(data?.segments) ? data.segments : [];
+      if (!rawSegments.length) throw new Error("youtube_no_segments");
+
+      const dubbed = await buildDubbedSegments(rawSegments, sourceLanguage);
+      if (!dubbed.length) throw new Error("youtube_translate_empty");
+
+      if (videoObjectUrlRef.current) {
+        try { URL.revokeObjectURL(videoObjectUrlRef.current); } catch {}
+        videoObjectUrlRef.current = null;
+      }
+      setVideoSourceUrl(null);
+      setYoutubeVideoId(videoId);
+      setYoutubeAutoplayNonce(0);
+      setVideoSourceName(title);
+      setVideoDetectedLanguage(sourceLanguage);
+      setVideoSegments(dubbed);
+    } catch (e: any) {
+      const code = String(e?.message || "");
+      if (code.includes("No captions") || code === "youtube_no_segments") {
+        setError(getUiLabel(
+          "Questo video non ha sottotitoli disponibili su YouTube.",
+          "This video has no available YouTube captions."
+        ));
+      } else {
+        setError(getUiLabel(
+          "Non riesco a leggere i sottotitoli YouTube per questo link.",
+          "Could not read YouTube captions for this link."
+        ));
+      }
+    } finally {
+      setVideoProcessing(false);
+    }
+  }, [buildDubbedSegments, getUiLabel, nativeLang, stopDubPlayback, videoLinkInput]);
+
   const startDubbedPlayback = useCallback(async () => {
     const video = videoElementRef.current;
-    if (!video || videoSegments.length === 0) return;
+    if (!youtubeVideoId && (!video || videoSegments.length === 0)) return;
+    if (videoSegments.length === 0) return;
 
     stopDubPlayback();
     setVideoDubActive(true);
     setVideoSubtitleIndex(-1);
-    video.muted = true;
-    video.currentTime = 0;
-    try {
-      await video.play();
-    } catch {
-      setVideoDubActive(false);
-      return;
+    let useSyntheticClock = false;
+
+    if (youtubeVideoId) {
+      youtubeDubStartedAtRef.current = Date.now();
+      setYoutubeAutoplayNonce((n) => n + 1);
+      useSyntheticClock = true;
+    } else if (video) {
+      video.muted = true;
+      video.currentTime = 0;
+      try {
+        await video.play();
+      } catch {
+        setVideoDubActive(false);
+        return;
+      }
     }
 
     dubTimerRef.current = setInterval(() => {
-      const currentTime = video.currentTime || 0;
+      const currentTime = useSyntheticClock
+        ? ((Date.now() - (youtubeDubStartedAtRef.current || Date.now())) / 1000)
+        : (video?.currentTime || 0);
       const idx = videoSegments.findIndex((s) => currentTime >= s.start && currentTime < s.end);
       setVideoSubtitleIndex(idx);
 
@@ -829,11 +935,14 @@ export default function Learn() {
         }
       }
 
-      if (video.ended) {
+      if (!useSyntheticClock && video?.ended) {
+        stopDubPlayback();
+      }
+      if (useSyntheticClock && currentTime > (videoSegments[videoSegments.length - 1]?.end || 0) + 1.5) {
         stopDubPlayback();
       }
     }, 120);
-  }, [stopDubPlayback, videoSegments]);
+  }, [stopDubPlayback, videoSegments, youtubeVideoId]);
 
   useEffect(() => {
     const video = videoElementRef.current;
@@ -1738,6 +1847,27 @@ export default function Learn() {
                 className="hidden"
               />
 
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-[#F4F4F4]/60">
+                  {getUiLabel("Link YouTube", "YouTube link")}
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    value={videoLinkInput}
+                    onChange={(e) => setVideoLinkInput(e.target.value)}
+                    placeholder={getUiLabel("Incolla link YouTube", "Paste YouTube link")}
+                    className="flex-1 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl px-3 py-2.5 text-sm text-[#F4F4F4] outline-none focus:ring-2 focus:ring-[#295BDB]"
+                  />
+                  <button
+                    onClick={handleVideoLink}
+                    disabled={!videoLinkInput.trim() || videoProcessing}
+                    className="px-3 py-2.5 rounded-xl bg-[#123182] text-[#F4F4F4]/80 hover:bg-[#123182]/80 disabled:opacity-40 transition-colors"
+                  >
+                    <Link2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
               <button
                 onClick={() => videoFileInputRef.current?.click()}
                 disabled={videoProcessing}
@@ -1746,14 +1876,8 @@ export default function Learn() {
                 <Upload className="w-4 h-4" />
                 {getUiLabel("Carica video", "Upload video")}
               </button>
-              <p className="text-xs text-[#F4F4F4]/45">
-                {getUiLabel(
-                  "Per ora supporto solo upload diretto del file video (YouTube disattivato finché non è affidabile).",
-                  "For now only direct video upload is supported (YouTube disabled until reliable)."
-                )}
-              </p>
 
-              {videoSourceUrl && (
+              {(videoSourceUrl || youtubeVideoId) && (
                 <div className="bg-[#0E2666] border border-[#FFFFFF14] rounded-2xl p-3 space-y-3">
                   <p className="text-xs text-[#F4F4F4]/45 truncate">
                     {videoSourceName}
@@ -1763,13 +1887,22 @@ export default function Learn() {
                       {getUiLabel("Lingua rilevata", "Detected language")}: {videoDetectedLanguage}
                     </p>
                   )}
-                  <video
-                    ref={videoElementRef}
-                    src={videoSourceUrl}
-                    controls
-                    playsInline
-                    className="w-full rounded-xl bg-black/30"
-                  />
+                  {youtubeVideoId ? (
+                    <iframe
+                      title="YouTube player"
+                      src={`https://www.youtube.com/embed/${youtubeVideoId}?playsinline=1&autoplay=${videoDubActive ? 1 : 0}&mute=1&start=0&enablejsapi=1&rel=0&nonce=${youtubeAutoplayNonce}`}
+                      allow="autoplay; encrypted-media; picture-in-picture"
+                      className="w-full rounded-xl bg-black/30 aspect-video"
+                    />
+                  ) : (
+                    <video
+                      ref={videoElementRef}
+                      src={videoSourceUrl || undefined}
+                      controls
+                      playsInline
+                      className="w-full rounded-xl bg-black/30"
+                    />
+                  )}
 
                   <div className="flex gap-2">
                     <button
