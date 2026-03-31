@@ -30,7 +30,6 @@ import { LANGUAGES } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
 import { playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudio, suspendAudioForMic, translateText, analyzeImage, transcribeMediaWithTimestamps, textToSpeech } from "../lib/openai";
 import { extractTextFromFile } from "../lib/file-reader";
-import { readClipboardText } from "../lib/clipboard";
 import pdfjsWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -356,6 +355,7 @@ export default function Learn() {
   const keepAliveOscRef = useRef<OscillatorNode | null>(null);
   const phaseRef = useRef<"setup" | "chat" | "vocab">("setup");
   const textFileInputRef = useRef<HTMLInputElement>(null);
+  const textTranslateInputRef = useRef<HTMLTextAreaElement>(null);
   const videoFileInputRef = useRef<HTMLInputElement>(null);
   const videoElementRef = useRef<HTMLVideoElement>(null);
   const activeDubAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -587,15 +587,8 @@ export default function Learn() {
   }, [nativeLangLabel, targetLangLabel]);
 
   const handleTextTranslatePaste = useCallback(async () => {
-    try {
-      const pasted = await readClipboardText();
-      if (!pasted.trim()) return;
-      setTextTranslateInput(pasted.trim());
-      await translatePlainText(pasted);
-    } catch {
-      setError(getUiLabel("Accesso appunti negato", "Clipboard access denied"));
-    }
-  }, [getUiLabel, t, translatePlainText]);
+    textTranslateInputRef.current?.focus();
+  }, []);
 
   const handleTextTranslateFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1797,6 +1790,7 @@ export default function Learn() {
                   {getUiLabel("Testo da tradurre", "Text to translate")}
                 </label>
                 <textarea
+                  ref={textTranslateInputRef}
                   value={textTranslateInput}
                   onChange={(e) => setTextTranslateInput(e.target.value)}
                   placeholder={getUiLabel("Incolla qui il testo o importa un file…", "Paste text here or import a file…")}

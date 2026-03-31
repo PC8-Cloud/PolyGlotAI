@@ -7,7 +7,6 @@ import { LANGUAGES, getLocaleForCode } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
 import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, getRealtimeTranslationConfig, suspendAudioForMic } from "../lib/openai";
 import { extractTextFromFile } from "../lib/file-reader";
-import { readClipboardText } from "../lib/clipboard";
 
 interface Entry {
   id: number;
@@ -34,6 +33,8 @@ export default function MegaphonePage() {
   const [autoSpeak, setAutoSpeak] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [readyChunks, setReadyChunks] = useState(0);
+  const [showManualPaste, setShowManualPaste] = useState(false);
+  const [manualPasteText, setManualPasteText] = useState("");
 
   const recognitionRef = useRef<any>(null);
   const transcriptRef = useRef("");
@@ -456,12 +457,15 @@ export default function MegaphonePage() {
   };
 
   const handlePaste = async () => {
-    try {
-      const text = await readClipboardText();
-      if (text.trim()) handleLoadedText(text.trim());
-    } catch {
-      setError("Clipboard access denied");
-    }
+    setShowManualPaste((v) => !v);
+  };
+
+  const handleManualPasteSubmit = async () => {
+    const text = manualPasteText.trim();
+    if (!text) return;
+    setShowManualPaste(false);
+    setManualPasteText("");
+    await handleLoadedText(text);
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -583,6 +587,24 @@ export default function MegaphonePage() {
             <Upload className="w-5 h-5" />
           </button>
         </div>
+        {showManualPaste && (
+          <div className="mt-2 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl p-3 space-y-2">
+            <textarea
+              value={manualPasteText}
+              onChange={(e) => setManualPasteText(e.target.value)}
+              placeholder={t("loadTextPaste")}
+              rows={4}
+              className="w-full bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-3 py-2 text-sm text-[#F4F4F4] outline-none focus:ring-2 focus:ring-[#295BDB] resize-none"
+            />
+            <button
+              onClick={handleManualPasteSubmit}
+              disabled={!manualPasteText.trim() || busy || isListening}
+              className="w-full py-2.5 rounded-xl bg-[#123182] text-[#F4F4F4]/80 hover:bg-[#123182]/80 disabled:opacity-40 transition-colors text-sm font-medium"
+            >
+              {t("loadTextUse")}
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 min-h-0">
