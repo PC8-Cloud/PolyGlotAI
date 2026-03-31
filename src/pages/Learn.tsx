@@ -26,7 +26,10 @@ import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
-import { playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudio, suspendAudioForMic } from "../lib/openai";
+import { playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudio, suspendAudioForMic, translateText, analyzeImage } from "../lib/openai";
+import { extractTextFromFile } from "../lib/file-reader";
+import { readClipboardText } from "../lib/clipboard";
+import pdfjsWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -48,7 +51,7 @@ interface TutorResponse {
 type Level = "molto_base" | "base" | "intermedio" | "alto" | "madrelingua";
 type Topic = "free" | "greetings" | "restaurant" | "directions" | "shopping" | "work" | "travel" | "daily";
 type ChatState = "idle" | "speaking" | "listening" | "transcribing" | "thinking";
-type LearnMode = "conversation" | "vocabulary";
+type LearnMode = "conversation" | "vocabulary" | "text_translate" | "video_translate";
 type VocabState = "loading" | "ready" | "listening" | "evaluating" | "correct" | "wrong" | "complete";
 
 interface VocabWord {
@@ -137,6 +140,7 @@ const VOCAB_SILENCE_THRESHOLD = 0.02;
 const VOCAB_VOICE_ACTIVITY_THRESHOLD = 0.04;
 const VOCAB_VOICE_ACTIVITY_FRAMES = 2;
 const VOCAB_NO_SPEECH_TIMEOUT_MS = 3500;
+const SCANNED_PDF_MAX_PAGES = 4;
 
 // ─── Voice commands (multilingual) ───────────────────────────────────────────
 
@@ -297,6 +301,9 @@ export default function Learn() {
   const [vocabIndex, setVocabIndex] = useState(0);
   const [vocabState, setVocabState] = useState<VocabState>("loading");
   const [vocabFeedback, setVocabFeedback] = useState("");
+  const [textTranslateInput, setTextTranslateInput] = useState("");
+  const [textTranslateOutput, setTextTranslateOutput] = useState("");
+  const [textTranslateBusy, setTextTranslateBusy] = useState(false);
 
   // Speed ref (can be changed by voice commands)
   const currentSpeedRef = useRef(LEVEL_SPEED[level]);
@@ -325,6 +332,7 @@ export default function Learn() {
   const keepAliveCtxRef = useRef<AudioContext | null>(null);
   const keepAliveOscRef = useRef<OscillatorNode | null>(null);
   const phaseRef = useRef<"setup" | "chat" | "vocab">("setup");
+  const textFileInputRef = useRef<HTMLInputElement>(null);
 
   // Keep refs in sync
   useEffect(() => { autoModeRef.current = autoMode; }, [autoMode]);
@@ -450,6 +458,128 @@ export default function Learn() {
 
   const nativeLangLabel = LANGUAGES.find((l) => l.code === nativeLang)?.label || nativeLang;
   const targetLangLabel = LANGUAGES.find((l) => l.code === targetLang)?.label || targetLang;
+
+  const getUiLabel = (it: string, en: string) =>
+    String(uiLanguage).toLowerCase().startsWith("it") ? it : en;
+
+  const translatePlainText = useCallback(async (text: string) => {
+    const source = text.trim();
+    if (!source) return;
+    setTextTranslateBusy(true);
+    setError(null);
+    try {
+      const result = await translateText(source, nativeLang, [targetLang], { mode: "general" });
+      const translated = result[targetLang] || "";
+      if (!translated) throw new Error("empty_translation");
+      setTextTranslateOutput(translated);
+    } catch (e: any) {
+      const { fallback } = getApiErrorMessage(e);
+      setError((t as any).genericApiError || fallback);
+    } finally {
+      setTextTranslateBusy(false);
+    }
+  }, [nativeLang, targetLang, t]);
+
+  const ocrPdfWithVision = useCallback(async (file: File) => {
+    const pdfjsLib = await import("pdfjs-dist");
+    pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
+    const buffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+    const pagesToScan = Math.min(pdf.numPages, SCANNED_PDF_MAX_PAGES);
+    const extractedParts: string[] = [];
+    const translatedParts: string[] = [];
+
+    for (let i = 1; i <= pagesToScan; i++) {
+      const page = await pdf.getPage(i);
+      const viewport = page.getViewport({ scale: 1.5 });
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      if (!ctx) continue;
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.82);
+      const base64 = dataUrl.split(",")[1];
+      if (!base64) continue;
+
+      const analysis = await analyzeImage(base64, targetLangLabel, nativeLangLabel);
+      const extracted = (analysis.extractedText || analysis.objectName || "").trim();
+      const translated = (analysis.translatedText || analysis.translation || "").trim();
+      if (extracted) extractedParts.push(extracted);
+      if (translated) translatedParts.push(translated);
+    }
+
+    return {
+      extractedText: extractedParts.join("\n\n"),
+      translatedText: translatedParts.join("\n\n"),
+    };
+  }, [nativeLangLabel, targetLangLabel]);
+
+  const handleTextTranslatePaste = useCallback(async () => {
+    try {
+      const pasted = await readClipboardText({ manualPrompt: t("loadTextPaste") });
+      if (!pasted.trim()) return;
+      setTextTranslateInput(pasted.trim());
+      await translatePlainText(pasted);
+    } catch {
+      setError(getUiLabel("Accesso appunti negato", "Clipboard access denied"));
+    }
+  }, [getUiLabel, t, translatePlainText]);
+
+  const handleTextTranslateFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setTextTranslateBusy(true);
+    setError(null);
+    try {
+      const isImage = file.type.startsWith("image/") || /\.(png|jpe?g|webp|bmp|gif)$/i.test(file.name);
+      if (isImage) {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ""));
+          reader.onerror = () => reject(reader.error || new Error("image_read_failed"));
+          reader.readAsDataURL(file);
+        });
+        const base64 = dataUrl.split(",")[1];
+        if (!base64) throw new Error("image_parse_failed");
+        const analysis = await analyzeImage(base64, targetLangLabel, nativeLangLabel);
+        const extracted = (analysis.extractedText || analysis.objectName || "").trim();
+        const translated = (analysis.translatedText || analysis.translation || "").trim();
+        setTextTranslateInput(extracted);
+        setTextTranslateOutput(translated);
+      } else {
+        let extracted = (await extractTextFromFile(file)).trim();
+        if (extracted) {
+          setTextTranslateInput(extracted);
+          const result = await translateText(extracted, nativeLang, [targetLang], { mode: "general" });
+          setTextTranslateOutput(result[targetLang] || "");
+        } else if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+          const scanned = await ocrPdfWithVision(file);
+          if (!scanned.extractedText && !scanned.translatedText) {
+            throw new Error("ocr_empty");
+          }
+          setTextTranslateInput(scanned.extractedText);
+          setTextTranslateOutput(scanned.translatedText);
+        } else {
+          throw new Error("empty_text");
+        }
+      }
+    } catch (e: any) {
+      const known = String(e?.message || "");
+      if (known === "empty_text" || known === "ocr_empty") {
+        setError(getUiLabel(
+          "Nessun testo rilevato nel file. Prova con un file più leggibile.",
+          "No readable text found in the file. Try a clearer file."
+        ));
+      } else {
+        const { fallback } = getApiErrorMessage(e);
+        setError((t as any).genericApiError || fallback);
+      }
+    } finally {
+      setTextTranslateBusy(false);
+      if (textFileInputRef.current) textFileInputRef.current.value = "";
+    }
+  }, [getUiLabel, nativeLang, nativeLangLabel, ocrPdfWithVision, t, targetLang, targetLangLabel]);
 
   // ─── Silence detection ─────────────────────────────────────────────────────
 
@@ -1146,7 +1276,7 @@ export default function Learn() {
 
         <div className="flex-1 overflow-y-auto p-4 space-y-5 max-w-sm mx-auto w-full">
           {/* Mode toggle */}
-          <div className="flex gap-2">
+          <div className="grid grid-cols-2 gap-2">
             <button
               onClick={() => setMode("conversation")}
               className={`flex-1 py-3 rounded-xl font-medium text-sm transition-colors border ${
@@ -1166,6 +1296,26 @@ export default function Learn() {
               }`}
             >
               {t("learnModeVocabulary")}
+            </button>
+            <button
+              onClick={() => setMode("text_translate")}
+              className={`flex-1 py-3 rounded-xl font-medium text-sm transition-colors border ${
+                mode === "text_translate"
+                  ? "bg-[#295BDB]/20 border-[#295BDB] text-[#295BDB]"
+                  : "bg-[#0E2666] border-[#FFFFFF14] text-[#F4F4F4]/60"
+              }`}
+            >
+              {getUiLabel("Traduci testo", "Translate text")}
+            </button>
+            <button
+              onClick={() => setMode("video_translate")}
+              className={`flex-1 py-3 rounded-xl font-medium text-sm transition-colors border ${
+                mode === "video_translate"
+                  ? "bg-[#295BDB]/20 border-[#295BDB] text-[#295BDB]"
+                  : "bg-[#0E2666] border-[#FFFFFF14] text-[#F4F4F4]/60"
+              }`}
+            >
+              {getUiLabel("Traduci video", "Translate video")}
             </button>
           </div>
 
@@ -1217,7 +1367,7 @@ export default function Learn() {
                 {t("learnStart")}
               </button>
             </>
-          ) : (
+          ) : mode === "vocabulary" ? (
             <>
               {/* Vocabulary categories */}
               <div>
@@ -1248,6 +1398,68 @@ export default function Learn() {
                 {t("learnStart")}
               </button>
             </>
+          ) : mode === "text_translate" ? (
+            <>
+              <input
+                ref={textFileInputRef}
+                type="file"
+                accept=".txt,.pdf,.md,.text,.docx,.doc,.png,.jpg,.jpeg,.webp,.bmp,.gif"
+                onChange={handleTextTranslateFile}
+                className="hidden"
+              />
+
+              <div>
+                <label className="block text-sm font-medium text-[#F4F4F4]/60 mb-2">
+                  {getUiLabel("Testo da tradurre", "Text to translate")}
+                </label>
+                <textarea
+                  value={textTranslateInput}
+                  onChange={(e) => setTextTranslateInput(e.target.value)}
+                  placeholder={getUiLabel("Incolla qui il testo o importa un file…", "Paste text here or import a file…")}
+                  className="w-full min-h-[130px] bg-[#0E2666] border border-[#FFFFFF14] rounded-xl px-4 py-3 text-[#F4F4F4] outline-none focus:ring-2 focus:ring-[#295BDB] text-sm leading-relaxed"
+                />
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={handleTextTranslatePaste}
+                  disabled={textTranslateBusy}
+                  className="flex-1 py-3 rounded-xl bg-[#123182] text-[#F4F4F4]/80 hover:bg-[#123182]/80 disabled:opacity-40 transition-colors text-sm font-medium"
+                >
+                  {getUiLabel("Incolla", "Paste")}
+                </button>
+                <button
+                  onClick={() => textFileInputRef.current?.click()}
+                  disabled={textTranslateBusy}
+                  className="flex-1 py-3 rounded-xl bg-[#123182] text-[#F4F4F4]/80 hover:bg-[#123182]/80 disabled:opacity-40 transition-colors text-sm font-medium flex items-center justify-center gap-2"
+                >
+                  <Upload className="w-4 h-4" />
+                  {getUiLabel("Sfoglia", "Browse")}
+                </button>
+              </div>
+
+              <button
+                onClick={() => translatePlainText(textTranslateInput)}
+                disabled={!textTranslateInput.trim() || textTranslateBusy}
+                className="w-full bg-[#295BDB] hover:bg-[#295BDB]/80 disabled:opacity-40 text-[#F4F4F4] font-bold py-4 rounded-2xl transition-colors text-lg shadow-lg"
+              >
+                {textTranslateBusy ? "..." : getUiLabel("Traduci testo", "Translate text")}
+              </button>
+
+              {textTranslateOutput && (
+                <div className="bg-[#0E2666] border border-[#FFFFFF14] rounded-2xl p-4 space-y-2">
+                  <p className="text-xs text-[#F4F4F4]/50 uppercase tracking-wide">{getUiLabel("Traduzione", "Translation")}</p>
+                  <p className="text-[#295BDB] text-base leading-relaxed whitespace-pre-wrap">{textTranslateOutput}</p>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="bg-[#0E2666] border border-[#FFFFFF14] rounded-2xl p-4 text-center space-y-2">
+              <p className="text-sm text-[#F4F4F4]/80">{getUiLabel("Traduci video", "Translate video")}</p>
+              <p className="text-xs text-[#F4F4F4]/50">
+                {getUiLabel("Bottone pronto. Dimmi come vuoi gestire questa funzione e la implemento.", "Button ready. Tell me how you want this flow and I will implement it.")}
+              </p>
+            </div>
           )}
         </div>
       </div>
