@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Camera, RotateCcw, Volume2 } from "lucide-react";
+import { ChevronLeft, Camera, RotateCcw, Volume2, Copy, Check } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES } from "../lib/languages";
@@ -97,6 +97,8 @@ export default function CameraTranslate() {
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [playing, setPlaying] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ImageAnalysisResult | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -115,6 +117,8 @@ export default function CameraTranslate() {
       const dataUrl = await compressImageToDataUrl(file);
       setCapturedImage(dataUrl);
       setResult(null);
+      setError(null);
+      setCopied(false);
 
       const base64 = dataUrl.split(",")[1];
       if (!base64) return;
@@ -127,6 +131,9 @@ export default function CameraTranslate() {
       setResult(analysis);
     } catch (err) {
       console.error("Analysis failed:", err);
+      setError(String(uiLanguage).toLowerCase().startsWith("it")
+        ? "Analisi non riuscita. Prova con una foto più nitida."
+        : "Analysis failed. Try with a clearer photo.");
     } finally {
       setAnalyzing(false);
       e.target.value = "";
@@ -136,6 +143,8 @@ export default function CameraTranslate() {
   const handleRetake = () => {
     setCapturedImage(null);
     setResult(null);
+    setError(null);
+    setCopied(false);
   };
 
   const handleSpeak = async (text: string) => {
@@ -148,6 +157,20 @@ export default function CameraTranslate() {
       console.error("TTS failed:", e);
     } finally {
       setPlaying(false);
+    }
+  };
+
+  const handleCopy = async (text: string) => {
+    const value = text.trim();
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setError(String(uiLanguage).toLowerCase().startsWith("it")
+        ? "Impossibile copiare il testo."
+        : "Could not copy text.");
     }
   };
 
@@ -221,6 +244,12 @@ export default function CameraTranslate() {
               )}
             </div>
 
+            {error && (
+              <div className="w-full max-w-sm bg-red-500/20 border border-red-500/30 rounded-xl p-3">
+                <p className="text-sm text-red-400">{error}</p>
+              </div>
+            )}
+
             {result && (
               <div className="w-full max-w-sm bg-[#0E2666] rounded-2xl p-5 border border-[#FFFFFF14] space-y-3">
                 {result.mode === "ocr" && result.extractedText ? (
@@ -241,21 +270,33 @@ export default function CameraTranslate() {
                       <p className="text-[#F4F4F4]/60 text-xs uppercase tracking-wide flex items-center gap-1">
                         {selectedLang?.flag} {cameraLabels.translatedText}
                       </p>
-                      <div className="flex items-start justify-between gap-3 mt-2">
+                      <div className="flex items-start justify-between gap-2 mt-2">
                         <p className="text-lg font-bold text-[#295BDB] whitespace-pre-wrap leading-relaxed">
                           {result.translatedText || result.translation}
                         </p>
-                        <button
-                          onClick={() => handleSpeak(result.translatedText || result.translation)}
-                          disabled={playing}
-                          className={`p-2 rounded-lg transition-colors shrink-0 ${
-                            playing
-                              ? "text-[#295BDB] animate-pulse"
-                              : "text-[#F4F4F4]/40 hover:text-[#F4F4F4] hover:bg-[#123182]"
-                          }`}
-                        >
-                          <Volume2 className="w-5 h-5" />
-                        </button>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            onClick={() => handleCopy(result.translatedText || result.translation)}
+                            className={`p-2 rounded-lg transition-colors ${
+                              copied
+                                ? "text-green-400"
+                                : "text-[#F4F4F4]/40 hover:text-[#F4F4F4] hover:bg-[#123182]"
+                            }`}
+                          >
+                            {copied ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
+                          </button>
+                          <button
+                            onClick={() => handleSpeak(result.translatedText || result.translation)}
+                            disabled={playing}
+                            className={`p-2 rounded-lg transition-colors ${
+                              playing
+                                ? "text-[#295BDB] animate-pulse"
+                                : "text-[#F4F4F4]/40 hover:text-[#F4F4F4] hover:bg-[#123182]"
+                            }`}
+                          >
+                            <Volume2 className="w-5 h-5" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </>

@@ -3,6 +3,29 @@ import OpenAI from "openai";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+function parseModelJson(raw: string): any {
+  const text = String(raw || "").trim();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
+    if (fenced) {
+      try {
+        return JSON.parse(fenced.trim());
+      } catch {}
+    }
+    const first = text.indexOf("{");
+    const last = text.lastIndexOf("}");
+    if (first !== -1 && last > first) {
+      try {
+        return JSON.parse(text.slice(first, last + 1));
+      } catch {}
+    }
+    return {};
+  }
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
@@ -53,7 +76,7 @@ Rules:
       ],
     });
 
-    const parsed = JSON.parse(response.choices[0].message.content || "{}");
+    const parsed = parseModelJson(response.choices[0].message.content || "{}");
     res.json({
       mode: parsed.mode === "ocr" ? "ocr" : "object",
       detectedLanguage:

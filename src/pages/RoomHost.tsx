@@ -52,6 +52,7 @@ export default function RoomHost() {
   const [lastRoom, setLastRoom] = useState<{ code: string; sessionId: string; hostId: string } | null>(null);
   const [readyChunks, setReadyChunks] = useState(0);
   const [showImportMenu, setShowImportMenu] = useState(false);
+  const [shareNotice, setShareNotice] = useState<string | null>(null);
 
   const recognitionRef = useRef<any>(null);
   const transcriptRef = useRef("");
@@ -63,6 +64,7 @@ export default function RoomHost() {
   const wakeLockReleaseHandlerRef = useRef<(() => void) | null>(null);
   const keepAliveCtxRef = useRef<AudioContext | null>(null);
   const keepAliveOscRef = useRef<OscillatorNode | null>(null);
+  const shareNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const processingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const micAccessPrimedRef = useRef(false);
@@ -90,6 +92,15 @@ export default function RoomHost() {
     isListeningRef.current = isListening;
   }, [isListening]);
   useEffect(() => { isTranslatingRef.current = isTranslating; }, [isTranslating]);
+
+  const showShareCopiedNotice = useCallback(() => {
+    setShareNotice(t("linkCopied"));
+    if (shareNoticeTimerRef.current) clearTimeout(shareNoticeTimerRef.current);
+    shareNoticeTimerRef.current = setTimeout(() => {
+      setShareNotice(null);
+      shareNoticeTimerRef.current = null;
+    }, 2200);
+  }, [t]);
 
   // Wake Lock
   const startKeepAliveFallback = useCallback(async () => {
@@ -163,7 +174,10 @@ export default function RoomHost() {
     stopKeepAliveFallback();
   }, [stopKeepAliveFallback]);
 
-  useEffect(() => () => releaseWakeLock(), [releaseWakeLock]);
+  useEffect(() => () => {
+    releaseWakeLock();
+    if (shareNoticeTimerRef.current) clearTimeout(shareNoticeTimerRef.current);
+  }, [releaseWakeLock]);
 
   useEffect(() => {
     if (sessionId || isListening || isTranslating || processingRef.current) {
@@ -286,12 +300,21 @@ export default function RoomHost() {
         await navigator.share(shareData);
       } catch (e: any) {
         if (e.name !== "AbortError") {
-          await navigator.clipboard.writeText(url);
+          try {
+            await navigator.clipboard.writeText(url);
+            showShareCopiedNotice();
+          } catch {
+            setError("Could not share or copy the room link");
+          }
         }
       }
     } else {
-      await navigator.clipboard.writeText(url);
-      alert(t("linkCopied"));
+      try {
+        await navigator.clipboard.writeText(url);
+        showShareCopiedNotice();
+      } catch {
+        setError("Could not copy the room link");
+      }
     }
   };
 
@@ -910,6 +933,11 @@ export default function RoomHost() {
         <div className="mx-4 mt-3 p-3 bg-red-500/20 border border-red-500/30 rounded-xl flex items-center gap-3 shrink-0">
           <p className="text-sm text-red-400 flex-1">{error}</p>
           <button onClick={() => setError(null)} className="text-red-400 hover:text-[#F4F4F4] text-xs shrink-0">✕</button>
+        </div>
+      )}
+      {shareNotice && (
+        <div className="mx-4 mt-3 p-3 bg-[#295BDB]/20 border border-[#295BDB]/40 rounded-xl shrink-0">
+          <p className="text-sm text-[#7FAAFF]">{shareNotice}</p>
         </div>
       )}
 
