@@ -21,7 +21,6 @@ import {
   Square,
   Upload,
   GraduationCap,
-  Link2,
   Play,
 } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
@@ -317,7 +316,6 @@ export default function Learn() {
   const [textTranslateInput, setTextTranslateInput] = useState("");
   const [textTranslateOutput, setTextTranslateOutput] = useState("");
   const [textTranslateBusy, setTextTranslateBusy] = useState(false);
-  const [videoLinkInput, setVideoLinkInput] = useState("");
   const [videoSourceUrl, setVideoSourceUrl] = useState<string | null>(null);
   const [videoSourceName, setVideoSourceName] = useState("");
   const [videoProcessing, setVideoProcessing] = useState(false);
@@ -794,26 +792,6 @@ export default function Learn() {
       if (videoFileInputRef.current) videoFileInputRef.current.value = "";
     }
   }, [processVideoBlob]);
-
-  const handleVideoLink = useCallback(async () => {
-    const url = videoLinkInput.trim();
-    if (!url) return;
-    setVideoProcessing(true);
-    setError(null);
-    try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error("video_link_fetch_failed");
-      const blob = await res.blob();
-      await processVideoBlob(blob, url);
-    } catch {
-      setError(getUiLabel(
-        "Link video non supportato o bloccato (CORS). Usa un link diretto .mp4/.webm oppure carica il file.",
-        "Video link unsupported or blocked (CORS). Use a direct .mp4/.webm link or upload the file."
-      ));
-    } finally {
-      setVideoProcessing(false);
-    }
-  }, [getUiLabel, processVideoBlob, videoLinkInput]);
 
   const startDubbedPlayback = useCallback(async () => {
     const video = videoElementRef.current;
@@ -1760,27 +1738,6 @@ export default function Learn() {
                 className="hidden"
               />
 
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-[#F4F4F4]/60">
-                  {getUiLabel("Link video", "Video link")}
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    value={videoLinkInput}
-                    onChange={(e) => setVideoLinkInput(e.target.value)}
-                    placeholder={getUiLabel("Incolla un link diretto .mp4/.webm", "Paste a direct .mp4/.webm link")}
-                    className="flex-1 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl px-3 py-2.5 text-sm text-[#F4F4F4] outline-none focus:ring-2 focus:ring-[#295BDB]"
-                  />
-                  <button
-                    onClick={handleVideoLink}
-                    disabled={!videoLinkInput.trim() || videoProcessing}
-                    className="px-3 py-2.5 rounded-xl bg-[#123182] text-[#F4F4F4]/80 hover:bg-[#123182]/80 disabled:opacity-40 transition-colors"
-                  >
-                    <Link2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-
               <button
                 onClick={() => videoFileInputRef.current?.click()}
                 disabled={videoProcessing}
@@ -1789,6 +1746,12 @@ export default function Learn() {
                 <Upload className="w-4 h-4" />
                 {getUiLabel("Carica video", "Upload video")}
               </button>
+              <p className="text-xs text-[#F4F4F4]/45">
+                {getUiLabel(
+                  "Per ora supporto solo upload diretto del file video (YouTube disattivato finché non è affidabile).",
+                  "For now only direct video upload is supported (YouTube disabled until reliable)."
+                )}
+              </p>
 
               {videoSourceUrl && (
                 <div className="bg-[#0E2666] border border-[#FFFFFF14] rounded-2xl p-3 space-y-3">
