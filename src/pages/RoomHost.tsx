@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Mic, Radio, Users, MessageCircleQuestion, LogOut, QrCode, X, Upload, Share2, RotateCcw, Printer, Check, Download, ClipboardPaste, FolderOpen, MessageCircle } from "lucide-react";
+import { ChevronLeft, Mic, Radio, Users, MessageCircleQuestion, LogOut, QrCode, X, Upload, Share2, RotateCcw, Printer, Check, ClipboardPaste, FolderOpen, MessageCircle } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
@@ -52,7 +52,6 @@ export default function RoomHost() {
   const [rejoining, setRejoining] = useState(false);
   const [lastRoom, setLastRoom] = useState<{ code: string; sessionId: string; hostId: string } | null>(null);
   const [readyChunks, setReadyChunks] = useState(0);
-  const [showImportMenu, setShowImportMenu] = useState(false);
   const [shareNotice, setShareNotice] = useState<string | null>(null);
 
   const recognitionRef = useRef<any>(null);
@@ -953,37 +952,20 @@ export default function RoomHost() {
               onChange={handleFileChange}
               className="hidden"
             />
-            <div className="relative">
-              <button
-                onClick={() => setShowImportMenu(!showImportMenu)}
-                disabled={isListening || isTranslating}
-                className="p-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/50 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-40"
-              >
-                <Download className="w-5 h-5" />
-              </button>
-              {showImportMenu && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setShowImportMenu(false)} />
-                  <div className="absolute left-0 top-full mt-1 z-50 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl overflow-hidden shadow-xl min-w-[160px]">
-                    <button
-                      onClick={() => { setShowImportMenu(false); handlePaste(); }}
-                      className="w-full flex items-center gap-3 px-4 py-3 text-sm text-[#F4F4F4]/80 hover:bg-[#123182] transition-colors"
-                    >
-                      <ClipboardPaste className="w-4 h-4 text-[#F4F4F4]/40" />
-                      {t("paste")}
-                    </button>
-                    <div className="border-t border-[#FFFFFF14]" />
-                    <button
-                      onClick={() => { setShowImportMenu(false); fileInputRef.current?.click(); }}
-                      className="w-full flex items-center gap-3 px-4 py-3 text-sm text-[#F4F4F4]/80 hover:bg-[#123182] transition-colors"
-                    >
-                      <FolderOpen className="w-4 h-4 text-[#F4F4F4]/40" />
-                      {t("browse")}
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
+            <button
+              onClick={handlePaste}
+              disabled={isListening || isTranslating}
+              className="p-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/50 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-40"
+            >
+              <ClipboardPaste className="w-5 h-5" />
+            </button>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isListening || isTranslating}
+              className="p-2.5 ml-2 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/50 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-40"
+            >
+              <FolderOpen className="w-5 h-5" />
+            </button>
             <div className="flex-1" />
             <button
               onClick={handleWhatsAppShareMessages}
