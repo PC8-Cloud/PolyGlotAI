@@ -7,6 +7,7 @@ import { LANGUAGES, getLocaleForCode } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
 import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, getRealtimeTranslationConfig, suspendAudioForMic } from "../lib/openai";
 import { extractTextFromFile } from "../lib/file-reader";
+import { readClipboardText } from "../lib/clipboard";
 
 interface Entry {
   id: number;
@@ -457,7 +458,7 @@ export default function MegaphonePage() {
 
   const handlePaste = async () => {
     try {
-      const text = await navigator.clipboard.readText();
+      const text = await readClipboardText({ manualPrompt: t("loadTextPaste") });
       if (text.trim()) handleLoadedText(text.trim());
     } catch {
       setError("Clipboard access denied");

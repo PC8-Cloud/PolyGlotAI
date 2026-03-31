@@ -8,6 +8,7 @@ import { LANGUAGES, getLocaleForCode } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
 import { translateText, getApiErrorMessage, getRealtimeTranslationConfig, suspendAudioForMic } from "../lib/openai";
 import { extractTextFromFile } from "../lib/file-reader";
+import { readClipboardText } from "../lib/clipboard";
 import { createRoom, sendMessage } from "../lib/firebase-helpers";
 import { db } from "../firebase";
 import { collection, doc, getDoc, onSnapshot, orderBy, query, updateDoc, where, getDocs, limit } from "firebase/firestore";
@@ -745,7 +746,7 @@ export default function RoomHost() {
 
   const handlePaste = async () => {
     try {
-      const text = await navigator.clipboard.readText();
+      const text = await readClipboardText({ manualPrompt: t("loadTextPaste") });
       if (text.trim()) handleLoadedText(text.trim());
     } catch {
       setError("Clipboard access denied");
