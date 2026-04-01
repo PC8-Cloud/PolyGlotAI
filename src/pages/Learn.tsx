@@ -586,10 +586,6 @@ export default function Learn() {
     };
   }, [nativeLangLabel, targetLangLabel]);
 
-  const handleTextTranslatePaste = useCallback(async () => {
-    textTranslateInputRef.current?.focus();
-  }, []);
-
   const handleTextTranslateFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -598,39 +594,32 @@ export default function Learn() {
     try {
       const isImage = file.type.startsWith("image/") || /\.(png|jpe?g|webp|bmp|gif)$/i.test(file.name);
       if (isImage) {
-        const dataUrl = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(String(reader.result || ""));
-          reader.onerror = () => reject(reader.error || new Error("image_read_failed"));
-          reader.readAsDataURL(file);
-        });
-        const base64 = dataUrl.split(",")[1];
-        if (!base64) throw new Error("image_parse_failed");
-        const analysis = await analyzeImage(base64, targetLangLabel, nativeLangLabel);
-        const extracted = (analysis.extractedText || analysis.objectName || "").trim();
-        const translated = (analysis.translatedText || analysis.translation || "").trim();
+        throw new Error("image_not_supported_in_text_mode");
+      }
+
+      let extracted = (await extractTextFromFile(file)).trim();
+      if (extracted) {
         setTextTranslateInput(extracted);
-        setTextTranslateOutput(translated);
-      } else {
-        let extracted = (await extractTextFromFile(file)).trim();
-        if (extracted) {
-          setTextTranslateInput(extracted);
-          const result = await translateText(extracted, nativeLang, [targetLang], { mode: "general" });
-          setTextTranslateOutput(result[targetLang] || "");
-        } else if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
-          const scanned = await ocrPdfWithVision(file);
-          if (!scanned.extractedText && !scanned.translatedText) {
-            throw new Error("ocr_empty");
-          }
-          setTextTranslateInput(scanned.extractedText);
-          setTextTranslateOutput(scanned.translatedText);
-        } else {
-          throw new Error("empty_text");
+        const result = await translateText(extracted, nativeLang, [targetLang], { mode: "general" });
+        setTextTranslateOutput(result[targetLang] || "");
+      } else if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+        const scanned = await ocrPdfWithVision(file);
+        if (!scanned.extractedText && !scanned.translatedText) {
+          throw new Error("ocr_empty");
         }
+        setTextTranslateInput(scanned.extractedText);
+        setTextTranslateOutput(scanned.translatedText);
+      } else {
+        throw new Error("empty_text");
       }
     } catch (e: any) {
       const known = String(e?.message || "");
-      if (known === "empty_text" || known === "ocr_empty") {
+      if (known === "image_not_supported_in_text_mode") {
+        setError(getUiLabel(
+          "Per immagini usa la funzione Fotocamera.",
+          "For images, use the Camera feature."
+        ));
+      } else if (known === "empty_text" || known === "ocr_empty") {
         setError(getUiLabel(
           "Nessun testo rilevato nel file. Prova con un file più leggibile.",
           "No readable text found in the file. Try a clearer file."
@@ -1780,7 +1769,7 @@ export default function Learn() {
               <input
                 ref={textFileInputRef}
                 type="file"
-                accept=".txt,.pdf,.md,.text,.docx,.doc,.png,.jpg,.jpeg,.webp,.bmp,.gif"
+                accept=".txt,.pdf,.md,.text,.docx,.doc"
                 onChange={handleTextTranslateFile}
                 className="hidden"
               />
@@ -1798,23 +1787,14 @@ export default function Learn() {
                 />
               </div>
 
-              <div className="flex gap-2">
-                <button
-                  onClick={handleTextTranslatePaste}
-                  disabled={textTranslateBusy}
-                  className="flex-1 py-3 rounded-xl bg-[#123182] text-[#F4F4F4]/80 hover:bg-[#123182]/80 disabled:opacity-40 transition-colors text-sm font-medium"
-                >
-                  {getUiLabel("Incolla", "Paste")}
-                </button>
-                <button
-                  onClick={() => textFileInputRef.current?.click()}
-                  disabled={textTranslateBusy}
-                  className="flex-1 py-3 rounded-xl bg-[#123182] text-[#F4F4F4]/80 hover:bg-[#123182]/80 disabled:opacity-40 transition-colors text-sm font-medium flex items-center justify-center gap-2"
-                >
-                  <Upload className="w-4 h-4" />
-                  {getUiLabel("Sfoglia", "Browse")}
-                </button>
-              </div>
+              <button
+                onClick={() => textFileInputRef.current?.click()}
+                disabled={textTranslateBusy}
+                className="w-full py-3 rounded-xl bg-[#123182] text-[#F4F4F4]/80 hover:bg-[#123182]/80 disabled:opacity-40 transition-colors text-sm font-medium flex items-center justify-center gap-2"
+              >
+                <Upload className="w-4 h-4" />
+                {getUiLabel("Sfoglia", "Browse")}
+              </button>
 
               <button
                 onClick={() => translatePlainText(textTranslateInput)}
