@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { createSession } from "../lib/firebase-helpers";
-import { Settings, Camera, MessagesSquare, Coins, MessageSquarePlus, Users, Globe, ChevronLeft, WifiOff, Download, Check, Loader2, Volume2, GraduationCap, Plus, X, Search, User, Pencil, Lock } from "lucide-react";
+import { Settings, Camera, MessagesSquare, Coins, MessageSquarePlus, Users, Globe, ChevronLeft, WifiOff, Download, Check, Loader2, GraduationCap, Plus, X, Search, User, Pencil, Lock } from "lucide-react";
 import { signInWithPopup, GoogleAuthProvider } from "firebase/auth";
 import { auth } from "../firebase";
 import { useTranslation } from "../lib/i18n";
@@ -18,7 +18,6 @@ import {
   isOnline,
 } from "../lib/offline";
 import { ALL_PHRASE_TEXTS } from "../lib/phrases-data";
-import { playTTS, prepareAudioForSafari } from "../lib/openai";
 
 export default function Home() {
   const navigate = useNavigate();
@@ -31,18 +30,14 @@ export default function Home() {
   const [tempName, setTempName] = useState("");
   const [tempGender, setTempGender] = useState<"male" | "female" | "">("");
   const [tempLang, setTempLang] = useState("");
-  const [tempVoice, setTempVoice] = useState("");
   const [tempSpeed, setTempSpeed] = useState(1.0);
   const [settingsLang, setSettingsLang] = useState("");
-  const [settingsVoice, setSettingsVoice] = useState("");
   const [settingsSpeed, setSettingsSpeed] = useState(1.0);
   const [settingsTranslationPerformance, setSettingsTranslationPerformance] = useState<"auto" | "fast" | "balanced">("auto");
 
   const {
     uiLanguage,
     setUiLanguage,
-    ttsVoice,
-    setTtsVoice,
     ttsSpeed,
     setTtsSpeed,
     favoriteLanguages,
@@ -57,30 +52,13 @@ export default function Home() {
 
   const t = useTranslation(uiLanguage);
 
-  const [previewingVoice, setPreviewingVoice] = useState<string | null>(null);
   const translationModeLabel =
     uiLanguage === "it"
       ? { title: "Modalita traduzione live", desc: "Auto adatta velocita e qualita in base a rete e carico.", auto: "Auto", fast: "Rapida", balanced: "Bilanciata" }
       : { title: "Live Translation Mode", desc: "Auto balances speed and quality based on network and load.", auto: "Auto", fast: "Fast", balanced: "Balanced" };
 
-  const TTS_VOICES = [
-    { id: "alloy", label: "Alloy", descKey: "voiceAlloy" as const },
-    { id: "ash", label: "Ash", descKey: "voiceAsh" as const },
-    { id: "ballad", label: "Ballad", descKey: "voiceBallad" as const },
-    { id: "coral", label: "Coral", descKey: "voiceCoral" as const },
-    { id: "echo", label: "Echo", descKey: "voiceEcho" as const },
-    { id: "fable", label: "Fable", descKey: "voiceFable" as const },
-    { id: "nova", label: "Nova", descKey: "voiceNova" as const },
-    { id: "onyx", label: "Onyx", descKey: "voiceOnyx" as const },
-    { id: "sage", label: "Sage", descKey: "voiceSage" as const },
-    { id: "shimmer", label: "Shimmer", descKey: "voiceShimmer" as const },
-  ];
-
-  const previewAbortRef = useRef(false);
-
   const openSettings = () => {
     setSettingsLang(uiLanguage);
-    setSettingsVoice(ttsVoice);
     setSettingsSpeed(ttsSpeed);
     setSettingsTranslationPerformance(translationPerformance);
     setShowSettings(true);
@@ -88,31 +66,9 @@ export default function Home() {
 
   const handleSaveSettings = () => {
     setUiLanguage(settingsLang);
-    setTtsVoice(settingsVoice);
     setTtsSpeed(settingsSpeed);
     setTranslationPerformance(settingsTranslationPerformance);
     setShowSettings(false);
-  };
-
-  const handlePreviewVoice = async (voiceId: string) => {
-    // If already previewing, just switch — don't block
-    previewAbortRef.current = true;
-    prepareAudioForSafari();
-    setPreviewingVoice(voiceId);
-
-    // Small delay to let any in-flight playback notice abort
-    await new Promise((r) => setTimeout(r, 100));
-    previewAbortRef.current = false;
-
-    try {
-      await playTTS("Hello! This is how I sound.", voiceId as any, settingsSpeed || 1.0, "en");
-    } catch (e) {
-      console.error("Voice preview failed:", e);
-    } finally {
-      if (!previewAbortRef.current) {
-        setPreviewingVoice(null);
-      }
-    }
   };
   const handleStartSession = async () => {
     if (!auth.currentUser) {
@@ -362,7 +318,6 @@ export default function Home() {
                     setTempName(userName);
                     setTempGender(userGender);
                     setTempLang(uiLanguage);
-                    setTempVoice(ttsVoice);
                     setTempSpeed(ttsSpeed);
                     setShowPersonalize(true);
                   }}
@@ -373,7 +328,7 @@ export default function Home() {
                   </div>
                   <div className="flex-1 min-w-0 text-left">
                     <p className="text-sm font-bold text-[#F4F4F4]">{userName}</p>
-                    <p className="text-xs text-[#F4F4F4]/40">{LANGUAGES.find((l) => l.code === uiLanguage)?.label} · {TTS_VOICES.find((v) => v.id === ttsVoice)?.label}</p>
+                    <p className="text-xs text-[#F4F4F4]/40">{LANGUAGES.find((l) => l.code === uiLanguage)?.label}</p>
                   </div>
                   <Pencil className="w-4 h-4 text-[#F4F4F4]/30 shrink-0" />
                 </button>
@@ -383,7 +338,6 @@ export default function Home() {
                     setTempName("");
                     setTempGender("");
                     setTempLang(uiLanguage);
-                    setTempVoice(ttsVoice);
                     setTempSpeed(ttsSpeed);
                     setShowPersonalize(true);
                   }}
@@ -495,40 +449,6 @@ export default function Home() {
                   </div>
                 </div>
               )}
-
-              <div className="border-t border-[#FFFFFF14]" />
-
-              {/* TTS Voice */}
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <Volume2 className="w-4 h-4 text-[#F4F4F4]/50" />
-                  <label className="text-sm font-medium text-[#F4F4F4]/80">{t("voice")}</label>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  {TTS_VOICES.map((v) => (
-                    <button
-                      key={v.id}
-                      onClick={() => {
-                        setSettingsVoice(v.id);
-                        handlePreviewVoice(v.id);
-                      }}
-                      className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors border ${
-                        settingsVoice === v.id
-                          ? "bg-[#295BDB]/20 border-[#295BDB] text-[#295BDB]"
-                          : "bg-[#02114A] border-[#FFFFFF14] text-[#F4F4F4]/60 hover:border-[#FFFFFF30]"
-                      }`}
-                    >
-                      <div className="flex-1 min-w-0">
-                        <span className="block">{v.label}</span>
-                        <span className="block text-[10px] opacity-60">{t(v.descKey)}</span>
-                      </div>
-                      {previewingVoice === v.id && (
-                        <Loader2 className="w-3 h-3 animate-spin shrink-0" />
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
 
               {/* Voice Speed */}
               <div>
@@ -679,33 +599,6 @@ export default function Home() {
                 )}
               </div>
 
-              {/* Voice */}
-              <div>
-                <label className="block text-sm font-medium text-[#F4F4F4]/80 mb-2">{t("personalizeVoice")}</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {TTS_VOICES.map((v) => (
-                    <button
-                      key={v.id}
-                      onClick={() => {
-                        setTempVoice(v.id);
-                        prepareAudioForSafari();
-                        playTTS("Hello! This is how I sound.", v.id as any, 1.0, "en").catch(() => {});
-                      }}
-                      className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors border ${
-                        tempVoice === v.id
-                          ? "bg-[#295BDB]/20 border-[#295BDB] text-[#295BDB]"
-                          : "bg-[#02114A] border-[#FFFFFF14] text-[#F4F4F4]/60 hover:border-[#FFFFFF30]"
-                      }`}
-                    >
-                      <div className="flex-1 min-w-0">
-                        <span className="block">{v.label}</span>
-                        <span className="block text-[10px] opacity-60">{t(v.descKey)}</span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
               {/* Voice Speed */}
               <div>
                 <div className="flex items-center justify-between mb-3">
@@ -735,7 +628,6 @@ export default function Home() {
                     setUserName(tempName.trim());
                     setUserGender(tempGender);
                     setUiLanguage(tempLang);
-                    setTtsVoice(tempVoice);
                     setTtsSpeed(tempSpeed);
                     setShowPersonalize(false);
                   }

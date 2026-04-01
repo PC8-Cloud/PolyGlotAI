@@ -9,6 +9,35 @@ export const config = {
   },
 };
 
+const LANGUAGE_HINTS: Record<string, string> = {
+  it: "Italian",
+  en: "English",
+  de: "German",
+  es: "Spanish",
+  fr: "French",
+  pt: "Portuguese",
+  zh: "Chinese",
+  ja: "Japanese",
+  ko: "Korean",
+  ar: "Arabic",
+  ru: "Russian",
+  nl: "Dutch",
+  pl: "Polish",
+  tr: "Turkish",
+};
+
+function buildTranscriptionPrompt(rawExpected?: string): string | undefined {
+  const expected = String(rawExpected || "")
+    .split(",")
+    .map((v) => v.trim().toLowerCase())
+    .filter(Boolean)
+    .map((code) => code.split("-")[0]);
+  if (expected.length === 0) return undefined;
+  const names = [...new Set(expected.map((code) => LANGUAGE_HINTS[code]).filter(Boolean))];
+  if (names.length === 0) return undefined;
+  return `Likely spoken languages: ${names.join(" or ")}. Transcribe only spoken words, avoid filler hallucinations, preserve punctuation when clear.`;
+}
+
 function parseBody(req: VercelRequest): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -38,6 +67,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const languagePart = parts.find((p) => p.name === "language");
       const modelPart = parts.find((p) => p.name === "model");
       const includeTimestampsPart = parts.find((p) => p.name === "include_timestamps");
+      const expectedLanguagesPart = parts.find((p) => p.name === "expected_languages");
 
       if (!filePart?.data) return res.status(400).json({ error: "No audio file" });
 
@@ -51,6 +81,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const detectLangPart = parts.find((p) => p.name === "detect_language");
       const detectLang = detectLangPart?.data?.toString() === "true";
       const includeTimestamps = includeTimestampsPart?.data?.toString() === "true";
+      const prompt = buildTranscriptionPrompt(expectedLanguagesPart?.data?.toString());
 
       if (detectLang || includeTimestamps) {
         // Use whisper-1 with verbose_json to detect language reliably
@@ -59,6 +90,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           model: "whisper-1",
           file,
           response_format: "verbose_json",
+          temperature: 0,
+          ...(prompt ? { prompt } : {}),
           ...(includeTimestamps ? { timestamp_granularities: ["segment"] as any } : {}),
         } as any);
         const rawSegments = Array.isArray((response as any).segments) ? (response as any).segments : [];
@@ -79,6 +112,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const response = await client.audio.transcriptions.create({
         model,
         file,
+        temperature: 0,
+        ...(prompt ? { prompt } : {}),
         ...(language && language !== "auto" ? { language } : {}),
       });
 

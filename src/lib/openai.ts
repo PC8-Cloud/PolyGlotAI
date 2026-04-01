@@ -170,11 +170,15 @@ export async function transcribeAudio(
 /** Transcribe audio AND detect language (for conversation auto-detect) */
 export async function transcribeAudioDetectLang(
   audioBlob: Blob,
+  expectedLanguages?: string[],
 ): Promise<{ text: string; language: string }> {
   const formData = new FormData();
   formData.append("file", audioBlob, "audio.webm");
   formData.append("model", getModels().transcribe);
   formData.append("detect_language", "true");
+  if (Array.isArray(expectedLanguages) && expectedLanguages.length > 0) {
+    formData.append("expected_languages", expectedLanguages.join(","));
+  }
 
   const response = await withRetry(async () => {
     const res = await fetch("/api/transcribe", {
@@ -344,15 +348,35 @@ export async function translateUIChunk(
 
 export type TTSVoice = "alloy" | "ash" | "ballad" | "coral" | "echo" | "fable" | "onyx" | "nova" | "sage" | "shimmer";
 
+const AUTO_TTS_VOICE_BY_LANG: Record<string, TTSVoice> = {
+  it: "sage",
+  en: "nova",
+  de: "onyx",
+  es: "coral",
+  fr: "alloy",
+  pt: "shimmer",
+  zh: "echo",
+  ja: "ash",
+  ko: "ballad",
+  ar: "fable",
+};
+
+function getAutoVoiceForLanguage(langCode?: string): TTSVoice {
+  const base = String(langCode || "").toLowerCase().split("-")[0];
+  return AUTO_TTS_VOICE_BY_LANG[base] || "nova";
+}
+
 // Detect Safari (doesn't support opus well, and blocks non-user-initiated audio)
 const isSafari = typeof navigator !== "undefined" &&
   /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
 
 export async function textToSpeech(
   text: string,
-  voice: TTSVoice = "nova",
+  voice?: TTSVoice,
   speed: number = 1.0,
+  langCode?: string,
 ): Promise<ArrayBuffer> {
+  const selectedVoice = voice || getAutoVoiceForLanguage(langCode);
   const format = isSafari ? "mp3" : "opus";
   const response = await withRetry(async () => {
     const res = await fetch("/api/tts", {
@@ -360,8 +384,9 @@ export async function textToSpeech(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         text,
-        voice,
+        voice: selectedVoice,
         speed,
+        langCode,
         format,
         model: getModels().tts,
       }),
@@ -376,12 +401,38 @@ export async function textToSpeech(
   return response.arrayBuffer();
 }
 
+function normalizeTextForSpeech(text: string, langCode?: string): string {
+  let out = String(text || "")
+    .replace(/\s+/g, " ")
+    .replace(/\s+([,.;!?])/g, "$1")
+    .trim();
+
+  // Remove markdown artifacts that hurt pronunciation.
+  out = out.replace(/[*_`#]+/g, "");
+
+  // Expand common separators for cleaner prosody.
+  out = out.replace(/\s*\/\s*/g, " / ");
+  out = out.replace(/\s*-\s*/g, " - ");
+
+  // Ensure terminal punctuation (helps intonation in short utterances).
+  if (out && !/[.!?…]$/.test(out)) {
+    out += ".";
+  }
+
+  const lc = String(langCode || "").toLowerCase().split("-")[0];
+  if (lc === "it") {
+    // Better Italian rhythm for short translated phrases.
+    out = out.replace(/,(\S)/g, ", $1");
+  }
+  return out;
+}
+
 // ─── Audio playback engine (iOS/Android compatible) ─────────────────────────
 
 let _audioCtx: AudioContext | null = null;
 // Pre-warmed Audio element — created on user gesture, reused for playback
 let _warmAudio: HTMLAudioElement | null = null;
-const AUDIO_DEBUG = true;
+const AUDIO_DEBUG = typeof import.meta !== "undefined" ? Boolean((import.meta as any).env?.DEV) : false;
 
 // Tiny silent MP3 (1 frame) — just to unlock playback
 const SILENT_MP3 = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRwLHAAAAAAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRwLHAAAAAAAAAAAAAAAAAAAA";
@@ -482,23 +533,24 @@ export async function playTTS(
   langCode?: string,
 ): Promise<void> {
   const state = useUserStore.getState();
-  const selectedVoice = (voice || state.ttsVoice || "nova") as TTSVoice;
+  const selectedVoice = (voice || getAutoVoiceForLanguage(langCode) || "nova") as TTSVoice;
   const userSpeed = state.ttsSpeed || 1.0;
   const baseSpeed = typeof speed === "number" ? speed : 1.0;
   const selectedSpeed = Math.max(0.7, Math.min(1.8, baseSpeed * userSpeed));
+  const spokenText = normalizeTextForSpeech(text, langCode);
 
   // If connection is slow or offline, use local TTS
   if (isConnectionSlow() || !isOnlineCheck()) {
     if (canUseLocalTTS()) {
-      if (AUDIO_DEBUG) console.log("[Audio] playTTS -> localTTS", { langCode, textPreview: text.slice(0, 60) });
-      return playLocalTTS(text, langCode);
+      if (AUDIO_DEBUG) console.log("[Audio] playTTS -> localTTS", { langCode, textPreview: spokenText.slice(0, 60) });
+      return playLocalTTS(spokenText, langCode);
     }
   }
 
   try {
-    if (AUDIO_DEBUG) console.log("[Audio] playTTS start", { langCode, voice: selectedVoice, speed: selectedSpeed, textPreview: text.slice(0, 60), audioCtxState: _audioCtx?.state });
+    if (AUDIO_DEBUG) console.log("[Audio] playTTS start", { langCode, voice: selectedVoice, speed: selectedSpeed, textPreview: spokenText.slice(0, 60), audioCtxState: _audioCtx?.state });
     const start = Date.now();
-    const buffer = await textToSpeech(text, selectedVoice, selectedSpeed);
+    const buffer = await textToSpeech(spokenText, selectedVoice, selectedSpeed, langCode);
     reportResponseTime(Date.now() - start);
 
     // Strategy 1: AudioContext (best for iOS — stays unlocked after initial gesture)
@@ -518,7 +570,7 @@ export async function playTTS(
         source.start();
         return new Promise<void>((resolve) => {
           source.onended = () => {
-            if (AUDIO_DEBUG) console.log("[Audio] playTTS end via AudioContext", { langCode, textPreview: text.slice(0, 60) });
+            if (AUDIO_DEBUG) console.log("[Audio] playTTS end via AudioContext", { langCode, textPreview: spokenText.slice(0, 60) });
             resolve();
           };
         });
@@ -539,14 +591,14 @@ export async function playTTS(
     return new Promise((resolve, reject) => {
       audio.onended = () => {
         URL.revokeObjectURL(url);
-        if (AUDIO_DEBUG) console.log("[Audio] playTTS end via HTMLAudio", { langCode, textPreview: text.slice(0, 60) });
+        if (AUDIO_DEBUG) console.log("[Audio] playTTS end via HTMLAudio", { langCode, textPreview: spokenText.slice(0, 60) });
         resolve();
       };
       audio.onerror = (e) => {
         URL.revokeObjectURL(url);
         if (AUDIO_DEBUG) console.warn("[Audio] playTTS HTMLAudio error", e);
         if (canUseLocalTTS()) {
-          playLocalTTS(text, langCode).then(resolve).catch(reject);
+          playLocalTTS(spokenText, langCode).then(resolve).catch(reject);
         } else {
           reject(e);
         }
@@ -555,7 +607,7 @@ export async function playTTS(
         URL.revokeObjectURL(url);
         if (AUDIO_DEBUG) console.warn("[Audio] playTTS audio.play() rejected", playErr);
         if (canUseLocalTTS()) {
-          playLocalTTS(text, langCode).then(resolve).catch(reject);
+          playLocalTTS(spokenText, langCode).then(resolve).catch(reject);
         } else {
           reject(playErr);
         }
@@ -564,7 +616,7 @@ export async function playTTS(
   } catch (e) {
     if (AUDIO_DEBUG) console.warn("[Audio] playTTS failed, trying fallback", e);
     if (canUseLocalTTS()) {
-      return playLocalTTS(text, langCode);
+      return playLocalTTS(spokenText, langCode);
     }
     throw e;
   }

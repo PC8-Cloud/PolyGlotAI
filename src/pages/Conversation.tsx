@@ -493,7 +493,10 @@ export default function Conversation() {
         processingRef.current = true;
         setChatState("transcribing");
         try {
-          const { text, language: detectedLang } = await transcribeAudioDetectLang(blob);
+          const { text, language: detectedLang } = await transcribeAudioDetectLang(blob, [
+            yourLangRef.current,
+            theirLangRef.current,
+          ]);
           console.log("[Conversation] detected:", { text: text.substring(0, 50), language: detectedLang, blobSize: blob.size, blobType: blob.type });
 
           // Filter out empty, too-short, or Whisper hallucination artifacts
@@ -503,6 +506,8 @@ export default function Conversation() {
           const isWeakCapture = recordDuration < 900 || peakLevel < 0.05;
           const isSilenceToken =
             /^(you|uh|um|hmm+|mm+|eh+|ah+|ok+|okay)$/.test(cleanedLower);
+          const isLikelyGhostPronoun =
+            /^(you|tu|du|voi|sie|te)$/.test(cleanedLower) && recordDuration < 1600;
           const isHallucination =
             !trimmed ||
             trimmed.length < 2 ||
@@ -525,7 +530,8 @@ export default function Conversation() {
             /\bnews\b/i.test(trimmed) ||
             /\b(mbc|cnn|bbc|fox|nbc|abc|cbs|sky|rai|tg[1-5])\b/i.test(trimmed) ||
             /\b(reporter|anchor|correspondent|breaking|headline)\b/i.test(trimmed) ||
-            (isWeakCapture && isSilenceToken);
+            (isWeakCapture && isSilenceToken) ||
+            isLikelyGhostPronoun;
 
           if (isHallucination || !conversationActiveRef.current) {
             console.log("[Conversation] filtered hallucination:", trimmed.substring(0, 40));
