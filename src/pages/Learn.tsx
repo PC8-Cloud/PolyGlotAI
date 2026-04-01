@@ -52,7 +52,7 @@ interface TutorResponse {
 type Level = "molto_base" | "base" | "intermedio" | "alto" | "madrelingua";
 type Topic = "free" | "greetings" | "restaurant" | "directions" | "shopping" | "work" | "travel" | "daily";
 type ChatState = "idle" | "speaking" | "listening" | "transcribing" | "thinking";
-type LearnMode = "conversation" | "vocabulary" | "text_translate" | "video_translate";
+type LearnMode = "conversation" | "vocabulary" | "text_translate";
 type VocabState = "loading" | "ready" | "listening" | "evaluating" | "correct" | "wrong" | "complete";
 
 interface VocabWord {
@@ -153,6 +153,7 @@ const VOCAB_NO_SPEECH_TIMEOUT_MS = 3500;
 const SCANNED_PDF_MAX_PAGES = 4;
 const VIDEO_MAX_DURATION_SEC = 15 * 60;
 const VIDEO_MAX_SEGMENTS = 120;
+const LEARN_DEBUG = typeof import.meta !== "undefined" ? Boolean((import.meta as any).env?.DEV) : false;
 
 // ─── Voice commands (multilingual) ───────────────────────────────────────────
 
@@ -180,9 +181,10 @@ function detectVoiceCommand(text: string): VoiceCommand {
   const normalized = text.toLowerCase().trim().replace(/[.!?,;]+$/, "").trim();
   // Exact match first
   if (VOICE_COMMANDS[normalized]) return VOICE_COMMANDS[normalized];
-  // Check if starts with a command word (for phrases like "stop please")
+  // Check command at phrase start with word boundary (for phrases like "stop please")
   for (const [key, cmd] of Object.entries(VOICE_COMMANDS)) {
-    if (normalized.startsWith(key)) return cmd;
+    const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (new RegExp(`^${escaped}(\\b|\\s|$)`, "i").test(normalized)) return cmd;
   }
   return null;
 }
@@ -597,21 +599,33 @@ export default function Learn() {
         throw new Error("image_not_supported_in_text_mode");
       }
 
+      const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
       let extracted = (await extractTextFromFile(file)).trim();
-      if (extracted) {
-        setTextTranslateInput(extracted);
-        const result = await translateText(extracted, nativeLang, [targetLang], { mode: "general" });
-        setTextTranslateOutput(result[targetLang] || "");
-      } else if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
-        const scanned = await ocrPdfWithVision(file);
-        if (!scanned.extractedText && !scanned.translatedText) {
-          throw new Error("ocr_empty");
+
+      // For scanned PDFs, extractor may return only tiny/garbled snippets.
+      // In that case force OCR path for better quality.
+      if (isPdf) {
+        const compact = extracted.replace(/\s+/g, "");
+        const words = extracted.split(/\s+/).filter(Boolean).length;
+        const weakPdfExtraction = !extracted || compact.length < 120 || words < 20;
+        if (weakPdfExtraction) {
+          const scanned = await ocrPdfWithVision(file);
+          if (!scanned.extractedText && !scanned.translatedText) {
+            throw new Error("ocr_empty");
+          }
+          extracted = scanned.extractedText || extracted;
+          setTextTranslateInput(extracted);
+          if (scanned.translatedText) {
+            setTextTranslateOutput(scanned.translatedText);
+            return;
+          }
         }
-        setTextTranslateInput(scanned.extractedText);
-        setTextTranslateOutput(scanned.translatedText);
-      } else {
-        throw new Error("empty_text");
       }
+
+      if (!extracted) throw new Error("empty_text");
+      setTextTranslateInput(extracted);
+      const result = await translateText(extracted, nativeLang, [targetLang], { mode: "general" });
+      setTextTranslateOutput(result[targetLang] || "");
     } catch (e: any) {
       const known = String(e?.message || "");
       if (known === "image_not_supported_in_text_mode") {
@@ -1012,7 +1026,7 @@ export default function Learn() {
   const startListening = useCallback(async () => {
     if (cancelledRef.current) return;
     if (mediaRecorderRef.current?.state === "recording") return;
-    console.log("[Learn] startListening");
+    if (LEARN_DEBUG) console.log("[Learn] startListening");
     suspendAudioForMic();
     setChatState("listening");
     try {
@@ -1104,7 +1118,7 @@ export default function Learn() {
   // ─── Stop listening ────────────────────────────────────────────────────────
 
   const stopListening = useCallback(() => {
-    console.log("[Learn] stopListening");
+    if (LEARN_DEBUG) console.log("[Learn] stopListening");
     cancelAnimationFrame(animFrameRef.current);
     if (mediaRecorderRef.current?.state === "recording") {
       mediaRecorderRef.current.stop();
@@ -1173,7 +1187,7 @@ export default function Learn() {
       // Speak tutor reply, then auto-listen
       setChatState("speaking");
       try {
-        console.log("[Learn] play tutor TTS", { textPreview: data.text.slice(0, 60), targetLang });
+        if (LEARN_DEBUG) console.log("[Learn] play tutor TTS", { textPreview: data.text.slice(0, 60), targetLang });
         if (data.text) {
           await playTTS(data.text, undefined, currentSpeedRef.current, targetLang);
         }
@@ -1442,7 +1456,7 @@ export default function Learn() {
   };
 
   const startVocabListening = async () => {
-    console.log("[Learn] startVocabListening");
+    if (LEARN_DEBUG) console.log("[Learn] startVocabListening");
     if (vocabRecorderRef.current?.state === "recording") return;
     setVocabState("listening");
     setError(null);
@@ -1574,7 +1588,7 @@ export default function Learn() {
   };
 
   const stopVocabListening = () => {
-    console.log("[Learn] stopVocabListening");
+    if (LEARN_DEBUG) console.log("[Learn] stopVocabListening");
     if (vocabAnimRef.current) cancelAnimationFrame(vocabAnimRef.current);
     if (vocabMaxTimerRef.current) {
       clearTimeout(vocabMaxTimerRef.current);
@@ -1642,7 +1656,7 @@ export default function Learn() {
 
         <div className="flex-1 overflow-y-auto p-4 space-y-5 max-w-sm mx-auto w-full">
           {/* Mode toggle */}
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <button
               onClick={() => setMode("conversation")}
               className={`flex-1 py-3 rounded-xl font-medium text-sm transition-colors border ${
@@ -1672,16 +1686,6 @@ export default function Learn() {
               }`}
             >
               {getUiLabel("Traduci testo", "Translate text")}
-            </button>
-            <button
-              onClick={() => setMode("video_translate")}
-              className={`flex-1 py-3 rounded-xl font-medium text-sm transition-colors border ${
-                mode === "video_translate"
-                  ? "bg-[#295BDB]/20 border-[#295BDB] text-[#295BDB]"
-                  : "bg-[#0E2666] border-[#FFFFFF14] text-[#F4F4F4]/60"
-              }`}
-            >
-              {getUiLabel("Traduci video", "Translate video")}
             </button>
           </div>
 

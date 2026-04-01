@@ -28,6 +28,7 @@ const MIN_SPEECH_DURATION_MS = 320; // keep short utterances like "si", "ok", "g
 const SPEECH_PEAK_THRESHOLD = 0.03; // keep only the weakest noise out; do final filtering after transcription
 const MIN_AUDIO_BLOB_BYTES = 1000;
 const MAX_DUPLICATE_SIMILARITY = 0.8; // reject if >80% similar to a recent message
+const CONVERSATION_DEBUG = typeof import.meta !== "undefined" ? Boolean((import.meta as any).env?.DEV) : false;
 
 /** Simple text similarity (0-1) based on common words */
 function textSimilarity(a: string, b: string): number {
@@ -323,7 +324,7 @@ export default function Conversation() {
       if (rms < 0.001) {
         allZeroCount++;
         if (allZeroCount > 500 && (Date.now() - startTime) > 15000) {
-          console.log("[Conversation] analyser stuck at zero — iOS fallback, stopping");
+          if (CONVERSATION_DEBUG) console.log("[Conversation] analyser stuck at zero — iOS fallback, stopping");
           peakLevelRef.current = 1; // bypass peak check since analyser is broken
           stopListening();
           return;
@@ -435,7 +436,7 @@ export default function Conversation() {
 
   const startListening = useCallback(async () => {
     if (!conversationActiveRef.current || processingRef.current || mediaRecorderRef.current?.state === "recording") return;
-    console.log("[Conversation] startListening");
+    if (CONVERSATION_DEBUG) console.log("[Conversation] startListening");
     if (restartTimerRef.current) {
       clearTimeout(restartTimerRef.current);
       restartTimerRef.current = null;
@@ -482,7 +483,7 @@ export default function Conversation() {
           return;
         }
         if (recordDuration < MIN_SPEECH_DURATION_MS || peakLevel < SPEECH_PEAK_THRESHOLD) {
-          console.log("[Conversation] weak capture, transcribing anyway", {
+          if (CONVERSATION_DEBUG) console.log("[Conversation] weak capture, transcribing anyway", {
             blobSize: blob.size,
             recordDuration,
             peakLevel: peakLevel.toFixed(3),
@@ -497,7 +498,7 @@ export default function Conversation() {
             yourLangRef.current,
             theirLangRef.current,
           ]);
-          console.log("[Conversation] detected:", { text: text.substring(0, 50), language: detectedLang, blobSize: blob.size, blobType: blob.type });
+          if (CONVERSATION_DEBUG) console.log("[Conversation] detected:", { text: text.substring(0, 50), language: detectedLang, blobSize: blob.size, blobType: blob.type });
 
           // Filter out empty, too-short, or Whisper hallucination artifacts
           const trimmed = text.trim();
@@ -534,7 +535,7 @@ export default function Conversation() {
             isLikelyGhostPronoun;
 
           if (isHallucination || !conversationActiveRef.current) {
-            console.log("[Conversation] filtered hallucination:", trimmed.substring(0, 40));
+            if (CONVERSATION_DEBUG) console.log("[Conversation] filtered hallucination:", trimmed.substring(0, 40));
             processingRef.current = false;
             scheduleListeningRestart();
             return;
@@ -547,7 +548,7 @@ export default function Conversation() {
             return sim > MAX_DUPLICATE_SIMILARITY;
           });
           if (isDuplicate) {
-            console.log("[Conversation] rejected duplicate:", trimmed.substring(0, 40));
+            if (CONVERSATION_DEBUG) console.log("[Conversation] rejected duplicate:", trimmed.substring(0, 40));
             processingRef.current = false;
             scheduleListeningRestart();
             return;
@@ -581,7 +582,7 @@ export default function Conversation() {
 
           const side = sideFromLanguage || detectSideFromText(trimmed);
           lastDetectedSideRef.current = side;
-          console.log("[Conversation] side:", side, "yourLang:", yourLangRef.current, "theirLang:", theirLangRef.current);
+          if (CONVERSATION_DEBUG) console.log("[Conversation] side:", side, "yourLang:", yourLangRef.current, "theirLang:", theirLangRef.current);
 
           await processMessage(side, text.trim());
         } catch (e: any) {
@@ -601,7 +602,7 @@ export default function Conversation() {
       // Safety net: max recording duration 30s (in case silence detection fails on iOS)
       setTimeout(() => {
         if (mediaRecorderRef.current === recorder && recorder.state === "recording") {
-          console.log("[Conversation] max recording timeout — stopping");
+          if (CONVERSATION_DEBUG) console.log("[Conversation] max recording timeout — stopping");
           peakLevelRef.current = Math.max(peakLevelRef.current, 0.11); // bypass peak filter
           stopListening();
         }
@@ -618,7 +619,7 @@ export default function Conversation() {
   // ─── Stop listening ───────────────────────────────────────────────────
 
   const stopListening = useCallback(() => {
-    console.log("[Conversation] stopListening");
+    if (CONVERSATION_DEBUG) console.log("[Conversation] stopListening");
     cancelAnimationFrame(animFrameRef.current);
     if (mediaRecorderRef.current?.state === "recording") {
       mediaRecorderRef.current.stop();
@@ -655,7 +656,7 @@ export default function Conversation() {
 
       // Auto-speak translation — wait for TTS to finish before listening again
       if (autoSpeakRef.current && translatedText !== "...") {
-        console.log("[Conversation] play translated TTS", { targetLang, translatedText: translatedText.slice(0, 60) });
+        if (CONVERSATION_DEBUG) console.log("[Conversation] play translated TTS", { targetLang, translatedText: translatedText.slice(0, 60) });
         setChatState("speaking");
         setPlayingId(newId);
         setMessages((prev) =>
