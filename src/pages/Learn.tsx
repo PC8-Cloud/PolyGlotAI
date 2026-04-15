@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, type ChangeEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ChevronLeft,
@@ -30,6 +30,7 @@ import { LANGUAGES } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
 import { playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudio, suspendAudioForMic, translateText, analyzeImage, transcribeMediaWithTimestamps, textToSpeech } from "../lib/openai";
 import { extractTextFromFile } from "../lib/file-reader";
+import { consumeTrialQuota, getTrialUpgradeMessage } from "../lib/trial";
 import pdfjsWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -538,6 +539,11 @@ export default function Learn() {
   const translatePlainText = useCallback(async (text: string) => {
     const source = text.trim();
     if (!source) return;
+    const trialQuota = await consumeTrialQuota("text_translate_requests", 1);
+    if (!trialQuota.allowed) {
+      setError(getTrialUpgradeMessage(uiLanguage, "textTranslate"));
+      return;
+    }
     setTextTranslateBusy(true);
     setError(null);
     try {
@@ -570,7 +576,7 @@ export default function Learn() {
       if (!ctx) continue;
       canvas.width = Math.floor(viewport.width);
       canvas.height = Math.floor(viewport.height);
-      await page.render({ canvasContext: ctx, viewport }).promise;
+      await page.render({ canvas, canvasContext: ctx, viewport }).promise;
       const dataUrl = canvas.toDataURL("image/jpeg", 0.82);
       const base64 = dataUrl.split(",")[1];
       if (!base64) continue;
@@ -588,9 +594,15 @@ export default function Learn() {
     };
   }, [nativeLangLabel, targetLangLabel]);
 
-  const handleTextTranslateFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleTextTranslateFile = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const trialQuota = await consumeTrialQuota("text_translate_requests", 1);
+    if (!trialQuota.allowed) {
+      setError(getTrialUpgradeMessage(uiLanguage, "textTranslate"));
+      if (textFileInputRef.current) textFileInputRef.current.value = "";
+      return;
+    }
     setTextTranslateBusy(true);
     setError(null);
     try {
@@ -789,7 +801,7 @@ export default function Learn() {
     }
   }, [buildDubbedSegments, getUiLabel, nativeLang, stopDubPlayback, t]);
 
-  const handleVideoFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleVideoFile = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {

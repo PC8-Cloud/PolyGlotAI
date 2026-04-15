@@ -6,7 +6,11 @@ service cloud.firestore {
     function isAuthenticated() {
       return request.auth != null;
     }
-    
+
+    function isAdmin() {
+      return isAuthenticated() && request.auth.token.email in ["polyglot.app2@gmail.com"];
+    }
+
     function isOwner(userId) {
       return isAuthenticated() && request.auth.uid == userId;
     }
@@ -51,6 +55,23 @@ service cloud.firestore {
       // Users cannot modify plan fields directly — only Cloud Functions can
       allow update: if isOwner(userId) &&
         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['plan', 'planExpiresAt', 'stripeCustomerId', 'stripeSubscriptionId']);
+    }
+
+    // Admin-only: dashboard metrics
+    match /app_usage_daily/{docId} {
+      allow read: if isAdmin();
+      allow write: if true; // client writes usage data
+    }
+
+    match /feedback/{docId} {
+      allow read: if isAdmin();
+      allow create: if isAuthenticated();
+    }
+
+    // License keys: only Cloud Functions write, admin can read
+    match /license_keys/{code} {
+      allow read: if isAdmin();
+      allow write: if false; // only Cloud Functions (admin SDK)
     }
 
     match /sessions/{sessionId} {

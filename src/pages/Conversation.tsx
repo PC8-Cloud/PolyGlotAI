@@ -6,6 +6,7 @@ import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLabelForCode } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
 import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudioDetectLang, suspendAudioForMic } from "../lib/openai";
+import { consumeTrialQuota, getTrialUpgradeMessage } from "../lib/trial";
 
 type MsgStatus = "sent" | "translated" | "playing" | "done";
 
@@ -18,17 +19,39 @@ interface Message {
   status: MsgStatus;
 }
 
-// Silence detection
-const SILENCE_TIMEOUT = 1.2; // faster cut when speaker pauses
-const SILENCE_THRESHOLD = 0.045; // less aggressive: preserve quieter voices and phone mics
-const VOICE_ACTIVITY_THRESHOLD = 0.042; // accept weaker pronunciation and distant phone mics
-const VOICE_ACTIVITY_FRAMES = 2; // quicker speech start detection
-const NO_SPEECH_TIMEOUT_MS = 3200; // recycle loop sooner when nothing is spoken
-const MIN_SPEECH_DURATION_MS = 320; // keep short utterances like "si", "ok", "grazie"
-const SPEECH_PEAK_THRESHOLD = 0.03; // keep only the weakest noise out; do final filtering after transcription
+
+// Silence detection — thresholds tuned for the processed signal
+// (input gain 1.8× → compressor → makeup gain 1.5× → analyser)
+// The processing chain boosts quiet speech ~2.5-3× so thresholds are higher than raw mic.
+const SILENCE_TIMEOUT = 2.4; // seconds of silence before auto-stop
+const SILENCE_THRESHOLD = 0.06; // processed signal: raised from 0.045 to match boosted levels
+const VOICE_ACTIVITY_THRESHOLD = 0.07; // processed signal: must be clearly speaking, not background
+const VOICE_ACTIVITY_FRAMES = 4; // require sustained speech, not a single background spike
+const NO_SPEECH_TIMEOUT_MS = 4500; // recycle loop if nobody speaks
+const MIN_SPEECH_DURATION_MS = 420; // still accepts short replies
+const SPEECH_PEAK_THRESHOLD = 0.12; // processed signal: raised from 0.08
+const WEAK_PEAK_THRESHOLD = 0.08; // processed signal: raised from 0.05
+const MIN_AVG_RMS_THRESHOLD = 0.06; // processed signal: raised from 0.04
 const MIN_AUDIO_BLOB_BYTES = 1000;
 const MAX_DUPLICATE_SIMILARITY = 0.8; // reject if >80% similar to a recent message
 const CONVERSATION_DEBUG = typeof import.meta !== "undefined" ? Boolean((import.meta as any).env?.DEV) : false;
+
+function isLikelyPromptLeakTranscript(text: string): boolean {
+  const lower = text.toLowerCase();
+  return (
+    lower.includes("transcribe only spoken words") ||
+    lower.includes("avoid filler hallucinations") ||
+    lower.includes("preserve punctuation when clear") ||
+    lower.includes("trascrivi solo le parole pronunciate") ||
+    lower.includes("evita riempitivi inutili") ||
+    lower.includes("conserva la punteggiatura") ||
+    lower.includes("likely spoken languages") ||
+    lower.includes("spoken words") ||
+    lower.includes("filler hallucinations") ||
+    /transcri(be|vi)\s.*(words|parole)/i.test(text) ||
+    /punctuation|punteggiatura/i.test(text) && /transcri|trascrivi|spoken|pronunciat/i.test(text)
+  );
+}
 
 /** Simple text similarity (0-1) based on common words */
 function textSimilarity(a: string, b: string): number {
@@ -79,6 +102,7 @@ export default function Conversation() {
   const navigate = useNavigate();
   const { uiLanguage } = useUserStore();
   const t = useTranslation(uiLanguage);
+  const isIt = String(uiLanguage).toLowerCase().startsWith("it");
 
   const [yourLang, setYourLang] = useState(uiLanguage);
   const [theirLang, setTheirLang] = useState(
@@ -93,6 +117,7 @@ export default function Conversation() {
   const [textInputSide, setTextInputSide] = useState<"you" | "them">("you");
   const [showTextInput, setShowTextInput] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showTrialUpgradeModal, setShowTrialUpgradeModal] = useState(false);
   const [liveLevel, setLiveLevel] = useState(0); // mic audio level for visual feedback
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -106,12 +131,12 @@ export default function Conversation() {
 
   // MediaRecorder refs
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number>(0);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const peakLevelRef = useRef(0); // track peak audio level during recording
+  const rmsAccRef = useRef({ sum: 0, count: 0 }); // accumulate RMS samples for average
   const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const noSpeechCaptureRef = useRef(false);
   const wakeLockRef = useRef<any>(null);
@@ -304,8 +329,10 @@ export default function Conversation() {
       const rms = Math.sqrt(sum / dataArray.length);
       setLiveLevel(rms);
 
-      // Track peak level to distinguish real speech from distant TV
+      // Track peak and average level to distinguish direct vs distant speech
       if (rms > peakLevelRef.current) peakLevelRef.current = rms;
+      rmsAccRef.current.sum += rms;
+      rmsAccRef.current.count += 1;
 
       // Voice activity gate: require stable speech activity before enabling
       // silence-based stop. This avoids fast open/close loops on background noise.
@@ -374,7 +401,7 @@ export default function Conversation() {
   }, []);
 
   const scheduleListeningRestart = useCallback(() => {
-    if (!conversationActiveRef.current || processingRef.current) {
+    if (!conversationActiveRef.current) {
       setChatState("idle");
       return;
     }
@@ -382,7 +409,7 @@ export default function Conversation() {
     restartTimerRef.current = setTimeout(() => {
       restartTimerRef.current = null;
       startListening();
-    }, 140);
+    }, 260);
   }, []);
 
   const ensureMicReady = useCallback(async () => {
@@ -402,6 +429,8 @@ export default function Conversation() {
         echoCancellation: true,
         noiseSuppression: true,
         autoGainControl: true,
+        // Chrome/Edge: request higher quality capture
+        ...(typeof window !== "undefined" && { sampleRate: 16000, channelCount: 1 } as any),
       },
     });
     streamRef.current = stream;
@@ -413,9 +442,42 @@ export default function Conversation() {
     audioCtxRef.current = audioCtx;
 
     const source = audioCtx.createMediaStreamSource(stream);
+
+    // ── Audio processing chain (like AirPods noise processing) ──
+    // 1. Input gain — boost quiet mic input
+    const inputGain = audioCtx.createGain();
+    inputGain.gain.value = 1.8; // +5dB boost for quiet/distant voices
+
+    // 2. Compressor — normalize levels: boost quiet speech, tame loud peaks
+    //    Similar to what AirPods/hearing aids do: makes everything more even
+    const compressor = audioCtx.createDynamicsCompressor();
+    compressor.threshold.value = -35;  // start compressing at -35dB (catches quiet speech)
+    compressor.knee.value = 12;        // soft knee for natural sound
+    compressor.ratio.value = 4;        // 4:1 compression (moderate, not squashed)
+    compressor.attack.value = 0.003;   // fast attack — catch transients quickly
+    compressor.release.value = 0.15;   // moderate release — smooth recovery
+
+    // 3. Makeup gain — compensate for compression
+    const makeupGain = audioCtx.createGain();
+    makeupGain.gain.value = 1.5; // boost back after compression
+
+    // 4. High-pass filter — remove low rumble/wind noise (below 85Hz)
+    const highpass = audioCtx.createBiquadFilter();
+    highpass.type = "highpass";
+    highpass.frequency.value = 85;
+    highpass.Q.value = 0.7;
+
+    // 5. Analyser — for silence detection / visual level
     const analyser = audioCtx.createAnalyser();
     analyser.fftSize = 2048;
-    source.connect(analyser);
+
+    // Chain: mic → inputGain → highpass → compressor → makeupGain → analyser
+    source.connect(inputGain);
+    inputGain.connect(highpass);
+    highpass.connect(compressor);
+    compressor.connect(makeupGain);
+    makeupGain.connect(analyser);
+
     analyserRef.current = analyser;
 
     return { stream, analyser };
@@ -434,6 +496,108 @@ export default function Conversation() {
     return ""; // let browser pick default
   };
 
+  async function processRecordedChunk(blob: Blob, recordDuration: number, peakLevel: number) {
+    setChatState("transcribing");
+    try {
+      const { text, language: detectedLang } = await transcribeAudioDetectLang(blob, [
+        yourLangRef.current,
+        theirLangRef.current,
+      ]);
+      if (CONVERSATION_DEBUG) console.log("[Conversation] detected:", { text: text.substring(0, 50), language: detectedLang, blobSize: blob.size, blobType: blob.type });
+
+      // Filter out empty, too-short, or Whisper hallucination artifacts
+      const trimmed = text.trim();
+      const lower = trimmed.toLowerCase();
+      const cleanedLower = lower.replace(/[^\p{L}\p{N}\s]/gu, "").trim();
+      const isWeakCapture = recordDuration < 900 || peakLevel < 0.05;
+      const isSilenceToken =
+        /^(you|uh|um|hmm+|mm+|eh+|ah+|ok+|okay)$/.test(cleanedLower);
+      const isLikelyGhostPronoun =
+        /^(you|tu|du|voi|sie|te)$/.test(cleanedLower) && recordDuration < 1600;
+      const isPromptLeak = isLikelyPromptLeakTranscript(trimmed);
+      const isHallucination =
+        !trimmed ||
+        trimmed.length < 2 ||
+        /^[\s.,!?…\-—–]+$/.test(trimmed) ||
+        // Whisper common hallucinations
+        /^(music|applause|laughter|silence|background|thank you|thanks for watching)/i.test(trimmed) ||
+        /^\[.*\]$/.test(trimmed) ||
+        /^\(.*\)$/.test(trimmed) ||
+        // Subtitle/watermark hallucinations
+        /sottotitoli|subtitles|subs by|sub(scribe|bed)|www\.|\.com|\.co\.|\.uk|\.org|\.net/i.test(trimmed) ||
+        // Repetitive single-word hallucinations (e.g. "you you you" or "...")
+        /^(.{1,4})\1{2,}$/i.test(trimmed.replace(/\s+/g, "")) ||
+        // Common Whisper noise artifacts in various languages
+        lower.includes("amara.org") ||
+        lower.includes("zeoranger") ||
+        lower.includes("copyright") ||
+        lower.includes("♪") ||
+        lower.includes("🎵") ||
+        // TV/News/broadcast artifacts
+        /\bnews\b/i.test(trimmed) ||
+        /\b(mbc|cnn|bbc|fox|nbc|abc|cbs|sky|rai|tg[1-5])\b/i.test(trimmed) ||
+        /\b(reporter|anchor|correspondent|breaking|headline)\b/i.test(trimmed) ||
+        (isWeakCapture && isSilenceToken) ||
+        isLikelyGhostPronoun ||
+        isPromptLeak;
+
+      if (isHallucination || !conversationActiveRef.current) {
+        if (CONVERSATION_DEBUG) console.log("[Conversation] filtered hallucination:", trimmed.substring(0, 40));
+        return;
+      }
+
+      // Deduplicate: reject if too similar to any of the last 5 messages
+      const recentMessages = messagesRef.current.slice(-5);
+      const isDuplicate = recentMessages.some((m) => {
+        const sim = textSimilarity(lower, m.originalText.toLowerCase());
+        return sim > MAX_DUPLICATE_SIMILARITY;
+      });
+      if (isDuplicate) {
+        if (CONVERSATION_DEBUG) console.log("[Conversation] rejected duplicate:", trimmed.substring(0, 40));
+        return;
+      }
+
+      // Language-based side detection (primary) + text-based fallback
+      const sideFromLanguage = detectSideFromLanguage(detectedLang || "");
+      const wordCount = cleanedLower ? cleanedLower.split(/\s+/).filter(Boolean).length : 0;
+      const yourScore = languageScoreFromText(trimmed, yourLangRef.current);
+      const theirScore = languageScoreFromText(trimmed, theirLangRef.current);
+      const shortUtterance = wordCount <= 2;
+      const hasTextLanguageSignal = Math.max(yourScore, theirScore) >= 1;
+      const normalizedDetected = normalizeLangValue(detectedLang || "");
+      const hasExplicitForeignDetection =
+        !!normalizedDetected &&
+        !["unknown", "und", "auto"].includes(normalizedDetected) &&
+        sideFromLanguage === null;
+
+      if (hasExplicitForeignDetection && !shortUtterance) {
+        setError(getUnexpectedLanguageMessage(detectedLang));
+        return;
+      }
+
+      if (!sideFromLanguage && !shortUtterance && !hasTextLanguageSignal) {
+        setError(getUnexpectedLanguageMessage(detectedLang || ""));
+        return;
+      }
+
+      const side = sideFromLanguage || detectSideFromText(trimmed);
+      lastDetectedSideRef.current = side;
+      if (CONVERSATION_DEBUG) console.log("[Conversation] side:", side, "lang:", detectedLang, "yourLang:", yourLangRef.current, "theirLang:", theirLangRef.current);
+
+      await processMessage(side, text.trim());
+    } catch (e: any) {
+      const { key, fallback } = getApiErrorMessage(e);
+      setError((t as any)[key] || fallback);
+    } finally {
+      processingRef.current = false;
+      if (conversationActiveRef.current) {
+        scheduleListeningRestart();
+      } else {
+        setChatState("idle");
+      }
+    }
+  }
+
   const startListening = useCallback(async () => {
     if (!conversationActiveRef.current || processingRef.current || mediaRecorderRef.current?.state === "recording") return;
     if (CONVERSATION_DEBUG) console.log("[Conversation] startListening");
@@ -445,6 +609,7 @@ export default function Conversation() {
     setChatState("listening");
     setLiveLevel(0);
     peakLevelRef.current = 0;
+    rmsAccRef.current = { sum: 0, count: 0 };
     noSpeechCaptureRef.current = false;
 
     try {
@@ -454,20 +619,19 @@ export default function Conversation() {
       const recorder = mimeType
         ? new MediaRecorder(stream, { mimeType })
         : new MediaRecorder(stream);
-      audioChunksRef.current = [];
+      const recorderChunks: Blob[] = [];
       const recordStartTime = Date.now();
       recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+        if (e.data.size > 0) recorderChunks.push(e.data);
       };
 
       recorder.onstop = async () => {
-        cancelAnimationFrame(animFrameRef.current);
         mediaRecorderRef.current = null;
         setLiveLevel(0);
 
         const recordDuration = Date.now() - recordStartTime;
         const blobType = recorder.mimeType || "audio/webm";
-        const blob = new Blob(audioChunksRef.current, { type: blobType });
+        const blob = new Blob(recorderChunks, { type: blobType });
 
         const peakLevel = peakLevelRef.current;
 
@@ -482,115 +646,55 @@ export default function Conversation() {
           scheduleListeningRestart();
           return;
         }
-        if (recordDuration < MIN_SPEECH_DURATION_MS || peakLevel < SPEECH_PEAK_THRESHOLD) {
-          if (CONVERSATION_DEBUG) console.log("[Conversation] weak capture, transcribing anyway", {
+
+        const trialQuota = await consumeTrialQuota("conversation_ms", recordDuration);
+        if (!trialQuota.allowed) {
+          setError(getTrialUpgradeMessage(uiLanguage, "conversation"));
+          setShowTrialUpgradeModal(true);
+          processingRef.current = false;
+          conversationActiveRef.current = false;
+          setConversationActive(false);
+          setChatState("listening");
+          releaseMicResources();
+          releaseWakeLock();
+          return;
+        }
+        // Compute average RMS across the recording
+        const avgRms = rmsAccRef.current.count > 0
+          ? rmsAccRef.current.sum / rmsAccRef.current.count
+          : 0;
+
+        // Reject distant/background audio (TV, YouTube, speakers nearby)
+        // Direct speech into phone mic: avgRms typically 0.06-0.30
+        // Background TV/speakers: avgRms typically 0.01-0.03
+        if (avgRms < MIN_AVG_RMS_THRESHOLD) {
+          if (CONVERSATION_DEBUG) console.log("[Conversation] rejected: avg RMS too low (distant audio)", {
+            avgRms: avgRms.toFixed(4),
+            peakLevel: peakLevel.toFixed(3),
+          });
+          scheduleListeningRestart();
+          return;
+        }
+        if (peakLevel < WEAK_PEAK_THRESHOLD) {
+          if (CONVERSATION_DEBUG) console.log("[Conversation] rejected: peak too quiet", {
+            peakLevel: peakLevel.toFixed(3),
+            avgRms: avgRms.toFixed(4),
+          });
+          scheduleListeningRestart();
+          return;
+        }
+        if (recordDuration < MIN_SPEECH_DURATION_MS && peakLevel < SPEECH_PEAK_THRESHOLD) {
+          if (CONVERSATION_DEBUG) console.log("[Conversation] rejected: short + weak capture", {
             blobSize: blob.size,
             recordDuration,
             peakLevel: peakLevel.toFixed(3),
           });
-        }
-
-        // Transcribe with language detection
-        processingRef.current = true;
-        setChatState("transcribing");
-        try {
-          const { text, language: detectedLang } = await transcribeAudioDetectLang(blob, [
-            yourLangRef.current,
-            theirLangRef.current,
-          ]);
-          if (CONVERSATION_DEBUG) console.log("[Conversation] detected:", { text: text.substring(0, 50), language: detectedLang, blobSize: blob.size, blobType: blob.type });
-
-          // Filter out empty, too-short, or Whisper hallucination artifacts
-          const trimmed = text.trim();
-          const lower = trimmed.toLowerCase();
-          const cleanedLower = lower.replace(/[^\p{L}\p{N}\s]/gu, "").trim();
-          const isWeakCapture = recordDuration < 900 || peakLevel < 0.05;
-          const isSilenceToken =
-            /^(you|uh|um|hmm+|mm+|eh+|ah+|ok+|okay)$/.test(cleanedLower);
-          const isLikelyGhostPronoun =
-            /^(you|tu|du|voi|sie|te)$/.test(cleanedLower) && recordDuration < 1600;
-          const isHallucination =
-            !trimmed ||
-            trimmed.length < 2 ||
-            /^[\s.,!?…\-—–]+$/.test(trimmed) ||
-            // Whisper common hallucinations
-            /^(music|applause|laughter|silence|background|thank you|thanks for watching)/i.test(trimmed) ||
-            /^\[.*\]$/.test(trimmed) ||
-            /^\(.*\)$/.test(trimmed) ||
-            // Subtitle/watermark hallucinations
-            /sottotitoli|subtitles|subs by|sub(scribe|bed)|www\.|\.com|\.co\.|\.uk|\.org|\.net/i.test(trimmed) ||
-            // Repetitive single-word hallucinations (e.g. "you you you" or "...")
-            /^(.{1,4})\1{2,}$/i.test(trimmed.replace(/\s+/g, "")) ||
-            // Common Whisper noise artifacts in various languages
-            lower.includes("amara.org") ||
-            lower.includes("zeoranger") ||
-            lower.includes("copyright") ||
-            lower.includes("♪") ||
-            lower.includes("🎵") ||
-            // TV/News/broadcast artifacts
-            /\bnews\b/i.test(trimmed) ||
-            /\b(mbc|cnn|bbc|fox|nbc|abc|cbs|sky|rai|tg[1-5])\b/i.test(trimmed) ||
-            /\b(reporter|anchor|correspondent|breaking|headline)\b/i.test(trimmed) ||
-            (isWeakCapture && isSilenceToken) ||
-            isLikelyGhostPronoun;
-
-          if (isHallucination || !conversationActiveRef.current) {
-            if (CONVERSATION_DEBUG) console.log("[Conversation] filtered hallucination:", trimmed.substring(0, 40));
-            processingRef.current = false;
-            scheduleListeningRestart();
-            return;
-          }
-
-          // Deduplicate: reject if too similar to any of the last 5 messages
-          const recentMessages = messagesRef.current.slice(-5);
-          const isDuplicate = recentMessages.some((m) => {
-            const sim = textSimilarity(lower, m.originalText.toLowerCase());
-            return sim > MAX_DUPLICATE_SIMILARITY;
-          });
-          if (isDuplicate) {
-            if (CONVERSATION_DEBUG) console.log("[Conversation] rejected duplicate:", trimmed.substring(0, 40));
-            processingRef.current = false;
-            scheduleListeningRestart();
-            return;
-          }
-
-          const sideFromLanguage = detectSideFromLanguage(detectedLang || "");
-          const wordCount = cleanedLower ? cleanedLower.split(/\s+/).filter(Boolean).length : 0;
-          const yourScore = languageScoreFromText(trimmed, yourLangRef.current);
-          const theirScore = languageScoreFromText(trimmed, theirLangRef.current);
-          const shortUtterance = wordCount <= 2;
-          const hasTextLanguageSignal = Math.max(yourScore, theirScore) >= 1;
-          const normalizedDetected = normalizeLangValue(detectedLang || "");
-          const hasExplicitForeignDetection =
-            !!normalizedDetected &&
-            !["unknown", "und", "auto"].includes(normalizedDetected) &&
-            sideFromLanguage === null;
-
-          if (hasExplicitForeignDetection && !shortUtterance) {
-            setError(getUnexpectedLanguageMessage(detectedLang));
-            processingRef.current = false;
-            scheduleListeningRestart();
-            return;
-          }
-
-          if (!sideFromLanguage && !shortUtterance && !hasTextLanguageSignal) {
-            setError(getUnexpectedLanguageMessage(detectedLang || ""));
-            processingRef.current = false;
-            scheduleListeningRestart();
-            return;
-          }
-
-          const side = sideFromLanguage || detectSideFromText(trimmed);
-          lastDetectedSideRef.current = side;
-          if (CONVERSATION_DEBUG) console.log("[Conversation] side:", side, "yourLang:", yourLangRef.current, "theirLang:", theirLangRef.current);
-
-          await processMessage(side, text.trim());
-        } catch (e: any) {
-          const { key, fallback } = getApiErrorMessage(e);
-          setError((t as any)[key] || fallback);
-          processingRef.current = false;
           scheduleListeningRestart();
+          return;
         }
+
+        processingRef.current = true;
+        await processRecordedChunk(blob, recordDuration, peakLevel);
       };
 
       // No timeslice — ondataavailable fires once on stop() with complete audio.
@@ -682,16 +786,12 @@ export default function Conversation() {
     } catch (e: any) {
       const { key, fallback } = getApiErrorMessage(e);
       setError((t as any)[key] || fallback);
+      // Fallback visible output: keep conversation flowing even if translation API fails.
+      setMessages((prev) =>
+        prev.map((m) => (m.id === newId ? { ...m, translatedText: text, status: "done" } : m))
+      );
     }
 
-    processingRef.current = false;
-
-    // Continue listening
-    if (conversationActiveRef.current) {
-      scheduleListeningRestart();
-    } else {
-      setChatState("idle");
-    }
   };
 
   // ─── Start / Stop conversation ────────────────────────────────────────
@@ -707,6 +807,7 @@ export default function Conversation() {
     }
     setMessages([]);
     setError(null);
+    processingRef.current = false;
     startListening();
   };
 
@@ -741,19 +842,35 @@ export default function Conversation() {
     const side = textInputSide;
     processingRef.current = true;
     prepareAudioForSafari();
-    await processMessage(side, text);
+    try {
+      await processMessage(side, text);
+    } finally {
+      processingRef.current = false;
+      if (conversationActiveRef.current) {
+        scheduleListeningRestart();
+      }
+    }
   };
 
   const handleSpeak = async (text: string, id: number, langCode: string) => {
     if (playingId !== null) return;
+    // Pause mic so playback doesn't get re-captured
+    const wasListening = chatState === "listening";
+    if (wasListening) stopListening();
     prepareAudioForSafari();
     setPlayingId(id);
+    setChatState("speaking");
     try {
       await playTTS(text, undefined, undefined, langCode);
     } catch (e) {
       console.error("TTS failed:", e);
     } finally {
       setPlayingId(null);
+      if (conversationActiveRef.current) {
+        scheduleListeningRestart();
+      } else {
+        setChatState("idle");
+      }
     }
   };
 
@@ -816,7 +933,6 @@ export default function Conversation() {
           <LanguageOptions />
         </select>
       </div>
-
       {error && (
         <div className="mx-4 mt-3 p-3 bg-red-500/20 border border-red-500/30 rounded-xl flex items-center gap-3 shrink-0">
           <p className="text-sm text-red-400 flex-1">{error}</p>
@@ -996,6 +1112,36 @@ export default function Conversation() {
           {conversationActive ? t("stopConversation") : t("startConversation")}
         </p>
       </div>
+
+      {showTrialUpgradeModal && (
+        <div className="fixed inset-0 z-[80] bg-[#02114A]/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-sm rounded-2xl border border-[#FFFFFF1F] bg-[#0E2666] p-5 shadow-2xl">
+            <h3 className="text-lg font-bold text-[#F4F4F4]">
+              {isIt ? "Tempo conversazione esaurito" : "Conversation time exhausted"}
+            </h3>
+            <p className="mt-2 text-sm text-[#F4F4F4]/70">
+              {getTrialUpgradeMessage(uiLanguage, "conversation")}
+            </p>
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={() => setShowTrialUpgradeModal(false)}
+                className="flex-1 py-2.5 rounded-xl bg-[#123182] text-[#F4F4F4]/80 hover:bg-[#1A3A93] transition-colors"
+              >
+                {isIt ? "Chiudi" : "Close"}
+              </button>
+              <button
+                onClick={() => {
+                  setShowTrialUpgradeModal(false);
+                  navigate("/plans");
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-[#295BDB] text-[#F4F4F4] font-semibold hover:bg-[#3A6AE3] transition-colors"
+              >
+                {isIt ? "Vai ai piani" : "View plans"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState, createContext, useContext, ReactNode } from "react";
 import { auth } from "../firebase";
 import { onAuthStateChanged, User } from "firebase/auth";
-import { subscribeToPlan } from "../lib/subscription";
+import { subscribeToEntitlements } from "../lib/subscription";
 
 interface AuthContextType {
   user: User | null;
@@ -38,10 +38,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Sync plan from Firestore when user changes
+  // Sync billing entitlements from Firestore when user changes
   useEffect(() => {
     if (!user) return;
-    const unsub = subscribeToPlan(user.uid);
+    const unsub = subscribeToEntitlements(user.uid);
     return unsub;
   }, [user?.uid]);
 

@@ -28,6 +28,10 @@ import RoomJoin from "./pages/RoomJoin";
 import Paywall from "./pages/Paywall";
 import Learn from "./pages/Learn";
 import NetworkCheck from "./components/NetworkCheck";
+import FeatureGate from "./components/FeatureGate";
+import { ensureTrialStarted } from "./lib/trial";
+import { trackAppOpenDaily, trackFeatureDaily } from "./lib/metrics";
+import Dashboard from "./pages/Dashboard";
 
 function AutoTranslate() {
   const { uiLanguage } = useUserStore();
@@ -182,6 +186,7 @@ function AnalyticsTracker() {
   useEffect(() => {
     const feature = ROUTE_FEATURES[location.pathname] || location.pathname;
     logEvent("page_view", { page: location.pathname });
+    void trackFeatureDaily(feature);
     if (feature !== "home") {
       logEvent("feature_used", { feature });
     }
@@ -361,6 +366,8 @@ export default function App() {
   // Log app open
   useEffect(() => {
     logEvent("app_open");
+    ensureTrialStarted();
+    void trackAppOpenDaily();
   }, []);
 
   // Beta gate (before splash)
@@ -396,16 +403,17 @@ export default function App() {
         <FeedbackButton />
         <Routes>
           <Route path="/" element={<Home />} />
-          <Route path="/conversation" element={<Conversation />} />
-          <Route path="/camera" element={<CameraTranslate />} />
+          <Route path="/conversation" element={<FeatureGate feature="conversation"><Conversation /></FeatureGate>} />
+          <Route path="/camera" element={<FeatureGate feature="camera"><CameraTranslate /></FeatureGate>} />
           <Route path="/converter" element={<Converter />} />
           <Route path="/phrases" element={<Phrases />} />
           <Route path="/group" element={<GroupTranslation />} />
-          <Route path="/megaphone" element={<MegaphonePage />} />
-          <Route path="/room" element={<RoomHost />} />
+          <Route path="/megaphone" element={<FeatureGate feature="megaphone"><MegaphonePage /></FeatureGate>} />
+          <Route path="/room" element={<FeatureGate feature="room"><RoomHost /></FeatureGate>} />
           <Route path="/join" element={<RoomJoin />} />
-          <Route path="/learn" element={<Learn />} />
+          <Route path="/learn" element={<FeatureGate feature="conversation"><Learn /></FeatureGate>} />
           <Route path="/plans" element={<Paywall />} />
+          <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/session/:sessionId/host" element={<SessionHost />} />
           <Route path="/join/:sessionId" element={<SessionJoin />} />
           <Route

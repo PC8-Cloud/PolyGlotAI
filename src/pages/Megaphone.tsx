@@ -7,6 +7,7 @@ import { LANGUAGES, getLocaleForCode } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
 import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, getRealtimeTranslationConfig, suspendAudioForMic } from "../lib/openai";
 import { extractTextFromFile } from "../lib/file-reader";
+import { consumeTrialQuota, getTrialUpgradeMessage } from "../lib/trial";
 
 interface Entry {
   id: number;
@@ -50,6 +51,7 @@ export default function MegaphonePage() {
   const keepAliveOscRef = useRef<OscillatorNode | null>(null);
   const processingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const listeningStartedAtRef = useRef<number | null>(null);
 
   // Incremental translation refs
   const segmentsRef = useRef<string[]>([]); // isFinal results
@@ -276,6 +278,7 @@ export default function MegaphonePage() {
     recognitionRef.current = rec;
     isListeningRef.current = true;
     setIsListening(true);
+    listeningStartedAtRef.current = Date.now();
     setTranscript("");
     transcriptRef.current = "";
     hasSpokenRef.current = false;
@@ -312,6 +315,8 @@ export default function MegaphonePage() {
       try { recognitionRef.current.stop(); } catch {}
       recognitionRef.current = null;
     }
+    const listenedMs = listeningStartedAtRef.current ? Math.max(0, Date.now() - listeningStartedAtRef.current) : 0;
+    listeningStartedAtRef.current = null;
 
     const fullText = transcriptRef.current.trim();
     setTranscript("");
@@ -319,6 +324,15 @@ export default function MegaphonePage() {
     hasSpokenRef.current = false;
 
     if (!fullText) {
+      releaseWakeLock();
+      resetIncrementalState();
+      processingRef.current = false;
+      return;
+    }
+
+    const trialQuota = await consumeTrialQuota("megaphone_ms", listenedMs);
+    if (!trialQuota.allowed) {
+      setError(getTrialUpgradeMessage(uiLanguage, "megaphone"));
       releaseWakeLock();
       resetIncrementalState();
       processingRef.current = false;
@@ -546,7 +560,6 @@ export default function MegaphonePage() {
           <LanguageOptions />
         </select>
       </div>
-
       {error && (
         <div className="mx-4 mt-3 p-3 bg-red-500/20 border border-red-500/30 rounded-xl flex items-center gap-3 shrink-0">
           <p className="text-sm text-red-400 flex-1">{error}</p>

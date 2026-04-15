@@ -3,6 +3,8 @@ import { persist } from "zustand/middleware";
 
 export type PlanType = "free" | "tourist_weekly" | "tourist" | "pro" | "business";
 export type TranslationPerformanceMode = "auto" | "fast" | "balanced";
+export type SubscriptionStatus = "active" | "grace" | "past_due" | "canceled" | "inactive" | null;
+export type PlanSource = "none" | "legacy_plan" | "server_entitlements";
 
 interface UserState {
   userId: string | null;
@@ -25,6 +27,12 @@ interface UserState {
   translationPerformance: TranslationPerformanceMode;
   plan: PlanType;
   planExpiresAt: string | null;
+  planStatus: SubscriptionStatus;
+  planSource: PlanSource;
+  planSyncedAt: string | null;
+  trialStartedAt: string | null;
+  customVoiceId: string | null;
+  customVoiceName: string | null;
   setUserId: (id: string) => void;
   setRole: (role: "HOST" | "GUEST") => void;
   setDisplayName: (name: string) => void;
@@ -43,7 +51,15 @@ interface UserState {
   setTtsVoice: (voice: string) => void;
   setTtsSpeed: (speed: number) => void;
   setTranslationPerformance: (mode: TranslationPerformanceMode) => void;
-  setPlan: (plan: PlanType, expiresAt?: string | null) => void;
+  setPlan: (
+    plan: PlanType,
+    expiresAt?: string | null,
+    status?: SubscriptionStatus,
+    source?: PlanSource,
+    syncedAt?: string | null,
+  ) => void;
+  setTrialStartedAt: (startedAt: string | null) => void;
+  setCustomVoice: (id: string | null, name?: string | null) => void;
 }
 
 export const useUserStore = create<UserState>()(
@@ -69,6 +85,12 @@ export const useUserStore = create<UserState>()(
       translationPerformance: "auto",
       plan: "free",
       planExpiresAt: null,
+      planStatus: null,
+      planSource: "none",
+      planSyncedAt: null,
+      trialStartedAt: null,
+      customVoiceId: null,
+      customVoiceName: null,
       setUserId: (id) => set({ userId: id }),
       setRole: (role) => set({ role }),
       setDisplayName: (name) => set({ displayName: name }),
@@ -87,7 +109,16 @@ export const useUserStore = create<UserState>()(
       setTtsVoice: (voice) => set({ ttsVoice: voice }),
       setTtsSpeed: (speed) => set({ ttsSpeed: speed }),
       setTranslationPerformance: (mode) => set({ translationPerformance: mode }),
-      setPlan: (plan, expiresAt) => set({ plan, planExpiresAt: expiresAt || null }),
+      setPlan: (plan, expiresAt, status, source, syncedAt) =>
+        set({
+          plan,
+          planExpiresAt: expiresAt || null,
+          planStatus: status ?? null,
+          planSource: source ?? "none",
+          planSyncedAt: syncedAt || null,
+        }),
+      setTrialStartedAt: (startedAt) => set({ trialStartedAt: startedAt }),
+      setCustomVoice: (id, name) => set({ customVoiceId: id, customVoiceName: name || null }),
     }),
     {
       name: "polyglot-user-storage",

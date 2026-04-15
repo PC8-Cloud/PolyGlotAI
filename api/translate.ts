@@ -116,12 +116,16 @@ function getModeInstructions(mode: string): string[] {
         "Optimize for short spoken utterances and conversational immediacy.",
         "Prefer natural spoken phrasing over formal written style.",
         "If the sentence is slightly fragmented, still translate it coherently without padding.",
+        "CRITICAL: Translate the MEANING and INTENT, not the words. Ask yourself: 'What would a native speaker of the target language naturally say in this exact situation?' and use THAT phrasing.",
+        "For idioms, figurative expressions, and common phrases: translate the intent, not the metaphor. 'dare una mano' → 'help out' (NOT 'give a hand'), 'in bocca al lupo' → 'good luck' (NOT 'in the mouth of the wolf'), 'break a leg' → 'in bocca al lupo', 'it's raining cats and dogs' → 'piove a catinelle', 'farsi in quattro' → 'go above and beyond'.",
+        "Even when a similar metaphor exists in the target language, prefer the most natural and direct phrasing a native speaker would use in real spoken conversation.",
       ];
     case "phrases":
       return [
         "These are standalone travel phrases.",
         "Prefer the most useful and idiomatic wording a traveler should actually say.",
         "Avoid overly literal translations.",
+        "Translate idioms and common expressions using their cultural equivalent, not word-by-word.",
       ];
     case "tourism":
       return [
@@ -203,13 +207,14 @@ function buildTranslationMessages(
     {
       role: "system" as const,
       content: [
-        "You are a professional translator. Return only a JSON object.",
+        "You are a professional translator specializing in natural, idiomatic translations. Return only a JSON object.",
         "Keep the exact target language codes as keys.",
         "Preserve meaning, tone, names, numbers, currencies, URLs, emojis, and formatting.",
         "Do not explain.",
         "Do not transliterate unless needed for the target language.",
         "If the source is incomplete, translate naturally without inventing extra content.",
         "Preserve sentence intent: if source is a question, translation must remain a clear question.",
+        "Always translate idioms, proverbs, slang, and figurative language using their equivalent expression in the target language — never translate them literally word-by-word.",
         ...getModeInstructions(mode),
         ...(contextualHints.length > 0 ? ["Use these glossary/context hints when relevant:", ...contextualHints] : []),
       ].join(" "),

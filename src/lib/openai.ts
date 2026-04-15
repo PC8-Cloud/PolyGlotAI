@@ -346,7 +346,31 @@ export async function translateUIChunk(
 
 // ─── TTS ────────────────────────────────────────────────────────────────────
 
-export type TTSVoice = "alloy" | "ash" | "ballad" | "coral" | "echo" | "fable" | "onyx" | "nova" | "sage" | "shimmer";
+export type TTSVoice =
+  | "alloy"
+  | "ash"
+  | "ballad"
+  | "coral"
+  | "echo"
+  | "fable"
+  | "onyx"
+  | "nova"
+  | "sage"
+  | "shimmer"
+  | string;
+
+export interface OpenAIVoiceConsent {
+  id: string;
+  name: string;
+  language: string;
+  created_at?: number;
+}
+
+export interface OpenAICustomVoice {
+  id: string;
+  name: string;
+  created_at?: number;
+}
 
 const AUTO_TTS_VOICE_BY_LANG: Record<string, TTSVoice> = {
   it: "sage",
@@ -364,6 +388,90 @@ const AUTO_TTS_VOICE_BY_LANG: Record<string, TTSVoice> = {
 function getAutoVoiceForLanguage(langCode?: string): TTSVoice {
   const base = String(langCode || "").toLowerCase().split("-")[0];
   return AUTO_TTS_VOICE_BY_LANG[base] || "nova";
+}
+
+export async function listOpenAIVoices(): Promise<OpenAICustomVoice[]> {
+  const response = await withRetry(async () => {
+    const res = await fetch("/api/voice-clone", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "list_voices" }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "List voices failed", status: res.status }));
+      throw new ApiError(err.error || "List voices failed", err.status || res.status);
+    }
+    return res;
+  });
+  const data = await response.json();
+  return Array.isArray(data?.data) ? data.data : [];
+}
+
+export async function listOpenAIVoiceConsents(): Promise<OpenAIVoiceConsent[]> {
+  const response = await withRetry(async () => {
+    const res = await fetch("/api/voice-clone", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "list_consents" }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "List consents failed", status: res.status }));
+      throw new ApiError(err.error || "List consents failed", err.status || res.status);
+    }
+    return res;
+  });
+  const data = await response.json();
+  return Array.isArray(data?.data) ? data.data : [];
+}
+
+export async function createOpenAIVoiceConsent(
+  name: string,
+  language: string,
+  recordingBase64: string,
+): Promise<OpenAIVoiceConsent> {
+  const response = await withRetry(async () => {
+    const res = await fetch("/api/voice-clone", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "create_consent",
+        name,
+        language,
+        recordingBase64,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Create consent failed", status: res.status }));
+      throw new ApiError(err.error || "Create consent failed", err.status || res.status);
+    }
+    return res;
+  });
+  return response.json();
+}
+
+export async function createOpenAICustomVoice(
+  name: string,
+  consentId: string,
+  audioSampleBase64: string,
+): Promise<OpenAICustomVoice> {
+  const response = await withRetry(async () => {
+    const res = await fetch("/api/voice-clone", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "create_voice",
+        name,
+        consentId,
+        audioSampleBase64,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Create voice failed", status: res.status }));
+      throw new ApiError(err.error || "Create voice failed", err.status || res.status);
+    }
+    return res;
+  });
+  return response.json();
 }
 
 // Detect Safari (doesn't support opus well, and blocks non-user-initiated audio)
@@ -533,7 +641,8 @@ export async function playTTS(
   langCode?: string,
 ): Promise<void> {
   const state = useUserStore.getState();
-  const selectedVoice = (voice || getAutoVoiceForLanguage(langCode) || "nova") as TTSVoice;
+  // Use custom cloned voice if available and no explicit voice override
+  const selectedVoice = (voice || state.customVoiceId || state.ttsVoice || getAutoVoiceForLanguage(langCode) || "nova") as TTSVoice;
   const userSpeed = state.ttsSpeed || 1.0;
   const baseSpeed = typeof speed === "number" ? speed : 1.0;
   const selectedSpeed = Math.max(0.7, Math.min(1.8, baseSpeed * userSpeed));

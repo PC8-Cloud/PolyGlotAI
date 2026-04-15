@@ -78,7 +78,14 @@ describe("Stress: withRetry under heavy concurrent load", () => {
     );
     const results = await Promise.all(promises);
     expect(results).toHaveLength(30);
-    expect(results.every(r => r.status === 529)).toBe(true);
+    expect(
+      results.every((r) =>
+        typeof r === "object" &&
+        r !== null &&
+        "status" in r &&
+        (r as { status?: number }).status === 529
+      )
+    ).toBe(true);
     // Each call should have been attempted 3 times (initial + 2 retries)
     expect(fn).toHaveBeenCalledTimes(90);
   });

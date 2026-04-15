@@ -1,8 +1,13 @@
 import { test, expect } from "@playwright/test";
-import { waitForSplash } from "./helpers";
+import { setupStore, waitForSplash } from "./helpers";
 
 test.describe("Stress: memory leak detection", () => {
   test("Heap does not grow excessively after 50 route navigations", async ({ page }) => {
+    test.setTimeout(120000);
+    await setupStore(page, {
+      betaUnlocked: true,
+      openaiApiKey: "sk-test-e2e-dummy",
+    });
     await page.goto("/");
     await waitForSplash(page);
 
@@ -46,6 +51,10 @@ test.describe("Stress: memory leak detection", () => {
 
 test.describe("Stress: console error monitoring", () => {
   test("No uncaught errors during full app navigation", async ({ page }) => {
+    await setupStore(page, {
+      betaUnlocked: true,
+      openaiApiKey: "sk-test-e2e-dummy",
+    });
     const errors: string[] = [];
     page.on("pageerror", (err) => errors.push(err.message));
 

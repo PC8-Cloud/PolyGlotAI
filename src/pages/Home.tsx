@@ -18,6 +18,9 @@ import {
   isOnline,
 } from "../lib/offline";
 import { ALL_PHRASE_TEXTS } from "../lib/phrases-data";
+import { getTrialStatus, getTrialRemainingDaily } from "../lib/trial";
+import { hasFeature } from "../lib/subscription";
+import VoiceCloneSetup from "../components/VoiceCloneSetup";
 
 export default function Home() {
   const navigate = useNavigate();
@@ -37,6 +40,7 @@ export default function Home() {
 
   const {
     uiLanguage,
+    plan,
     setUiLanguage,
     ttsSpeed,
     setTtsSpeed,
@@ -51,6 +55,14 @@ export default function Home() {
   } = useUserStore();
 
   const t = useTranslation(uiLanguage);
+  const isIt = String(uiLanguage).toLowerCase().startsWith("it");
+  const trial = getTrialStatus();
+  const showTrialDetails = plan === "free" && trial.isActive;
+  const canUseVoiceClone = hasFeature("voiceClone");
+  const trialConversationMin = Math.floor(getTrialRemainingDaily("conversation_ms") / 60000);
+  const trialMegaphoneMin = Math.floor(getTrialRemainingDaily("megaphone_ms") / 60000);
+  const trialCameraScans = getTrialRemainingDaily("camera_scans");
+  const trialTextRequests = getTrialRemainingDaily("text_translate_requests");
 
   const translationModeLabel =
     uiLanguage === "it"
@@ -162,7 +174,7 @@ export default function Home() {
   // Features that work offline: phrases (cached), converter (local), offline panel, settings
   const OFFLINE_ROUTES = new Set(["/phrases", "/converter"]);
 
-  const FeatureButton = ({ route, icon: Icon, label, onClick }: { route?: string; icon: any; label: string; onClick?: () => void }) => {
+  const FeatureButton = ({ route, icon: Icon, label, onClick, detail }: { route?: string; icon: any; label: string; onClick?: () => void; detail?: string }) => {
     const needsInternet = route && !OFFLINE_ROUTES.has(route);
     const disabled = isOffline && needsInternet;
 
@@ -173,10 +185,15 @@ export default function Home() {
           if (onClick) onClick();
           else if (route) navigate(route);
         }}
-        className={disabled ? btnDisabled : btnClass}
+        className={`${disabled ? btnDisabled : btnClass} relative`}
       >
         <Icon className="w-10 h-10 mb-2" />
         <span className="text-sm font-medium text-center leading-tight">{label}</span>
+        {detail && !disabled && (
+          <span className="mt-2 text-[11px] leading-none text-[#F4F4F4]/55 bg-[#02114A]/65 border border-[#FFFFFF14] rounded-full px-2 py-1">
+            {detail}
+          </span>
+        )}
         {disabled && (
           <div className="absolute top-2 right-2">
             <Lock className="w-3.5 h-3.5 text-[#F4F4F4]/30" />
@@ -201,11 +218,31 @@ export default function Home() {
 
       <div className="w-full max-w-md">
         <div className="grid grid-cols-2 gap-4">
-          <FeatureButton route="/conversation" icon={MessagesSquare} label={t("conversation")} />
+          <FeatureButton
+            route="/conversation"
+            icon={MessagesSquare}
+            label={t("conversation")}
+            detail={showTrialDetails ? (isIt ? `${trialConversationMin} min` : `${trialConversationMin} min`) : undefined}
+          />
           <FeatureButton route="/phrases" icon={MessageSquarePlus} label={t("usefulPhrases")} />
-          <FeatureButton route="/learn" icon={GraduationCap} label={t("learn")} />
-          <FeatureButton route="/group" icon={Users} label={t("groupTranslation")} />
-          <FeatureButton route="/camera" icon={Camera} label={t("camera")} />
+          <FeatureButton
+            route="/learn"
+            icon={GraduationCap}
+            label={t("learn")}
+            detail={showTrialDetails ? (isIt ? `${trialTextRequests} testi` : `${trialTextRequests} texts`) : undefined}
+          />
+          <FeatureButton
+            route="/group"
+            icon={Users}
+            label={t("groupTranslation")}
+            detail={showTrialDetails ? (isIt ? `${trialMegaphoneMin} min` : `${trialMegaphoneMin} min`) : undefined}
+          />
+          <FeatureButton
+            route="/camera"
+            icon={Camera}
+            label={t("camera")}
+            detail={showTrialDetails ? (isIt ? `${trialCameraScans} scan` : `${trialCameraScans} scans`) : undefined}
+          />
           <FeatureButton route="/converter" icon={Coins} label={t("convertUnits")} />
           <FeatureButton icon={WifiOff} label={t("offlineFunctions")} onClick={() => setShowOffline(true)} />
           <FeatureButton icon={Settings} label={t("settings")} onClick={openSettings} />
@@ -470,6 +507,47 @@ export default function Home() {
                   <span>{t("normal")}</span>
                   <span>{t("fast")}</span>
                 </div>
+              </div>
+
+              {/* Voice Clone */}
+              <div className="bg-[#0E2666] border border-[#FFFFFF14] rounded-2xl p-4 space-y-3">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-[#295BDB]/20 flex items-center justify-center shrink-0">
+                    <User className="w-5 h-5 text-[#295BDB]" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-[#F4F4F4]">
+                      {isIt ? "Clona la tua voce" : "Clone Your Voice"}
+                    </p>
+                    <p className="text-xs text-[#F4F4F4]/60 mt-0.5">
+                      {isIt
+                        ? "Crea una voce personalizzata per le riproduzioni vocali in app."
+                        : "Create a personalized branded voice for app playback."}
+                    </p>
+                  </div>
+                </div>
+
+                {canUseVoiceClone ? (
+                  <VoiceCloneSetup onClose={() => setShowPersonalize(false)} />
+                ) : (
+                  <>
+                    <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-300 leading-relaxed">
+                      {isIt
+                        ? "Disponibile nei piani Pro e Business."
+                        : "Available on Pro and Business plans."}
+                    </div>
+                    <button
+                      onClick={() => {
+                        setShowPersonalize(false);
+                        setShowSettings(false);
+                        navigate("/plans");
+                      }}
+                      className="w-full py-3 rounded-xl bg-[#295BDB] hover:bg-[#295BDB]/80 text-[#F4F4F4] font-bold text-sm transition-colors"
+                    >
+                      {isIt ? "Sblocca Clonazione Voce" : "Unlock Voice Cloning"}
+                    </button>
+                  </>
+                )}
               </div>
 
               <div className="border-t border-[#FFFFFF14]" />

@@ -35,7 +35,7 @@ function buildTranscriptionPrompt(rawExpected?: string): string | undefined {
   if (expected.length === 0) return undefined;
   const names = [...new Set(expected.map((code) => LANGUAGE_HINTS[code]).filter(Boolean))];
   if (names.length === 0) return undefined;
-  return `Likely spoken languages: ${names.join(" or ")}. Transcribe only spoken words, avoid filler hallucinations, preserve punctuation when clear.`;
+  return `lang=${names.join("/")}; verbatim speech only`;
 }
 
 function parseBody(req: VercelRequest): Promise<Buffer> {

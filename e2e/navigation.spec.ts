@@ -1,35 +1,31 @@
 import { test, expect } from "@playwright/test";
-
-// Helper: set API key in localStorage before page loads
-async function setApiKey(page: any) {
-  await page.addInitScript(() => {
-    const store = JSON.parse(localStorage.getItem("polyglot-user-storage") || '{"state":{}}');
-    store.state = store.state || {};
-    store.state.openaiApiKey = "sk-test-dummy-key-for-e2e";
-    localStorage.setItem("polyglot-user-storage", JSON.stringify(store));
-  });
-}
+import { setupStore, waitForSplash } from "./helpers";
 
 test.describe("App loads and navigates", () => {
+  test.beforeEach(async ({ page }) => {
+    await setupStore(page, {
+      betaUnlocked: true,
+      openaiApiKey: "sk-test-dummy-key-for-e2e",
+    });
+  });
+
   test("Home page renders after splash", async ({ page }) => {
     await page.goto("/");
-    // Wait for splash to finish (2.2s) and home to appear
-    await page.waitForTimeout(3000);
+    await waitForSplash(page);
     // Should see the main grid of feature buttons
     await expect(page.locator("body")).toBeVisible();
   });
 
   test("Home shows 6 main feature buttons", async ({ page }) => {
     await page.goto("/");
-    await page.waitForTimeout(3000);
-    // Look for the feature grid buttons (Camera, Conversation, Converter, Phrases, Offline, Group)
-    const buttons = page.locator("button, a").filter({ hasText: /.+/ });
+    await waitForSplash(page);
+    // Home feature cards are square buttons. Expect at least 6 main actions.
+    const buttons = page.locator("button.aspect-square");
     const count = await buttons.count();
     expect(count).toBeGreaterThanOrEqual(6);
   });
 
   test("Navigate to Conversation page", async ({ page }) => {
-    setApiKey(page);
     await page.goto("/conversation");
     await page.waitForTimeout(1000);
     await expect(page.locator("body")).toBeVisible();
@@ -68,9 +64,13 @@ test.describe("App loads and navigates", () => {
 });
 
 test.describe("Settings modal", () => {
+  test.beforeEach(async ({ page }) => {
+    await setupStore(page, { betaUnlocked: true });
+  });
+
   test("Opens settings from Home gear icon", async ({ page }) => {
     await page.goto("/");
-    await page.waitForTimeout(3000);
+    await waitForSplash(page);
     // Click the settings gear icon (top right)
     const settingsBtn = page.locator('[class*="gear"], [aria-label*="settings"], button').filter({ hasText: /settings/i }).first();
     // Try clicking any gear-like icon
