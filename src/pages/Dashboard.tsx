@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronLeft, BarChart3, RefreshCw, LogIn, Plus, Loader2, Key } from "lucide-react";
 import { collection, getDocs, query, where, Timestamp } from "firebase/firestore";
-import { GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword } from "firebase/auth";
+import { GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { db, auth } from "../firebase";
 import { useUserStore } from "../lib/store";
 import { useAuth } from "../components/AuthProvider";
@@ -202,15 +202,27 @@ export default function Dashboard() {
             <BarChart3 className="w-12 h-12 text-[#295BDB] mx-auto" />
             <h1 className="text-xl font-bold">{isIt ? "Accesso amministratore" : "Admin access required"}</h1>
             {user && !isAdmin ? (
-              <p className="text-sm text-red-400">
-                {isIt ? "Questo account non ha i permessi di amministratore." : "This account does not have admin permissions."}
-              </p>
+              <>
+                <p className="text-sm text-red-400">
+                  {isIt ? "Questo account non ha i permessi di amministratore." : "This account does not have admin permissions."}
+                </p>
+                <p className="text-xs text-[#F4F4F4]/40 mt-1">{user.email}</p>
+              </>
             ) : (
               <p className="text-sm text-[#F4F4F4]/50">
                 {isIt ? "Accedi per gestire l'app" : "Sign in to manage the app"}
               </p>
             )}
           </div>
+
+          {user && !isAdmin && (
+            <button
+              onClick={() => signOut(auth)}
+              className="w-full flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-red-500/20 border border-red-500/30 text-red-300 font-medium text-sm hover:bg-red-500/30 transition-colors"
+            >
+              {isIt ? "Esci e accedi con un altro account" : "Sign out and use another account"}
+            </button>
+          )}
 
           {!user && (
             <>
