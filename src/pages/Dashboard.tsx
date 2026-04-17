@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronLeft, BarChart3, RefreshCw, LogIn, Plus, Loader2, Key } from "lucide-react";
 import { collection, getDocs, query, where, Timestamp } from "firebase/firestore";
-import { GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, signOut } from "firebase/auth";
+import { GoogleAuthProvider, signInWithPopup, signInWithRedirect, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { db, auth } from "../firebase";
 import { useUserStore } from "../lib/store";
 import { useAuth } from "../components/AuthProvider";
@@ -74,8 +74,17 @@ export default function Dashboard() {
     setLoginError(null);
     try {
       await signInWithPopup(auth, new GoogleAuthProvider());
-    } catch {
-      // user cancelled
+    } catch (e: any) {
+      // If popup blocked or closed, fall back to redirect
+      if (e?.code === "auth/popup-blocked" || e?.code === "auth/popup-closed-by-browser" || e?.code === "auth/cancelled-popup-request") {
+        try {
+          await signInWithRedirect(auth, new GoogleAuthProvider());
+          return;
+        } catch {
+          // redirect will navigate away
+        }
+      }
+      // user cancelled or other error
     } finally {
       setAuthLoading(false);
     }
