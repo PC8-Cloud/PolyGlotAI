@@ -40,7 +40,7 @@ export default function Paywall() {
   const [error, setError] = React.useState<string | null>(null);
   const [licenseCode, setLicenseCode] = React.useState("");
   const [licenseLoading, setLicenseLoading] = React.useState(false);
-  const [licenseSuccess, setLicenseSuccess] = React.useState<string | null>(null);
+  const [licenseResult, setLicenseResult] = React.useState<{ plan: string; expiresAt: string | null } | null>(null);
   const checkoutEnabled = canStartCheckout();
   const billingHint = getBillingHint(undefined, uiLanguage);
   const isIt = String(uiLanguage).toLowerCase().startsWith("it");
@@ -49,7 +49,7 @@ export default function Paywall() {
     if (!user || !licenseCode.trim()) return;
     setLicenseLoading(true);
     setError(null);
-    setLicenseSuccess(null);
+    setLicenseResult(null);
     try {
       const token = await user.getIdToken();
       const res = await fetch(
@@ -64,11 +64,7 @@ export default function Paywall() {
       if (!res.ok) {
         setError(data.error || (isIt ? "Codice non valido" : "Invalid code"));
       } else {
-        setLicenseSuccess(
-          isIt
-            ? `Piano ${data.plan} attivato!${data.expiresAt ? ` Scade il ${new Date(data.expiresAt).toLocaleDateString()}` : " (permanente)"}`
-            : `Plan ${data.plan} activated!${data.expiresAt ? ` Expires ${new Date(data.expiresAt).toLocaleDateString()}` : " (permanent)"}`,
-        );
+        setLicenseResult({ plan: data.plan, expiresAt: data.expiresAt });
         setLicenseCode("");
       }
     } catch {
@@ -159,11 +155,6 @@ export default function Paywall() {
             <Ticket className="w-5 h-5 text-[#F59E0B]" />
             <h3 className="font-bold text-sm">{isIt ? "Hai un codice?" : "Have a code?"}</h3>
           </div>
-          {licenseSuccess && (
-            <div className="p-3 rounded-xl bg-green-500/20 border border-green-500/30 text-green-300 text-sm">
-              {licenseSuccess}
-            </div>
-          )}
           <div className="flex gap-2">
             <input
               type="text"
@@ -192,6 +183,31 @@ export default function Paywall() {
           </button>
         </div>
       </div>
+
+      {/* License activation success popup */}
+      {licenseResult && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-6">
+          <div className="w-full max-w-sm bg-[#0E2666] border border-[#FFFFFF14] rounded-2xl p-6 space-y-5 text-center">
+            <div className="w-16 h-16 rounded-full bg-green-500/20 border border-green-500/30 flex items-center justify-center mx-auto">
+              <Check className="w-8 h-8 text-green-400" />
+            </div>
+            <h2 className="text-lg font-bold">
+              {isIt ? "Codice attivato!" : "Code activated!"}
+            </h2>
+            <p className="text-sm text-[#F4F4F4]/70 leading-relaxed">
+              {isIt
+                ? `Hai inserito un codice che ti autorizza ad usare la versione ${licenseResult.plan.charAt(0).toUpperCase() + licenseResult.plan.slice(1).replace("_", " ")} di PolyGlotAI${licenseResult.expiresAt ? ` fino al ${new Date(licenseResult.expiresAt).toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" })}` : " senza scadenza"}.`
+                : `Your code unlocks the ${licenseResult.plan.charAt(0).toUpperCase() + licenseResult.plan.slice(1).replace("_", " ")} version of PolyGlotAI${licenseResult.expiresAt ? ` until ${new Date(licenseResult.expiresAt).toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric" })}` : " permanently"}.`}
+            </p>
+            <button
+              onClick={() => navigate("/")}
+              className="w-full py-3 rounded-xl bg-[#295BDB] hover:bg-[#295BDB]/80 text-white font-bold text-sm transition-colors"
+            >
+              {isIt ? "Torna all'app" : "Back to app"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
