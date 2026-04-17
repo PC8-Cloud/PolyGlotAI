@@ -557,7 +557,7 @@ export default function Conversation() {
         return;
       }
 
-      // Language-based side detection (primary) + text-based fallback
+      // Language-based side detection + text analysis for mixed-language utterances
       const sideFromLanguage = detectSideFromLanguage(detectedLang || "");
       const wordCount = cleanedLower ? cleanedLower.split(/\s+/).filter(Boolean).length : 0;
       const yourScore = languageScoreFromText(trimmed, yourLangRef.current);
@@ -580,7 +580,15 @@ export default function Conversation() {
         return;
       }
 
-      const side = sideFromLanguage || detectSideFromText(trimmed);
+      // Mixed-language detection: if text has words in BOTH languages,
+      // prefer text-based scoring over Whisper's language detection.
+      // e.g. "I'm an English boy! Sono grande!" — Whisper may detect "it"
+      // but the text is predominantly English, so side should be "you" (en).
+      const isMixedLanguage = yourScore >= 1 && theirScore >= 1;
+      const sideFromText = detectSideFromText(trimmed);
+      const side = isMixedLanguage
+        ? sideFromText  // text scoring is more reliable for mixed utterances
+        : (sideFromLanguage || sideFromText);
       lastDetectedSideRef.current = side;
       if (CONVERSATION_DEBUG) console.log("[Conversation] side:", side, "lang:", detectedLang, "yourLang:", yourLangRef.current, "theirLang:", theirLangRef.current);
 
