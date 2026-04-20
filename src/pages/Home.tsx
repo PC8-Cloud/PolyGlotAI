@@ -509,46 +509,7 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Voice Clone */}
-              <div className="bg-[#0E2666] border border-[#FFFFFF14] rounded-2xl p-4 space-y-3">
-                <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-[#295BDB]/20 flex items-center justify-center shrink-0">
-                    <User className="w-5 h-5 text-[#295BDB]" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold text-[#F4F4F4]">
-                      {isIt ? "Clona la tua voce" : "Clone Your Voice"}
-                    </p>
-                    <p className="text-xs text-[#F4F4F4]/60 mt-0.5">
-                      {isIt
-                        ? "Crea una voce personalizzata per le riproduzioni vocali in app."
-                        : "Create a personalized branded voice for app playback."}
-                    </p>
-                  </div>
-                </div>
-
-                {canUseVoiceClone ? (
-                  <VoiceCloneSetup onClose={() => setShowPersonalize(false)} />
-                ) : (
-                  <>
-                    <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-300 leading-relaxed">
-                      {isIt
-                        ? "Disponibile nei piani Pro e Business."
-                        : "Available on Pro and Business plans."}
-                    </div>
-                    <button
-                      onClick={() => {
-                        setShowPersonalize(false);
-                        setShowSettings(false);
-                        navigate("/plans");
-                      }}
-                      className="w-full py-3 rounded-xl bg-[#295BDB] hover:bg-[#295BDB]/80 text-[#F4F4F4] font-bold text-sm transition-colors"
-                    >
-                      {isIt ? "Sblocca Clonazione Voce" : "Unlock Voice Cloning"}
-                    </button>
-                  </>
-                )}
-              </div>
+              {/* Voice Clone — hidden until OpenAI Custom Voices API access is granted */}
 
               <div className="border-t border-[#FFFFFF14]" />
 
