@@ -64,6 +64,44 @@ function textSimilarity(a: string, b: string): number {
   return common / Math.max(wordsA.size, wordsB.size);
 }
 
+/** Play a short two-note ascending chime to signal recording cutoff */
+function playCutoffChime() {
+  try {
+    const ctx = new AudioContext();
+    const now = ctx.currentTime;
+
+    // Note 1: E5 (659 Hz)
+    const osc1 = ctx.createOscillator();
+    const gain1 = ctx.createGain();
+    osc1.type = "sine";
+    osc1.frequency.value = 659;
+    gain1.gain.setValueAtTime(0.3, now);
+    gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+    osc1.connect(gain1).connect(ctx.destination);
+    osc1.start(now);
+    osc1.stop(now + 0.15);
+
+    // Note 2: G5 (784 Hz) — slightly delayed
+    const osc2 = ctx.createOscillator();
+    const gain2 = ctx.createGain();
+    osc2.type = "sine";
+    osc2.frequency.value = 784;
+    gain2.gain.setValueAtTime(0.3, now + 0.12);
+    gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+    osc2.connect(gain2).connect(ctx.destination);
+    osc2.start(now + 0.12);
+    osc2.stop(now + 0.3);
+
+    // Cleanup
+    osc2.onended = () => ctx.close().catch(() => {});
+
+    // Vibrate if supported (short pulse)
+    if (navigator.vibrate) navigator.vibrate(100);
+  } catch {
+    // Audio not available — silent fallback
+  }
+}
+
 const LANGUAGE_HINTS: Record<string, string[]> = {
   en: ["the", "a", "an", "and", "is", "are", "do", "does", "did", "have", "has", "you", "we", "they", "can"],
   it: ["il", "lo", "la", "gli", "le", "un", "una", "e", "sei", "sono", "hai", "avete", "come", "dove", "perche"],
@@ -379,6 +417,8 @@ export default function Conversation() {
 
             if (silenceDuration > timeout) {
               if (CONVERSATION_DEBUG) console.log("[Conversation] silence stop", { silenceDuration: silenceDuration.toFixed(1), speechDuration: speechDuration.toFixed(1), timeout });
+              // Chime to notify speaker that recording is stopping
+              if (speechDuration >= 3) playCutoffChime();
               stopListening();
               return;
             }
