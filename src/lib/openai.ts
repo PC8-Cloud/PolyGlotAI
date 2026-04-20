@@ -372,22 +372,41 @@ export interface OpenAICustomVoice {
   created_at?: number;
 }
 
-const AUTO_TTS_VOICE_BY_LANG: Record<string, TTSVoice> = {
+// Gender-aware voice mapping per language
+// Male voices: echo, onyx, ash, fable
+// Female voices: nova, shimmer, alloy, coral, sage, ballad
+const AUTO_TTS_VOICE_BY_LANG_FEMALE: Record<string, TTSVoice> = {
   it: "sage",
   en: "nova",
-  de: "onyx",
+  de: "alloy",
   es: "coral",
-  fr: "alloy",
-  pt: "shimmer",
+  fr: "shimmer",
+  pt: "nova",
+  zh: "ballad",
+  ja: "alloy",
+  ko: "ballad",
+  ar: "sage",
+};
+
+const AUTO_TTS_VOICE_BY_LANG_MALE: Record<string, TTSVoice> = {
+  it: "ash",
+  en: "echo",
+  de: "onyx",
+  es: "fable",
+  fr: "echo",
+  pt: "onyx",
   zh: "echo",
   ja: "ash",
-  ko: "ballad",
+  ko: "ash",
   ar: "fable",
 };
 
-function getAutoVoiceForLanguage(langCode?: string): TTSVoice {
+export function getAutoVoiceForLanguage(langCode?: string, gender?: "male" | "female" | ""): TTSVoice {
   const base = String(langCode || "").toLowerCase().split("-")[0];
-  return AUTO_TTS_VOICE_BY_LANG[base] || "nova";
+  if (gender === "male") return AUTO_TTS_VOICE_BY_LANG_MALE[base] || "echo";
+  if (gender === "female") return AUTO_TTS_VOICE_BY_LANG_FEMALE[base] || "nova";
+  // Default: use female voices (backward compatible)
+  return AUTO_TTS_VOICE_BY_LANG_FEMALE[base] || "nova";
 }
 
 export async function listOpenAIVoices(): Promise<OpenAICustomVoice[]> {
@@ -639,10 +658,11 @@ export async function playTTS(
   voice?: TTSVoice,
   speed: number = 1.0,
   langCode?: string,
+  gender?: "male" | "female" | "",
 ): Promise<void> {
   const state = useUserStore.getState();
   // Use custom cloned voice if available and no explicit voice override
-  const selectedVoice = (voice || state.customVoiceId || state.ttsVoice || getAutoVoiceForLanguage(langCode) || "nova") as TTSVoice;
+  const selectedVoice = (voice || state.customVoiceId || state.ttsVoice || getAutoVoiceForLanguage(langCode, gender) || "nova") as TTSVoice;
   const userSpeed = state.ttsSpeed || 1.0;
   const baseSpeed = typeof speed === "number" ? speed : 1.0;
   const selectedSpeed = Math.max(0.7, Math.min(1.8, baseSpeed * userSpeed));

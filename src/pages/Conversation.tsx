@@ -139,7 +139,7 @@ function languageScoreFromText(text: string, langCode: string): number {
 
 export default function Conversation() {
   const navigate = useNavigate();
-  const { uiLanguage } = useUserStore();
+  const { uiLanguage, userGender } = useUserStore();
   const t = useTranslation(uiLanguage);
   const isIt = String(uiLanguage).toLowerCase().startsWith("it");
 
@@ -147,6 +147,7 @@ export default function Conversation() {
   const [theirLang, setTheirLang] = useState(
     uiLanguage === "en" ? "it" : "en",
   );
+  const [theirGender, setTheirGender] = useState<"male" | "female" | "">("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [chatState, setChatState] = useState<"idle" | "listening" | "transcribing" | "translating" | "speaking">("idle");
   const [autoSpeak, setAutoSpeak] = useState(true);
@@ -832,7 +833,9 @@ export default function Conversation() {
         );
 
         try {
-          await playTTS(translatedText, undefined, undefined, targetLang);
+          // Voice matches the speaker's gender
+          const speakerGender = side === "you" ? userGender : theirGender;
+          await playTTS(translatedText, undefined, undefined, targetLang, speakerGender);
         } catch (e) {
           console.error("TTS failed:", e);
         } finally {
@@ -916,7 +919,7 @@ export default function Conversation() {
     }
   };
 
-  const handleSpeak = async (text: string, id: number, langCode: string) => {
+  const handleSpeak = async (text: string, id: number, langCode: string, side: "you" | "them") => {
     if (playingId !== null) return;
     // Pause mic so playback doesn't get re-captured
     const wasListening = chatState === "listening";
@@ -925,7 +928,8 @@ export default function Conversation() {
     setPlayingId(id);
     setChatState("speaking");
     try {
-      await playTTS(text, undefined, undefined, langCode);
+      const speakerGender = side === "you" ? userGender : theirGender;
+      await playTTS(text, undefined, undefined, langCode, speakerGender);
     } catch (e) {
       console.error("TTS failed:", e);
     } finally {
@@ -997,6 +1001,32 @@ export default function Conversation() {
           <LanguageOptions />
         </select>
       </div>
+      {/* Gender selectors for voice matching */}
+      {!conversationActive && (
+        <div className="flex items-center gap-3 px-4 py-2 border-b border-[#FFFFFF14] bg-[#0E2666]/30 shrink-0">
+          <div className="flex-1 flex items-center gap-1.5 justify-center">
+            <span className="text-[10px] text-[#F4F4F4]/40 uppercase">{t("you")}</span>
+            <button
+              onClick={() => {/* userGender is set in personalize */}}
+              className="text-xs px-2 py-1 rounded-lg bg-[#02114A] border border-[#FFFFFF14] text-[#F4F4F4]/60"
+              disabled
+            >
+              {userGender === "male" ? (isIt ? "♂ Uomo" : "♂ Male") : userGender === "female" ? (isIt ? "♀ Donna" : "♀ Female") : "—"}
+            </button>
+          </div>
+          <div className="flex-1 flex items-center gap-1.5 justify-center">
+            <span className="text-[10px] text-[#F4F4F4]/40 uppercase">{t("them")}</span>
+            <button
+              onClick={() => setTheirGender(theirGender === "male" ? "female" : theirGender === "female" ? "" : "male")}
+              className={`text-xs px-2 py-1 rounded-lg border transition-colors ${
+                theirGender ? "bg-[#295BDB]/20 border-[#295BDB]/50 text-[#F4F4F4]/80" : "bg-[#02114A] border-[#FFFFFF14] text-[#F4F4F4]/40"
+              }`}
+            >
+              {theirGender === "male" ? (isIt ? "♂ Uomo" : "♂ Male") : theirGender === "female" ? (isIt ? "♀ Donna" : "♀ Female") : (isIt ? "♂/♀ Voce" : "♂/♀ Voice")}
+            </button>
+          </div>
+        </div>
+      )}
       {error && (
         <div className="mx-4 mt-3 p-3 bg-red-500/20 border border-red-500/30 rounded-xl flex items-center gap-3 shrink-0">
           <p className="text-sm text-red-400 flex-1">{error}</p>
@@ -1056,7 +1086,7 @@ export default function Conversation() {
               </div>
             </div>
             <button
-              onClick={() => handleSpeak(msg.translatedText, msg.id, msg.side === "you" ? theirLang : yourLang)}
+              onClick={() => handleSpeak(msg.translatedText, msg.id, msg.side === "you" ? theirLang : yourLang, msg.side)}
               disabled={playingId !== null}
               className={`px-2 py-1 rounded-lg transition-colors ${
                 playingId === msg.id ? "text-[#295BDB] animate-pulse" : "text-[#F4F4F4]/30 hover:text-[#F4F4F4]/80"
