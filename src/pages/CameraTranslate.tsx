@@ -89,7 +89,7 @@ function getCameraLabels(uiLanguage: string) {
 
 export default function CameraTranslate() {
   const navigate = useNavigate();
-  const { uiLanguage } = useUserStore();
+  const { uiLanguage, userGender } = useUserStore();
   const t = useTranslation(uiLanguage);
 
   const [targetLang, setTargetLang] = useState(
@@ -159,7 +159,7 @@ export default function CameraTranslate() {
     prepareAudioForSafari();
     setPlaying(true);
     try {
-      await playTTS(text, undefined, undefined, targetLang);
+      await playTTS(text, undefined, undefined, targetLang, userGender);
     } catch (e) {
       console.error("TTS failed:", e);
     } finally {

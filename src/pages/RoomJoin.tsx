@@ -27,7 +27,7 @@ interface Msg {
 export default function RoomJoin() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { uiLanguage } = useUserStore();
+  const { uiLanguage, userGender } = useUserStore();
   const t = useTranslation(uiLanguage);
 
   // Join phase
@@ -285,7 +285,7 @@ export default function RoomJoin() {
       if (canUseLocalTTS()) {
         await playLocalTTS(next.text, myLang);
       } else {
-        await playTTS(next.text, undefined, undefined, myLang);
+        await playTTS(next.text, undefined, undefined, myLang, userGender);
       }
     } catch (e) {
       console.error("TTS failed:", e);

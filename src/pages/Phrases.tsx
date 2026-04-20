@@ -173,7 +173,7 @@ const CATEGORY_GLOSSARY_HINTS: Record<string, string[]> = {
 
 export default function Phrases() {
   const navigate = useNavigate();
-  const { uiLanguage } = useUserStore();
+  const { uiLanguage, userGender } = useUserStore();
   const t = useTranslation(uiLanguage);
 
   const { isOffline } = useNetworkStore();
@@ -230,13 +230,13 @@ export default function Phrases() {
       if (canUseLocalTTS()) {
         await playLocalTTS(text, targetLang);
       } else {
-        await playTTS(text, undefined, undefined, targetLang);
+        await playTTS(text, undefined, undefined, targetLang, userGender);
       }
     } catch (e: any) {
       console.error("TTS failed:", e);
       // Last resort: try remote TTS if local failed or was unavailable.
       try {
-        await playTTS(text, undefined, undefined, targetLang);
+        await playTTS(text, undefined, undefined, targetLang, userGender);
       } catch (ttsError: any) {
         if (canUseLocalTTS()) {
           try { await playLocalTTS(text, targetLang); } catch {}

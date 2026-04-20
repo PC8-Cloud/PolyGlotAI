@@ -19,7 +19,7 @@ const SHORT_PAUSE_MS = 1600; // translate chunk in background, faster feedback
 const LONG_PAUSE_MS = 3200;  // stop and play everything sooner
 export default function MegaphonePage() {
   const navigate = useNavigate();
-  const { uiLanguage } = useUserStore();
+  const { uiLanguage, userGender } = useUserStore();
   const t = useTranslation(uiLanguage);
 
   const [speakerLang, setSpeakerLang] = useState(uiLanguage);
@@ -385,7 +385,7 @@ export default function MegaphonePage() {
 
         if (autoSpeak && translated !== "...") {
           try {
-            await playTTS(translated, undefined, undefined, targetLang);
+            await playTTS(translated, undefined, undefined, targetLang, userGender);
           } catch (e) {
             console.error("TTS chunk failed:", e);
           }
@@ -452,7 +452,7 @@ export default function MegaphonePage() {
           const s = sentence.trim();
           if (s) {
             try {
-              await playTTS(s, undefined, undefined, targetLang);
+              await playTTS(s, undefined, undefined, targetLang, userGender);
             } catch (e) {
               console.error("TTS chunk failed:", e);
             }
