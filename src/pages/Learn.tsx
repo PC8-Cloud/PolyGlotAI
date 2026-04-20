@@ -547,7 +547,7 @@ export default function Learn() {
     setTextTranslateBusy(true);
     setError(null);
     try {
-      const result = await translateText(source, nativeLang, [targetLang], { mode: "general" });
+      const result = await translateText(source, nativeLang, [targetLang], { mode: "live" });
       const translated = result[targetLang] || "";
       if (!translated) throw new Error("empty_translation");
       setTextTranslateOutput(translated);
@@ -636,7 +636,7 @@ export default function Learn() {
 
       if (!extracted) throw new Error("empty_text");
       setTextTranslateInput(extracted);
-      const result = await translateText(extracted, nativeLang, [targetLang], { mode: "general" });
+      const result = await translateText(extracted, nativeLang, [targetLang], { mode: "live" });
       setTextTranslateOutput(result[targetLang] || "");
     } catch (e: any) {
       const known = String(e?.message || "");
@@ -704,7 +704,7 @@ export default function Learn() {
 
     for (let i = 0; i < merged.length; i++) {
       const seg = merged[i];
-      const translatedObj = await translateText(seg.text, sourceLanguage, [targetLang], { mode: "general" });
+      const translatedObj = await translateText(seg.text, sourceLanguage, [targetLang], { mode: "live" });
       const translatedText = (translatedObj[targetLang] || "").trim();
       if (!translatedText) continue;
       const audioBuffer = await textToSpeech(translatedText, undefined, 1.0);
@@ -1045,15 +1045,28 @@ export default function Learn() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
 
-      // Set up analyser for silence detection
+      // Set up analyser with audio processing chain (gain, highpass, compressor)
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
       if (audioCtx.state === "suspended") {
         await audioCtx.resume();
       }
       const source = audioCtx.createMediaStreamSource(stream);
+      const inputGain = audioCtx.createGain();
+      inputGain.gain.value = 1.8;
+      const highpass = audioCtx.createBiquadFilter();
+      highpass.type = "highpass";
+      highpass.frequency.value = 85;
+      highpass.Q.value = 0.7;
+      const compressor = audioCtx.createDynamicsCompressor();
+      compressor.threshold.value = -35;
+      compressor.ratio.value = 4;
+      compressor.attack.value = 0.003;
+      compressor.release.value = 0.15;
+      const makeupGain = audioCtx.createGain();
+      makeupGain.gain.value = 1.5;
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 2048;
-      source.connect(analyser);
+      source.connect(inputGain).connect(highpass).connect(compressor).connect(makeupGain).connect(analyser);
       analyserRef.current = analyser;
 
       // Start recording
@@ -1481,9 +1494,22 @@ export default function Learn() {
         await audioCtx.resume();
       }
       const source = audioCtx.createMediaStreamSource(stream);
+      const inputGain2 = audioCtx.createGain();
+      inputGain2.gain.value = 1.8;
+      const highpass2 = audioCtx.createBiquadFilter();
+      highpass2.type = "highpass";
+      highpass2.frequency.value = 85;
+      highpass2.Q.value = 0.7;
+      const compressor2 = audioCtx.createDynamicsCompressor();
+      compressor2.threshold.value = -35;
+      compressor2.ratio.value = 4;
+      compressor2.attack.value = 0.003;
+      compressor2.release.value = 0.15;
+      const makeupGain2 = audioCtx.createGain();
+      makeupGain2.gain.value = 1.5;
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 2048;
-      source.connect(analyser);
+      source.connect(inputGain2).connect(highpass2).connect(compressor2).connect(makeupGain2).connect(analyser);
 
       const mimeType = getRecorderMimeType();
       const recorder = mimeType
