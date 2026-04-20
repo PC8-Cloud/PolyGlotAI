@@ -417,8 +417,7 @@ export default function Conversation() {
 
             if (silenceDuration > timeout) {
               if (CONVERSATION_DEBUG) console.log("[Conversation] silence stop", { silenceDuration: silenceDuration.toFixed(1), speechDuration: speechDuration.toFixed(1), timeout });
-              // Chime to notify speaker that recording is stopping
-              if (speechDuration >= 3) playCutoffChime();
+              playCutoffChime();
               stopListening();
               return;
             }
@@ -772,6 +771,7 @@ export default function Conversation() {
         if (mediaRecorderRef.current === recorder && recorder.state === "recording") {
           if (CONVERSATION_DEBUG) console.log("[Conversation] max recording timeout — stopping");
           peakLevelRef.current = Math.max(peakLevelRef.current, 0.11); // bypass peak filter
+          playCutoffChime();
           stopListening();
         }
       }, 30000);
