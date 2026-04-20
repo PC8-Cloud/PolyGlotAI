@@ -661,8 +661,9 @@ export async function playTTS(
   gender?: "male" | "female" | "",
 ): Promise<void> {
   const state = useUserStore.getState();
-  // Use custom cloned voice if available and no explicit voice override
-  const selectedVoice = (voice || state.customVoiceId || state.ttsVoice || getAutoVoiceForLanguage(langCode, gender) || "nova") as TTSVoice;
+  // Use custom cloned voice if available, then gender-aware auto voice, then store preference
+  // Gender-aware selection takes priority over store default when gender is specified
+  const selectedVoice = (voice || state.customVoiceId || (gender ? getAutoVoiceForLanguage(langCode, gender) : null) || state.ttsVoice || getAutoVoiceForLanguage(langCode) || "nova") as TTSVoice;
   const userSpeed = state.ttsSpeed || 1.0;
   const baseSpeed = typeof speed === "number" ? speed : 1.0;
   const selectedSpeed = Math.max(0.7, Math.min(1.8, baseSpeed * userSpeed));
