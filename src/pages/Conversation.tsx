@@ -20,18 +20,19 @@ interface Message {
 }
 
 
-// Silence detection — thresholds tuned for the processed signal
-// (input gain 1.8× → compressor → makeup gain 1.5× → analyser)
-// The processing chain boosts quiet speech ~2.5-3× so thresholds are higher than raw mic.
-const SILENCE_TIMEOUT = 2.4; // seconds of silence before auto-stop
-const SILENCE_THRESHOLD = 0.06; // processed signal: raised from 0.045 to match boosted levels
-const VOICE_ACTIVITY_THRESHOLD = 0.07; // processed signal: must be clearly speaking, not background
-const VOICE_ACTIVITY_FRAMES = 4; // require sustained speech, not a single background spike
-const NO_SPEECH_TIMEOUT_MS = 4500; // recycle loop if nobody speaks
-const MIN_SPEECH_DURATION_MS = 420; // still accepts short replies
-const SPEECH_PEAK_THRESHOLD = 0.12; // processed signal: raised from 0.08
-const WEAK_PEAK_THRESHOLD = 0.08; // processed signal: raised from 0.05
-const MIN_AVG_RMS_THRESHOLD = 0.06; // processed signal: raised from 0.04
+// Silence detection — adaptive timeout based on speech duration
+// Short speech → shorter pause tolerance, long speech → more patience for natural pauses
+const SILENCE_TIMEOUT_SHORT = 1.8; // after < 3s of speech: probably a short reply
+const SILENCE_TIMEOUT_NORMAL = 2.8; // after 3-8s of speech: normal sentence
+const SILENCE_TIMEOUT_LONG = 3.8; // after > 8s of speech: longer monologue, allow thinking pauses
+const SILENCE_THRESHOLD = 0.06;
+const VOICE_ACTIVITY_THRESHOLD = 0.07;
+const VOICE_ACTIVITY_FRAMES = 4;
+const NO_SPEECH_TIMEOUT_MS = 4500;
+const MIN_SPEECH_DURATION_MS = 420;
+const SPEECH_PEAK_THRESHOLD = 0.12;
+const WEAK_PEAK_THRESHOLD = 0.08;
+const MIN_AVG_RMS_THRESHOLD = 0.06;
 const MIN_AUDIO_BLOB_BYTES = 1000;
 const MAX_DUPLICATE_SIMILARITY = 0.8; // reject if >80% similar to a recent message
 const CONVERSATION_DEBUG = typeof import.meta !== "undefined" ? Boolean((import.meta as any).env?.DEV) : false;
@@ -314,10 +315,12 @@ export default function Conversation() {
   const startSilenceDetection = useCallback((analyser: AnalyserNode) => {
     const dataArray = new Uint8Array(analyser.fftSize);
     let silenceStart: number | null = null;
-    let allZeroCount = 0; // detect if analyser returns no data (iOS AudioContext issue)
+    let allZeroCount = 0;
     const startTime = Date.now();
     let speechFrames = 0;
     let hasSpeechStarted = false;
+    let speechStartTime: number | null = null; // when speech actually began
+    let lastSpeechTime: number | null = null; // last time voice was detected
 
     const check = () => {
       analyser.getByteTimeDomainData(dataArray);
@@ -329,30 +332,30 @@ export default function Conversation() {
       const rms = Math.sqrt(sum / dataArray.length);
       setLiveLevel(rms);
 
-      // Track peak and average level to distinguish direct vs distant speech
       if (rms > peakLevelRef.current) peakLevelRef.current = rms;
       rmsAccRef.current.sum += rms;
       rmsAccRef.current.count += 1;
 
-      // Voice activity gate: require stable speech activity before enabling
-      // silence-based stop. This avoids fast open/close loops on background noise.
+      // Voice activity gate
       if (rms >= VOICE_ACTIVITY_THRESHOLD) {
         speechFrames += 1;
+        lastSpeechTime = Date.now();
         if (speechFrames >= VOICE_ACTIVITY_FRAMES) {
-          hasSpeechStarted = true;
+          if (!hasSpeechStarted) {
+            hasSpeechStarted = true;
+            speechStartTime = Date.now();
+          }
         }
       } else {
         speechFrames = 0;
       }
 
-      // iOS fallback: if analyser reads near-zero for 15+ seconds, stop and let
-      // onstop handle the recording (the audio data may still be valid even if
-      // AudioContext analyser doesn't work properly on iOS)
+      // iOS fallback
       if (rms < 0.001) {
         allZeroCount++;
         if (allZeroCount > 500 && (Date.now() - startTime) > 15000) {
           if (CONVERSATION_DEBUG) console.log("[Conversation] analyser stuck at zero — iOS fallback, stopping");
-          peakLevelRef.current = 1; // bypass peak check since analyser is broken
+          peakLevelRef.current = 1;
           stopListening();
           return;
         }
@@ -360,12 +363,25 @@ export default function Conversation() {
         allZeroCount = 0;
       }
 
-      if (hasSpeechStarted) {
+      if (hasSpeechStarted && speechStartTime) {
         if (rms < SILENCE_THRESHOLD) {
           if (!silenceStart) silenceStart = Date.now();
-          else if ((Date.now() - silenceStart) / 1000 > SILENCE_TIMEOUT) {
-            stopListening();
-            return;
+          else {
+            const silenceDuration = (Date.now() - silenceStart) / 1000;
+            const speechDuration = ((lastSpeechTime || Date.now()) - speechStartTime) / 1000;
+
+            // Adaptive timeout: longer speech gets more patience for pauses
+            const timeout = speechDuration < 3
+              ? SILENCE_TIMEOUT_SHORT   // short reply → 1.8s
+              : speechDuration < 8
+                ? SILENCE_TIMEOUT_NORMAL // normal sentence → 2.8s
+                : SILENCE_TIMEOUT_LONG;  // long speech → 3.8s
+
+            if (silenceDuration > timeout) {
+              if (CONVERSATION_DEBUG) console.log("[Conversation] silence stop", { silenceDuration: silenceDuration.toFixed(1), speechDuration: speechDuration.toFixed(1), timeout });
+              stopListening();
+              return;
+            }
           }
         } else {
           silenceStart = null;
