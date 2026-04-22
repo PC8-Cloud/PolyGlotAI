@@ -528,7 +528,7 @@ export default function RoomJoin() {
 
         {messages.length === 0 && (
           <div className="flex-1 flex items-center justify-center">
-            <p className="text-[#F4F4F4]/30 text-sm text-center px-8">{t("waitingForHost")}</p>
+            <p className="text-[#F4F4F4]/50 text-sm text-center px-8">{t("waitingForHost")}</p>
           </div>
         )}
 
@@ -570,7 +570,7 @@ export default function RoomJoin() {
                   <p className={`text-lg font-bold ${isQuestion ? "text-[#F4F4F4]" : "text-[#295BDB]"}`}>{myText}</p>
                 )}
                 {msg.sourceText !== myText && !isTranslationPending && (
-                  <p className="text-xs text-[#F4F4F4]/30 mt-2">{msg.sourceText}</p>
+                  <p className="text-xs text-[#F4F4F4]/45 mt-2">{msg.sourceText}</p>
                 )}
               </div>
               {!isQuestion && (

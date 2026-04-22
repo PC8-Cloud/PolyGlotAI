@@ -2,6 +2,8 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ChevronLeft,
+  ChevronRight,
+  ChevronDown,
   Siren,
   UtensilsCrossed,
   Hotel,
@@ -304,6 +306,7 @@ export default function Phrases() {
 
   const activeCategory = CATEGORIES.find((c) => c.id === selectedCategory);
   const selectedLang = LANGUAGES.find((l) => l.code === targetLang);
+  const sourceLang = LANGUAGES.find((l) => l.code === uiLanguage) || LANGUAGES.find((l) => l.code === "en");
 
   return (
     <div className="h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans overflow-hidden">
@@ -324,9 +327,10 @@ export default function Phrases() {
         </h1>
       </header>
 
-      {/* Language selector */}
-      <div className="p-4 flex items-center gap-3 border-b border-[#FFFFFF14] bg-[#0E2666]/50 shrink-0">
-        <span className="text-[#F4F4F4]/40 text-lg">→</span>
+      {/* Language selector — show source → target */}
+      <div className="p-4 flex items-center gap-2 border-b border-[#FFFFFF14] bg-[#0E2666]/50 shrink-0">
+        <span className="text-sm text-[#F4F4F4]/70 shrink-0">{sourceLang?.flag} {sourceLang?.label}</span>
+        <span className="text-[#F4F4F4]/50 text-sm">→</span>
         <select
           value={targetLang}
           onChange={(e) => setTargetLang(e.target.value)}
@@ -381,11 +385,11 @@ export default function Phrases() {
                   <div className="flex items-start gap-3">
                     <span className="text-2xl shrink-0">{phrase.emoji}</span>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-[#F4F4F4]/60">{t(phrase.key as any)}</p>
+                      <p className="text-sm text-[#F4F4F4]/70">{t(phrase.key as any)}</p>
                       {isLoading ? (
                         <div className="flex items-center gap-2 mt-1">
                           <div className="w-3 h-3 border-2 border-[#295BDB] border-t-transparent rounded-full animate-spin" />
-                          <span className="text-xs text-[#F4F4F4]/40">...</span>
+                          <span className="text-xs text-[#F4F4F4]/50">...</span>
                         </div>
                       ) : translated ? (
                         <div className="flex items-center gap-2 mt-1">
@@ -401,18 +405,24 @@ export default function Phrases() {
                             className={`p-1.5 rounded-lg shrink-0 transition-colors ${
                               isPlaying
                                 ? "text-[#295BDB] animate-pulse"
-                                : "text-[#F4F4F4]/40 hover:text-[#F4F4F4] hover:bg-[#123182]"
+                                : "text-[#F4F4F4]/50 hover:text-[#F4F4F4] hover:bg-[#123182]"
                             }`}
                           >
                             <Volume2 className="w-5 h-5" />
                           </button>
                         </div>
                       ) : (
-                        <p className="text-xs text-[#F4F4F4]/30 mt-1">
-                          {selectedLang?.flag} {t("tapToTranslate")}
-                        </p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <p className="text-xs text-[#F4F4F4]/50 flex-1">
+                            {selectedLang?.flag} {t("tapToTranslate")}
+                          </p>
+                          <ChevronRight className="w-4 h-4 text-[#F4F4F4]/30 shrink-0" />
+                        </div>
                       )}
                     </div>
+                    {translated && (
+                      <ChevronDown className="w-4 h-4 text-[#F4F4F4]/30 shrink-0 mt-1" />
+                    )}
                   </div>
                 </button>
               );

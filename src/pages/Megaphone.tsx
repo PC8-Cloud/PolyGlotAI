@@ -626,7 +626,7 @@ export default function MegaphonePage() {
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center space-y-3">
               <Megaphone className="w-16 h-16 text-[#F4F4F4]/10 mx-auto" />
-              <p className="text-[#F4F4F4]/30 text-sm px-8">{t("megaphoneDesc")}</p>
+              <p className="text-[#F4F4F4]/50 text-sm px-8">{t("megaphoneDesc")}</p>
             </div>
           </div>
         )}

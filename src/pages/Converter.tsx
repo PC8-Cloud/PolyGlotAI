@@ -11,6 +11,7 @@ import {
   HandCoins,
   Receipt,
   LocateFixed,
+  Loader2,
 } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
@@ -327,6 +328,7 @@ export default function Converter() {
   const [rates, setRates] = useState<Record<string, number>>({});
   const [ratesDate, setRatesDate] = useState("");
   const [loadingRates, setLoadingRates] = useState(false);
+  const [rateError, setRateError] = useState<string | null>(null);
 
   // ── Units ──
   const [measureCat, setMeasureCat] = useState(0);
@@ -359,12 +361,16 @@ export default function Converter() {
     if (tab !== "currency") return;
     setLoadingRates(true);
 
+    setRateError(null);
+
     if (!isOnline()) {
       // Offline: load from cache
       const cached = loadCachedRates(fromCurrency);
       if (cached) {
         setRates(cached.rates);
         setRatesDate(cached.date + " (offline)");
+      } else {
+        setRateError(String(uiLanguage).toLowerCase().startsWith("it") ? "Tassi non disponibili offline" : "Rates unavailable offline");
       }
       setLoadingRates(false);
       return;
@@ -375,6 +381,7 @@ export default function Converter() {
       .then((data) => {
         setRates(data.rates || {});
         setRatesDate(data.date || "");
+        setRateError(null);
         // Cache for offline use
         saveCurrencyRates(fromCurrency, data.rates || {}, data.date || "");
       })
@@ -385,6 +392,8 @@ export default function Converter() {
         if (cached) {
           setRates(cached.rates);
           setRatesDate(cached.date + " (offline)");
+        } else {
+          setRateError(String(uiLanguage).toLowerCase().startsWith("it") ? "Impossibile caricare i tassi" : "Could not load rates");
         }
       })
       .finally(() => setLoadingRates(false));
@@ -540,7 +549,15 @@ export default function Converter() {
                     <LocateFixed className="w-4 h-4" />
                   </button>
                 </div>
-                <p className="text-center text-3xl font-bold text-[#295BDB]">{loadingRates ? "..." : convertedCurrency}</p>
+                {loadingRates ? (
+                  <div className="flex items-center justify-center gap-2 py-1">
+                    <Loader2 className="w-6 h-6 text-[#295BDB] animate-spin" />
+                  </div>
+                ) : rateError ? (
+                  <p className="text-center text-sm text-red-400">{rateError}</p>
+                ) : (
+                  <p className="text-center text-3xl font-bold text-[#295BDB]">{convertedCurrency}</p>
+                )}
               </div>
             ))}
             {rates[toCurrency] && (

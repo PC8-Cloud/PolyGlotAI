@@ -215,11 +215,11 @@ export default function CameraTranslate() {
       <div className="flex-1 flex flex-col items-center justify-center p-4 gap-5">
         {!capturedImage ? (
           <>
-            <p className="text-[#F4F4F4]/60 text-center text-sm px-6 max-w-sm">
-              {t("cameraDesc")}
-            </p>
-            <div className="w-full max-w-sm aspect-square bg-[#0E2666] rounded-2xl border-2 border-dashed border-[#FFFFFF14] flex flex-col items-center justify-center gap-4">
-              <Camera className="w-16 h-16 text-[#F4F4F4]/30" />
+            <div className="w-full max-w-sm aspect-square bg-[#0E2666] rounded-2xl border-2 border-dashed border-[#FFFFFF30] flex flex-col items-center justify-center gap-4 px-6">
+              <Camera className="w-16 h-16 text-[#F4F4F4]/40" />
+              <p className="text-[#F4F4F4]/70 text-center text-sm leading-relaxed">
+                {t("cameraDesc")}
+              </p>
             </div>
 
             <button

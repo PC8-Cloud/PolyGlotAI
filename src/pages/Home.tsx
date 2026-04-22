@@ -189,14 +189,17 @@ export default function Home() {
       >
         <Icon className="w-10 h-10 mb-2" />
         <span className="text-sm font-medium text-center leading-tight">{label}</span>
-        {detail && !disabled && (
-          <span className="mt-2 text-[11px] leading-none text-[#F4F4F4]/55 bg-[#02114A]/65 border border-[#FFFFFF14] rounded-full px-2 py-1">
-            {detail}
-          </span>
-        )}
+        {/* Fixed-height slot for detail badge — keeps all tiles uniform (FIX 6) */}
+        <span className={`mt-2 text-[11px] leading-none rounded-full px-2 py-1 ${
+          detail && !disabled
+            ? "text-[#F4F4F4]/70 bg-[#02114A]/65 border border-[#FFFFFF14]"
+            : "invisible"
+        }`}>
+          {detail || "\u00A0"}
+        </span>
         {disabled && (
           <div className="absolute top-2 right-2">
-            <Lock className="w-3.5 h-3.5 text-[#F4F4F4]/30" />
+            <Lock className="w-3.5 h-3.5 text-[#F4F4F4]/40" />
           </div>
         )}
       </button>

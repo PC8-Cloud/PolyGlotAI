@@ -17,6 +17,7 @@ interface Message {
   translatedText: string;
   sourceLang: string;
   status: MsgStatus;
+  gender?: "male" | "female" | "";
 }
 
 
@@ -147,7 +148,6 @@ export default function Conversation() {
   const [theirLang, setTheirLang] = useState(
     uiLanguage === "en" ? "it" : "en",
   );
-  const [theirGender, setTheirGender] = useState<"male" | "female" | "">("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [chatState, setChatState] = useState<"idle" | "listening" | "transcribing" | "translating" | "speaking">("idle");
   const [autoSpeak, setAutoSpeak] = useState(true);
@@ -183,6 +183,7 @@ export default function Conversation() {
   const keepAliveCtxRef = useRef<AudioContext | null>(null);
   const keepAliveOscRef = useRef<OscillatorNode | null>(null);
   const wakeLockReleaseHandlerRef = useRef<(() => void) | null>(null);
+  const detectedGenderRef = useRef<"male" | "female" | "">("");
   const lastDetectedSideRef = useRef<"you" | "them" | null>(null);
 
   useEffect(() => {
@@ -349,17 +350,57 @@ export default function Conversation() {
     return `Unexpected language${detected}. Please speak only ${langA} or ${langB}.`;
   };
 
+  // ─── Pitch-based gender detection ──────────────────────────────────────
+  /** Autocorrelation pitch detector — returns F0 in Hz or 0 if unclear */
+  const detectPitch = useCallback((buf: Float32Array, sampleRate: number): number => {
+    const SIZE = buf.length;
+    // Find RMS — skip if too quiet
+    let rmsVal = 0;
+    for (let i = 0; i < SIZE; i++) rmsVal += buf[i] * buf[i];
+    rmsVal = Math.sqrt(rmsVal / SIZE);
+    if (rmsVal < 0.01) return 0;
+
+    // Autocorrelation
+    const minLag = Math.floor(sampleRate / 400); // max F0 = 400 Hz
+    const maxLag = Math.floor(sampleRate / 70);  // min F0 = 70 Hz
+    let bestCorr = 0;
+    let bestLag = 0;
+    for (let lag = minLag; lag <= Math.min(maxLag, SIZE - 1); lag++) {
+      let corr = 0;
+      for (let i = 0; i < SIZE - lag; i++) corr += buf[i] * buf[i + lag];
+      if (corr > bestCorr) { bestCorr = corr; bestLag = lag; }
+    }
+    if (bestLag === 0) return 0;
+    return sampleRate / bestLag;
+  }, []);
+
+  /** Classify gender from collected pitch samples */
+  const classifyGender = useCallback((pitches: number[]): "male" | "female" | "" => {
+    if (pitches.length < 3) return "";
+    // Median pitch
+    const sorted = [...pitches].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)];
+    // Male: ~85-160 Hz, Female: ~160-300 Hz
+    if (median < 160) return "male";
+    if (median >= 160) return "female";
+    return "";
+  }, []);
+
   // ─── Silence detection ────────────────────────────────────────────────
 
   const startSilenceDetection = useCallback((analyser: AnalyserNode) => {
     const dataArray = new Uint8Array(analyser.fftSize);
+    const floatData = new Float32Array(analyser.fftSize);
     let silenceStart: number | null = null;
     let allZeroCount = 0;
     const startTime = Date.now();
     let speechFrames = 0;
     let hasSpeechStarted = false;
-    let speechStartTime: number | null = null; // when speech actually began
-    let lastSpeechTime: number | null = null; // last time voice was detected
+    let speechStartTime: number | null = null;
+    let lastSpeechTime: number | null = null;
+    // Pitch-based gender detection
+    const pitchSamples: number[] = [];
+    const sampleRate = audioCtxRef.current?.sampleRate || 44100;
 
     const check = () => {
       analyser.getByteTimeDomainData(dataArray);
@@ -383,6 +424,12 @@ export default function Conversation() {
           if (!hasSpeechStarted) {
             hasSpeechStarted = true;
             speechStartTime = Date.now();
+          }
+          // Pitch detection via autocorrelation (sample every ~10 frames to save CPU)
+          if (pitchSamples.length < 60 && speechFrames % 10 === 0) {
+            analyser.getFloatTimeDomainData(floatData);
+            const pitch = detectPitch(floatData, sampleRate);
+            if (pitch > 0) pitchSamples.push(pitch);
           }
         }
       } else {
@@ -418,6 +465,8 @@ export default function Conversation() {
 
             if (silenceDuration > timeout) {
               if (CONVERSATION_DEBUG) console.log("[Conversation] silence stop", { silenceDuration: silenceDuration.toFixed(1), speechDuration: speechDuration.toFixed(1), timeout });
+              detectedGenderRef.current = classifyGender(pitchSamples);
+              if (CONVERSATION_DEBUG) console.log("[Conversation] detected gender:", detectedGenderRef.current, "from", pitchSamples.length, "samples");
               playCutoffChime();
               stopListening();
               return;
@@ -427,6 +476,7 @@ export default function Conversation() {
           silenceStart = null;
         }
       } else if ((Date.now() - startTime) > NO_SPEECH_TIMEOUT_MS) {
+        detectedGenderRef.current = classifyGender(pitchSamples);
         noSpeechCaptureRef.current = true;
         stopListening();
         return;
@@ -807,7 +857,7 @@ export default function Conversation() {
 
     setMessages((prev) => [
       ...prev,
-      { id: newId, side, originalText: text, translatedText: "...", sourceLang, status: "sent" },
+      { id: newId, side, originalText: text, translatedText: "...", sourceLang, status: "sent", gender: detectedGenderRef.current || userGender },
     ]);
 
     setChatState("translating");
@@ -833,8 +883,8 @@ export default function Conversation() {
         );
 
         try {
-          // Voice matches the speaker's gender
-          const speakerGender = side === "you" ? userGender : theirGender;
+          // Voice matches the detected speaker's gender (pitch analysis), fallback to user profile
+          const speakerGender = detectedGenderRef.current || userGender;
           await playTTS(translatedText, undefined, undefined, targetLang, speakerGender);
         } catch (e) {
           console.error("TTS failed:", e);
@@ -919,7 +969,7 @@ export default function Conversation() {
     }
   };
 
-  const handleSpeak = async (text: string, id: number, langCode: string, side: "you" | "them") => {
+  const handleSpeak = async (text: string, id: number, langCode: string, side: "you" | "them", msgGender?: "male" | "female" | "") => {
     if (playingId !== null) return;
     // Pause mic so playback doesn't get re-captured
     const wasListening = chatState === "listening";
@@ -928,7 +978,7 @@ export default function Conversation() {
     setPlayingId(id);
     setChatState("speaking");
     try {
-      const speakerGender = side === "you" ? userGender : theirGender;
+      const speakerGender = msgGender || userGender;
       await playTTS(text, undefined, undefined, langCode, speakerGender);
     } catch (e) {
       console.error("TTS failed:", e);
@@ -1001,32 +1051,6 @@ export default function Conversation() {
           <LanguageOptions />
         </select>
       </div>
-      {/* Gender selectors for voice matching */}
-      {!conversationActive && (
-        <div className="flex items-center gap-3 px-4 py-2 border-b border-[#FFFFFF14] bg-[#0E2666]/30 shrink-0">
-          <div className="flex-1 flex items-center gap-1.5 justify-center">
-            <span className="text-[10px] text-[#F4F4F4]/40 uppercase">{t("you")}</span>
-            <button
-              onClick={() => {/* userGender is set in personalize */}}
-              className="text-xs px-2 py-1 rounded-lg bg-[#02114A] border border-[#FFFFFF14] text-[#F4F4F4]/60"
-              disabled
-            >
-              {userGender === "male" ? (isIt ? "♂ Uomo" : "♂ Male") : userGender === "female" ? (isIt ? "♀ Donna" : "♀ Female") : "—"}
-            </button>
-          </div>
-          <div className="flex-1 flex items-center gap-1.5 justify-center">
-            <span className="text-[10px] text-[#F4F4F4]/40 uppercase">{t("them")}</span>
-            <button
-              onClick={() => setTheirGender(theirGender === "male" ? "female" : theirGender === "female" ? "" : "male")}
-              className={`text-xs px-2 py-1 rounded-lg border transition-colors ${
-                theirGender ? "bg-[#295BDB]/20 border-[#295BDB]/50 text-[#F4F4F4]/80" : "bg-[#02114A] border-[#FFFFFF14] text-[#F4F4F4]/40"
-              }`}
-            >
-              {theirGender === "male" ? (isIt ? "♂ Uomo" : "♂ Male") : theirGender === "female" ? (isIt ? "♀ Donna" : "♀ Female") : (isIt ? "♂/♀ Voce" : "♂/♀ Voice")}
-            </button>
-          </div>
-        </div>
-      )}
       {error && (
         <div className="mx-4 mt-3 p-3 bg-red-500/20 border border-red-500/30 rounded-xl flex items-center gap-3 shrink-0">
           <p className="text-sm text-red-400 flex-1">{error}</p>
@@ -1048,7 +1072,7 @@ export default function Conversation() {
       <div className="h-full overflow-y-auto p-4 pt-14 flex flex-col gap-4 min-h-0">
         {messages.length === 0 && !conversationActive && (
           <div className="flex-1 flex items-center justify-center">
-            <p className="text-[#F4F4F4]/30 text-sm text-center px-8">{t("conversationAutoDetect")}</p>
+            <p className="text-[#F4F4F4]/50 text-sm text-center px-8">{t("conversationAutoDetect")}</p>
           </div>
         )}
 
@@ -1086,7 +1110,7 @@ export default function Conversation() {
               </div>
             </div>
             <button
-              onClick={() => handleSpeak(msg.translatedText, msg.id, msg.side === "you" ? theirLang : yourLang, msg.side)}
+              onClick={() => handleSpeak(msg.translatedText, msg.id, msg.side === "you" ? theirLang : yourLang, msg.side, msg.gender)}
               disabled={playingId !== null}
               className={`px-2 py-1 rounded-lg transition-colors ${
                 playingId === msg.id ? "text-[#295BDB] animate-pulse" : "text-[#F4F4F4]/30 hover:text-[#F4F4F4]/80"
@@ -1202,7 +1226,7 @@ export default function Conversation() {
           </button>
         </div>
 
-        <p className="text-xs text-[#F4F4F4]/30 text-center pb-3">
+        <p className="text-xs text-[#F4F4F4]/50 text-center pb-3">
           {conversationActive ? t("stopConversation") : t("startConversation")}
         </p>
       </div>

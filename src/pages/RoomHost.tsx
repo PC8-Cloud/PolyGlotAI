@@ -1010,13 +1010,13 @@ export default function RoomHost() {
 
         {messages.length === 0 && !isListening && participants.length === 0 && (
           <div className="flex-1 flex items-center justify-center">
-            <p className="text-[#F4F4F4]/30 text-sm text-center px-8">{t("waitingForParticipants")}</p>
+            <p className="text-[#F4F4F4]/50 text-sm text-center px-8">{t("waitingForParticipants")}</p>
           </div>
         )}
 
         {messages.length === 0 && !isListening && participants.length > 0 && (
           <div className="flex-1 flex items-center justify-center">
-            <p className="text-[#F4F4F4]/30 text-sm text-center px-8">{t("tapToSpeak")}</p>
+            <p className="text-[#F4F4F4]/50 text-sm text-center px-8">{t("tapToSpeak")}</p>
           </div>
         )}
 
