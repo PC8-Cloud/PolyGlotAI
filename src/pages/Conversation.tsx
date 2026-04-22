@@ -1072,7 +1072,7 @@ export default function Conversation() {
       <div className="h-full overflow-y-auto p-4 pt-14 flex flex-col gap-4 min-h-0">
         {messages.length === 0 && !conversationActive && (
           <div className="flex-1 flex items-center justify-center">
-            <p className="text-[#F4F4F4]/50 text-sm text-center px-8">{t("conversationAutoDetect")}</p>
+            <p className="text-[#F4F4F4]/60 text-sm text-center px-8">{t("conversationAutoDetect")}</p>
           </div>
         )}
 
@@ -1081,7 +1081,7 @@ export default function Conversation() {
             key={msg.id}
             className={`flex flex-col gap-1 ${msg.side === "you" ? "items-start" : "items-end"}`}
           >
-            <span className="text-xs text-[#F4F4F4]/40 px-1">
+            <span className="text-xs text-[#F4F4F4]/60 px-1">
               {msg.side === "you" ? t("you") : t("them")} · {getLabelForCode(msg.sourceLang)}
             </span>
             <div
@@ -1095,10 +1095,10 @@ export default function Conversation() {
                 {/* WhatsApp-style checkmarks */}
                 <span className="shrink-0">
                   {msg.status === "sent" && (
-                    <Check className="w-4 h-4 text-[#F4F4F4]/40" />
+                    <Check className="w-4 h-4 text-[#F4F4F4]/60" />
                   )}
                   {msg.status === "translated" && (
-                    <CheckCheck className="w-4 h-4 text-[#F4F4F4]/40" />
+                    <CheckCheck className="w-4 h-4 text-[#F4F4F4]/60" />
                   )}
                   {msg.status === "playing" && (
                     <CheckCheck className="w-4 h-4 text-[#5BF0F0]" />
@@ -1113,7 +1113,7 @@ export default function Conversation() {
               onClick={() => handleSpeak(msg.translatedText, msg.id, msg.side === "you" ? theirLang : yourLang, msg.side, msg.gender)}
               disabled={playingId !== null}
               className={`px-2 py-1 rounded-lg transition-colors ${
-                playingId === msg.id ? "text-[#295BDB] animate-pulse" : "text-[#F4F4F4]/30 hover:text-[#F4F4F4]/80"
+                playingId === msg.id ? "text-[#295BDB] animate-pulse" : "text-[#F4F4F4]/60 hover:text-[#F4F4F4]/80"
               }`}
             >
               <Volume2 className="w-4 h-4" />
@@ -1125,7 +1125,7 @@ export default function Conversation() {
         {(chatState === "listening" || chatState === "transcribing") && (
           <div className="flex items-center justify-center gap-3 py-2">
             <div className={`w-3 h-3 rounded-full animate-pulse ${chatState === "listening" ? "bg-red-500" : "bg-amber-500"}`} />
-            <span className="text-sm text-[#F4F4F4]/40">
+            <span className="text-sm text-[#F4F4F4]/60">
               {chatState === "listening" ? t("listeningBoth") : t("learnTranscribing")}
             </span>
           </div>
@@ -1149,7 +1149,7 @@ export default function Conversation() {
             <button
               onClick={() => setTextInputSide("you")}
               className={`flex-1 text-xs py-1.5 rounded-lg font-medium transition-colors ${
-                textInputSide === "you" ? "bg-[#295BDB] text-[#F4F4F4]" : "bg-[#123182] text-[#F4F4F4]/40"
+                textInputSide === "you" ? "bg-[#295BDB] text-[#F4F4F4]" : "bg-[#123182] text-[#F4F4F4]/60"
               }`}
             >
               {t("you")}
@@ -1157,7 +1157,7 @@ export default function Conversation() {
             <button
               onClick={() => setTextInputSide("them")}
               className={`flex-1 text-xs py-1.5 rounded-lg font-medium transition-colors ${
-                textInputSide === "them" ? "bg-[#295BDB] text-[#F4F4F4]" : "bg-[#123182] text-[#F4F4F4]/40"
+                textInputSide === "them" ? "bg-[#295BDB] text-[#F4F4F4]" : "bg-[#123182] text-[#F4F4F4]/60"
               }`}
             >
               {t("them")}
@@ -1180,7 +1180,7 @@ export default function Conversation() {
             >
               <Send className="w-4 h-4" />
             </button>
-            <button onClick={() => setShowTextInput(false)} className="text-xs text-[#F4F4F4]/40 hover:text-[#F4F4F4]">✕</button>
+            <button onClick={() => setShowTextInput(false)} className="text-xs text-[#F4F4F4]/60 hover:text-[#F4F4F4]">✕</button>
           </div>
         </div>
       )}
@@ -1190,7 +1190,7 @@ export default function Conversation() {
         <div className="flex items-center justify-center gap-4 py-4">
           <button
             onClick={() => setShowTextInput(!showTextInput)}
-            className="p-3 rounded-xl bg-[#123182] text-[#F4F4F4]/40 hover:text-[#F4F4F4] hover:bg-[#295BDB] transition-colors"
+            className="p-3 rounded-xl bg-[#123182] text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#295BDB] transition-colors"
           >
             <Send className="w-5 h-5" />
           </button>
@@ -1219,14 +1219,14 @@ export default function Conversation() {
               else prepareAudioForSafari();
             }}
             className={`p-3 rounded-xl transition-colors ${
-              autoSpeak ? "bg-[#123182] text-[#F4F4F4]/40 hover:text-[#F4F4F4] hover:bg-[#295BDB]" : "bg-red-500/20 text-red-400"
+              autoSpeak ? "bg-[#123182] text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#295BDB]" : "bg-red-500/20 text-red-400"
             }`}
           >
             {autoSpeak ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
           </button>
         </div>
 
-        <p className="text-xs text-[#F4F4F4]/50 text-center pb-3">
+        <p className="text-xs text-[#F4F4F4]/60 text-center pb-3">
           {conversationActive ? t("stopConversation") : t("startConversation")}
         </p>
       </div>

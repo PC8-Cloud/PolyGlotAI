@@ -26,7 +26,7 @@ export default function FeatureGate({ feature, children }: FeatureGateProps) {
           <Lock className="w-10 h-10 text-[#295BDB]" />
         </div>
         <h2 className="text-xl font-bold text-center">{t("upgradeRequired")}</h2>
-        <p className="text-[#F4F4F4]/50 text-sm text-center px-8">{t("upgradeRequiredDesc")}</p>
+        <p className="text-[#F4F4F4]/60 text-sm text-center px-8">{t("upgradeRequiredDesc")}</p>
         <button
           onClick={() => navigate("/plans")}
           className="bg-[#295BDB] hover:bg-[#295BDB]/80 text-[#F4F4F4] font-bold py-3 px-8 rounded-xl transition-colors"

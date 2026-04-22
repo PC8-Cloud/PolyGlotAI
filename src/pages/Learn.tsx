@@ -1848,7 +1848,7 @@ export default function Learn() {
 
               {textTranslateOutput && (
                 <div className="bg-[#0E2666] border border-[#FFFFFF14] rounded-2xl p-4 space-y-2">
-                  <p className="text-xs text-[#F4F4F4]/50 uppercase tracking-wide">{getUiLabel("Traduzione", "Translation")}</p>
+                  <p className="text-xs text-[#F4F4F4]/60 uppercase tracking-wide">{getUiLabel("Traduzione", "Translation")}</p>
                   <p className="text-[#295BDB] text-base leading-relaxed whitespace-pre-wrap">{textTranslateOutput}</p>
                 </div>
               )}
@@ -1939,7 +1939,7 @@ export default function Learn() {
                   </div>
 
                   <div className="bg-[#02114A] border border-[#FFFFFF14] rounded-xl p-3 min-h-[84px] space-y-1">
-                    <p className="text-[11px] uppercase tracking-wide text-[#F4F4F4]/40">
+                    <p className="text-[11px] uppercase tracking-wide text-[#F4F4F4]/60">
                       {getUiLabel("Sottotitoli tradotti", "Translated subtitles")}
                     </p>
                     {videoSubtitleIndex >= 0 && videoSegments[videoSubtitleIndex] ? (
@@ -1952,7 +1952,7 @@ export default function Learn() {
                         </p>
                       </>
                     ) : (
-                      <p className="text-xs text-[#F4F4F4]/40">
+                      <p className="text-xs text-[#F4F4F4]/60">
                         {videoSegments.length > 0
                           ? getUiLabel("Premi 'Riproduci doppiato' per iniziare.", "Tap 'Play dubbed' to start.")
                           : getUiLabel("Elaborazione in corso o nessun segmento disponibile.", "Processing or no segments available.")}
@@ -1993,7 +1993,7 @@ export default function Learn() {
           </button>
           <div className="flex-1">
             <h1 className="text-sm font-bold">{targetFlag} {t("learnModeVocabulary")}</h1>
-            <p className="text-xs text-[#F4F4F4]/40">{t(VOCAB_CATS.find((c) => c.id === vocabCat)?.labelKey as any)} · {progress}</p>
+            <p className="text-xs text-[#F4F4F4]/60">{t(VOCAB_CATS.find((c) => c.id === vocabCat)?.labelKey as any)} · {progress}</p>
           </div>
         </header>
 
@@ -2068,7 +2068,7 @@ export default function Learn() {
                 </div>
               )}
               {vocabState === "evaluating" && (
-                <div className="flex items-center gap-2 text-[#F4F4F4]/40">
+                <div className="flex items-center gap-2 text-[#F4F4F4]/60">
                   <Loader2 className="w-4 h-4 animate-spin" />
                   <span className="text-sm">{t("learnTranscribing")}</span>
                 </div>
@@ -2077,7 +2077,7 @@ export default function Learn() {
 
             {/* Bottom bar */}
             <div className="shrink-0 border-t border-[#FFFFFF14] bg-[#0E2666] p-4">
-              <p className="text-xs text-[#F4F4F4]/40 text-center mb-3">
+              <p className="text-xs text-[#F4F4F4]/60 text-center mb-3">
                 {vocabState === "listening" ? t("learnListening") : t("vocabTapToSpeak")}
               </p>
               <div className="flex items-center justify-center gap-4">
@@ -2133,7 +2133,7 @@ export default function Learn() {
         </button>
         <div className="flex-1 min-w-0">
           <h1 className="text-sm font-bold">{targetFlag} {targetLangLabel}</h1>
-          <p className="text-xs text-[#F4F4F4]/40">
+          <p className="text-xs text-[#F4F4F4]/60">
             {t(LEVELS.find((l) => l.id === level)?.labelKey as any)} · {t(TOPICS.find((tp) => tp.id === topic)?.labelKey as any)}
           </p>
         </div>
@@ -2171,11 +2171,11 @@ export default function Learn() {
             }
           }}
           disabled={messages.length === 0}
-          className={`p-2 rounded-lg transition-colors ${messages.length > 0 ? "text-[#F4F4F4]/40 hover:text-[#F4F4F4] hover:bg-[#123182]" : "text-[#F4F4F4]/20"}`}
+          className={`p-2 rounded-lg transition-colors ${messages.length > 0 ? "text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#123182]" : "text-[#F4F4F4]/20"}`}
         >
           <Upload className="w-5 h-5" />
         </button>
-        <button onClick={resetLesson} className="p-2 rounded-lg text-[#F4F4F4]/40 hover:text-[#F4F4F4] hover:bg-[#123182]">
+        <button onClick={resetLesson} className="p-2 rounded-lg text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#123182]">
           <RotateCcw className="w-5 h-5" />
         </button>
       </header>
@@ -2193,7 +2193,7 @@ export default function Learn() {
         {/* Voice commands tip card */}
         <div className="bg-[#123182]/50 border border-[#FFFFFF14] rounded-2xl p-3 flex items-start gap-2.5">
           <Mic className="w-4 h-4 text-[#295BDB] shrink-0 mt-0.5" />
-          <div className="text-xs text-[#F4F4F4]/50 leading-relaxed space-y-0.5">
+          <div className="text-xs text-[#F4F4F4]/60 leading-relaxed space-y-0.5">
             <p className="text-[#F4F4F4]/70 font-medium">{t("learnVoiceCommandsTitle")}</p>
             <p>🔁 <b>Ripeti / Repeat</b> · 🐢 <b>Più lento / Slower</b> · 🐇 <b>Più veloce / Faster</b> · 🛑 <b>Stop / Ferma</b> · ❓ <b>Aiuto / Help</b></p>
           </div>
@@ -2211,7 +2211,7 @@ export default function Learn() {
                 )}
                 <div className="bg-[#0E2666] rounded-2xl rounded-tl-md p-3 border border-[#FFFFFF14]">
                   <p className="text-[15px] leading-relaxed">{msg.text}</p>
-                  <p className="text-xs text-[#F4F4F4]/40 mt-1.5 italic">{msg.translation}</p>
+                  <p className="text-xs text-[#F4F4F4]/60 mt-1.5 italic">{msg.translation}</p>
                   {msg.hint && (
                     <div className="mt-2 pt-2 border-t border-[#FFFFFF14] flex items-start gap-1.5">
                       <Lightbulb className="w-3.5 h-3.5 text-yellow-400 shrink-0 mt-0.5" />
@@ -2227,7 +2227,7 @@ export default function Learn() {
                       .catch(() => {})
                       .finally(() => setChatState("idle"));
                   }}
-                  className="mt-1 p-1.5 rounded-lg transition-colors text-[#F4F4F4]/30 hover:text-[#F4F4F4]/60"
+                  className="mt-1 p-1.5 rounded-lg transition-colors text-[#F4F4F4]/60 hover:text-[#F4F4F4]/60"
                 >
                   <Volume2 className="w-4 h-4" />
                 </button>
@@ -2254,7 +2254,7 @@ export default function Learn() {
               ) : (
                 <Loader2 className="w-4 h-4 animate-spin text-[#295BDB]" />
               )}
-              <span className={`text-sm ${chatState === "listening" ? "text-green-400" : "text-[#F4F4F4]/40"}`}>
+              <span className={`text-sm ${chatState === "listening" ? "text-green-400" : "text-[#F4F4F4]/60"}`}>
                 {statusLabel}
               </span>
             </div>

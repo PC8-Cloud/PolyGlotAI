@@ -383,7 +383,7 @@ export default function RoomJoin() {
 
           {/* Room code */}
           <div className="w-full">
-            <label className="text-xs text-[#F4F4F4]/40 mb-2 block">{t("roomCode")}</label>
+            <label className="text-xs text-[#F4F4F4]/60 mb-2 block">{t("roomCode")}</label>
             <input
               type="text"
               inputMode="numeric"
@@ -398,7 +398,7 @@ export default function RoomJoin() {
 
           {/* Name */}
           <div className="w-full">
-            <label className="text-xs text-[#F4F4F4]/40 mb-2 block">{t("yourName")}</label>
+            <label className="text-xs text-[#F4F4F4]/60 mb-2 block">{t("yourName")}</label>
             <input
               type="text"
               value={name}
@@ -410,7 +410,7 @@ export default function RoomJoin() {
 
           {/* Language */}
           <div className="w-full">
-            <label className="text-xs text-[#F4F4F4]/40 mb-2 block">{t("yourLanguage")}</label>
+            <label className="text-xs text-[#F4F4F4]/60 mb-2 block">{t("yourLanguage")}</label>
             <select
               value={myLang}
               onChange={(e) => setMyLang(e.target.value)}
@@ -500,7 +500,7 @@ export default function RoomJoin() {
             else prepareAudioForSafari();
           }}
           className={`p-2 rounded-xl transition-colors ${
-            autoSpeak ? "bg-[#295BDB]/20 text-[#295BDB]" : "bg-[#123182] text-[#F4F4F4]/40"
+            autoSpeak ? "bg-[#295BDB]/20 text-[#295BDB]" : "bg-[#123182] text-[#F4F4F4]/60"
           }`}
         >
           {autoSpeak ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
@@ -519,7 +519,7 @@ export default function RoomJoin() {
             </button>
             <button
               onClick={handleShare}
-              className="p-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/50 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors"
+              className="p-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors"
             >
               <Upload className="w-5 h-5" />
             </button>
@@ -528,7 +528,7 @@ export default function RoomJoin() {
 
         {messages.length === 0 && (
           <div className="flex-1 flex items-center justify-center">
-            <p className="text-[#F4F4F4]/50 text-sm text-center px-8">{t("waitingForHost")}</p>
+            <p className="text-[#F4F4F4]/60 text-sm text-center px-8">{t("waitingForHost")}</p>
           </div>
         )}
 
@@ -580,7 +580,7 @@ export default function RoomJoin() {
                   className={`p-2 rounded-lg shrink-0 transition-colors ${
                     playingId === msg.id
                       ? "text-[#295BDB] animate-pulse"
-                      : "text-[#F4F4F4]/30 hover:text-[#F4F4F4]/80"
+                      : "text-[#F4F4F4]/60 hover:text-[#F4F4F4]/80"
                   }`}
                 >
                   <Volume2 className="w-5 h-5" />
@@ -601,7 +601,7 @@ export default function RoomJoin() {
           onChange={(e) => setQuestionText(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleSendQuestion()}
           placeholder={t("typeYourQuestion")}
-          className="flex-1 bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-4 py-3 text-sm text-[#F4F4F4] outline-none focus:ring-2 focus:ring-amber-500/50 placeholder:text-[#F4F4F4]/30"
+          className="flex-1 bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-4 py-3 text-sm text-[#F4F4F4] outline-none focus:ring-2 focus:ring-amber-500/50 placeholder:text-[#F4F4F4]/60"
         />
         <button
           onClick={handleSendQuestion}

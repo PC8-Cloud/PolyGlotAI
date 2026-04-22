@@ -95,8 +95,8 @@ export default function Paywall() {
         {/* Title */}
         <div className="text-center mb-8 pt-4">
           <h1 className="text-2xl font-black mb-2">{t("choosePlan")}</h1>
-          <p className="text-[#F4F4F4]/50 text-sm">{t("choosePlanDesc")}</p>
-          <p className="text-[#F4F4F4]/40 text-xs mt-2">{billingHint}</p>
+          <p className="text-[#F4F4F4]/60 text-sm">{t("choosePlanDesc")}</p>
+          <p className="text-[#F4F4F4]/60 text-xs mt-2">{billingHint}</p>
         </div>
 
         {error && (
@@ -177,7 +177,7 @@ export default function Paywall() {
         <div className="mt-6 text-center">
           <button
             onClick={() => navigate("/")}
-            className="text-[#F4F4F4]/40 text-sm underline"
+            className="text-[#F4F4F4]/60 text-sm underline"
           >
             {t("continueFree")}
           </button>

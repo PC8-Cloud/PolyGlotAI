@@ -197,9 +197,9 @@ export default function CameraTranslate() {
         <h1 className="text-lg font-bold flex-1">{t("camera")}</h1>
       </header>
 
-      {/* Language selector */}
+      {/* Language selector — labeled "Translate to" since source is auto-detected from image */}
       <div className="p-4 flex items-center gap-3 border-b border-[#FFFFFF14] bg-[#0E2666]/50">
-        <span className="text-[#F4F4F4]/40 text-lg">→</span>
+        <span className="text-sm text-[#F4F4F4]/70 shrink-0">{t("translateTo")}</span>
         <select
           value={targetLang}
           onChange={(e) => {
@@ -216,7 +216,7 @@ export default function CameraTranslate() {
         {!capturedImage ? (
           <>
             <div className="w-full max-w-sm aspect-square bg-[#0E2666] rounded-2xl border-2 border-dashed border-[#FFFFFF30] flex flex-col items-center justify-center gap-4 px-6">
-              <Camera className="w-16 h-16 text-[#F4F4F4]/40" />
+              <Camera className="w-16 h-16 text-[#F4F4F4]/60" />
               <p className="text-[#F4F4F4]/70 text-center text-sm leading-relaxed">
                 {t("cameraDesc")}
               </p>
@@ -224,9 +224,10 @@ export default function CameraTranslate() {
 
             <button
               onClick={handleCapture}
-              className="w-20 h-20 rounded-full bg-white flex items-center justify-center shadow-2xl ring-4 ring-[#F4F4F4]/20 hover:scale-105 transition-transform"
+              className="w-full max-w-sm flex items-center justify-center gap-3 bg-[#295BDB] hover:bg-[#3b6be0] active:bg-[#204bb5] px-6 py-4 rounded-2xl shadow-2xl ring-4 ring-[#F4F4F4]/10 hover:scale-[1.02] transition-all"
             >
-              <Camera className="w-10 h-10 text-slate-900" />
+              <Camera className="w-6 h-6 text-[#F4F4F4]" />
+              <span className="text-base font-bold text-[#F4F4F4]">{t("takePhoto")}</span>
             </button>
           </>
         ) : (
@@ -266,7 +267,7 @@ export default function CameraTranslate() {
                         {result.extractedText}
                       </p>
                       {result.detectedLanguage && (
-                        <p className="text-xs text-[#F4F4F4]/40 mt-2">
+                        <p className="text-xs text-[#F4F4F4]/60 mt-2">
                           {cameraLabels.detectedLanguage}: {result.detectedLanguage}
                         </p>
                       )}
@@ -286,7 +287,7 @@ export default function CameraTranslate() {
                             className={`p-2 rounded-lg transition-colors ${
                               copied
                                 ? "text-green-400"
-                                : "text-[#F4F4F4]/40 hover:text-[#F4F4F4] hover:bg-[#123182]"
+                                : "text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#123182]"
                             }`}
                           >
                             {copied ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
@@ -297,7 +298,7 @@ export default function CameraTranslate() {
                             className={`p-2 rounded-lg transition-colors ${
                               playing
                                 ? "text-[#295BDB] animate-pulse"
-                                : "text-[#F4F4F4]/40 hover:text-[#F4F4F4] hover:bg-[#123182]"
+                                : "text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#123182]"
                             }`}
                           >
                             <Volume2 className="w-5 h-5" />
@@ -308,7 +309,7 @@ export default function CameraTranslate() {
                   </>
                 ) : (
                   <>
-                    <p className="text-xs text-[#F4F4F4]/50 text-center">{cameraLabels.noText}</p>
+                    <p className="text-xs text-[#F4F4F4]/60 text-center">{cameraLabels.noText}</p>
                     <div className="text-center">
                       <p className="text-[#F4F4F4]/60 text-sm">{t("thisIs")}</p>
                       <p className="text-xl font-bold mt-1">{result.objectName}</p>
@@ -328,14 +329,14 @@ export default function CameraTranslate() {
                           className={`p-2 rounded-lg transition-colors ${
                             playing
                               ? "text-[#295BDB] animate-pulse"
-                              : "text-[#F4F4F4]/40 hover:text-[#F4F4F4] hover:bg-[#123182]"
+                              : "text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#123182]"
                           }`}
                         >
                           <Volume2 className="w-5 h-5" />
                         </button>
                       </div>
                       {result.pronunciation && (
-                        <p className="text-[#F4F4F4]/40 text-sm mt-2 italic">
+                        <p className="text-[#F4F4F4]/60 text-sm mt-2 italic">
                           /{result.pronunciation}/
                         </p>
                       )}

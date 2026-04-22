@@ -536,7 +536,7 @@ export default function MegaphonePage() {
             else prepareAudioForSafari();
           }}
           className={`p-2 rounded-xl transition-colors ${
-            autoSpeak ? "bg-[#295BDB]/20 text-[#295BDB]" : "bg-[#123182] text-[#F4F4F4]/40"
+            autoSpeak ? "bg-[#295BDB]/20 text-[#295BDB]" : "bg-[#123182] text-[#F4F4F4]/60"
           }`}
         >
           {autoSpeak ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
@@ -551,7 +551,7 @@ export default function MegaphonePage() {
         >
           <LanguageOptions />
         </select>
-        <span className="text-[#F4F4F4]/40 text-lg">→</span>
+        <span className="text-[#F4F4F4]/60 text-lg">→</span>
         <select
           value={targetLang}
           onChange={(e) => setTargetLang(e.target.value)}
@@ -580,14 +580,14 @@ export default function MegaphonePage() {
           <button
             onClick={handlePaste}
             disabled={busy || isListening}
-            className="p-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/50 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-40"
+            className="p-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-40"
           >
             <ClipboardPaste className="w-5 h-5" />
           </button>
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={busy || isListening}
-            className="p-2.5 ml-2 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/50 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-40"
+            className="p-2.5 ml-2 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-40"
           >
             <FolderOpen className="w-5 h-5" />
           </button>
@@ -595,7 +595,7 @@ export default function MegaphonePage() {
           <button
             onClick={handleShare}
             disabled={entries.length === 0}
-            className="p-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/50 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-20 disabled:hover:bg-[#0E2666] disabled:hover:text-[#F4F4F4]/50"
+            className="p-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-20 disabled:hover:bg-[#0E2666] disabled:hover:text-[#F4F4F4]/60"
           >
             <Upload className="w-5 h-5" />
           </button>
@@ -626,7 +626,7 @@ export default function MegaphonePage() {
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center space-y-3">
               <Megaphone className="w-16 h-16 text-[#F4F4F4]/10 mx-auto" />
-              <p className="text-[#F4F4F4]/50 text-sm px-8">{t("megaphoneDesc")}</p>
+              <p className="text-[#F4F4F4]/60 text-sm px-8">{t("megaphoneDesc")}</p>
             </div>
           </div>
         )}
@@ -634,14 +634,14 @@ export default function MegaphonePage() {
         {entries.map((entry) => (
           <div key={entry.id} className="bg-[#0E2666] rounded-2xl p-5 border border-[#FFFFFF14] space-y-3">
             <div className="flex items-start gap-2">
-              <span className="text-xs text-[#F4F4F4]/40 shrink-0 mt-1">{speakerLangObj?.flag}</span>
+              <span className="text-xs text-[#F4F4F4]/60 shrink-0 mt-1">{speakerLangObj?.flag}</span>
               <p className="min-w-0 flex-1 break-words whitespace-pre-wrap text-sm leading-relaxed text-[#F4F4F4]/60">
                 {entry.originalText}
               </p>
             </div>
             <div className="border-t border-[#FFFFFF14]" />
             <div className="flex items-start gap-2">
-              <span className="text-xs text-[#F4F4F4]/40 shrink-0 mt-1">{targetLangObj?.flag}</span>
+              <span className="text-xs text-[#F4F4F4]/60 shrink-0 mt-1">{targetLangObj?.flag}</span>
               <p className="min-w-0 flex-1 break-words whitespace-pre-wrap text-lg font-bold leading-snug text-[#295BDB]">
                 {entry.translatedText}
               </p>
@@ -653,7 +653,7 @@ export default function MegaphonePage() {
           <div className="bg-[#123182]/30 rounded-2xl p-5 border border-[#FFFFFF14]/50 italic">
             <p className="text-lg text-[#F4F4F4]/80">{transcript}</p>
             <div className="flex items-center gap-3 mt-2">
-              <span className="text-xs text-[#F4F4F4]/40">{t("listening")}</span>
+              <span className="text-xs text-[#F4F4F4]/60">{t("listening")}</span>
               {readyChunks > 0 && (
                 <span className="text-xs text-green-400 flex items-center gap-1">
                   <Check className="w-3 h-3" /> {readyChunks} {readyChunks === 1 ? "chunk" : "chunks"}
@@ -664,7 +664,7 @@ export default function MegaphonePage() {
         )}
 
         {isListening && !transcript && (
-          <div className="flex items-center justify-center gap-2 text-[#F4F4F4]/40 text-sm py-4">
+          <div className="flex items-center justify-center gap-2 text-[#F4F4F4]/60 text-sm py-4">
             <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
             {t("listening")}
           </div>
@@ -692,7 +692,7 @@ export default function MegaphonePage() {
         >
           <Mic className="w-9 h-9" />
         </button>
-        <span className="text-xs text-[#F4F4F4]/40">
+        <span className="text-xs text-[#F4F4F4]/60">
           {isListening ? t("tapToStop") : t("tapToSpeak")}
         </span>
       </div>

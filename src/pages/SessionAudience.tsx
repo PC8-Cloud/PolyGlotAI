@@ -198,7 +198,7 @@ export default function SessionAudience() {
                 className={`flex flex-col w-full ${isMyMessage ? "items-end" : "items-start"}`}
               >
                 {!isMyMessage && (
-                  <span className="text-xs text-[#F4F4F4]/40 uppercase tracking-wider mb-2 ml-1">
+                  <span className="text-xs text-[#F4F4F4]/60 uppercase tracking-wider mb-2 ml-1">
                     {t("host")} ({getLabelForCode(session.sourceLanguage)})
                   </span>
                 )}

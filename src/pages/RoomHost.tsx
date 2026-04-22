@@ -820,10 +820,10 @@ export default function RoomHost() {
 
         <div className="flex-1 flex flex-col items-center justify-center p-6 gap-6 max-w-sm mx-auto w-full">
           <Radio className="w-20 h-20 text-[#F4F4F4]/10" />
-          <p className="text-[#F4F4F4]/40 text-sm text-center">{t("multilingualRoomDesc")}</p>
+          <p className="text-[#F4F4F4]/60 text-sm text-center">{t("multilingualRoomDesc")}</p>
 
           <div className="w-full">
-            <label className="text-xs text-[#F4F4F4]/40 mb-2 block">{t("yourLanguage")}</label>
+            <label className="text-xs text-[#F4F4F4]/60 mb-2 block">{t("yourLanguage")}</label>
             <select
               value={speakerLang}
               onChange={(e) => setSpeakerLang(e.target.value)}
@@ -859,7 +859,7 @@ export default function RoomHost() {
           )}
 
           <div className="w-full border-t border-[#FFFFFF14] pt-4">
-            <label className="text-xs text-[#F4F4F4]/40 mb-2 block">{t("rejoinByCode")}</label>
+            <label className="text-xs text-[#F4F4F4]/60 mb-2 block">{t("rejoinByCode")}</label>
             <div className="flex gap-2">
               <input
                 type="text"
@@ -906,7 +906,7 @@ export default function RoomHost() {
       </header>
 
       <div className="bg-[#0E2666] border-b border-[#FFFFFF14] p-4 flex items-center justify-center gap-3 shrink-0">
-        <span className="text-[#F4F4F4]/40 text-sm">{t("roomCode")}:</span>
+        <span className="text-[#F4F4F4]/60 text-sm">{t("roomCode")}:</span>
         <span className="text-4xl font-mono font-black tracking-[0.3em] text-[#295BDB]">{roomCode}</span>
         <button
           onClick={() => setShowQR(true)}
@@ -960,14 +960,14 @@ export default function RoomHost() {
             <button
               onClick={handlePaste}
               disabled={isListening || isTranslating}
-              className="p-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/50 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-40"
+              className="p-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-40"
             >
               <ClipboardPaste className="w-5 h-5" />
             </button>
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={isListening || isTranslating}
-              className="p-2.5 ml-2 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/50 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-40"
+              className="p-2.5 ml-2 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-40"
             >
               <FolderOpen className="w-5 h-5" />
             </button>
@@ -982,7 +982,7 @@ export default function RoomHost() {
             <button
               onClick={handleShareMessages}
               disabled={messages.length === 0}
-              className="p-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/50 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-20 disabled:hover:bg-[#0E2666] disabled:hover:text-[#F4F4F4]/50"
+              className="p-2.5 bg-[#0E2666] border border-[#FFFFFF14] rounded-xl text-[#F4F4F4]/60 hover:text-[#F4F4F4] hover:bg-[#123182] transition-colors disabled:opacity-20 disabled:hover:bg-[#0E2666] disabled:hover:text-[#F4F4F4]/60"
             >
               <Upload className="w-5 h-5" />
             </button>
@@ -1010,13 +1010,13 @@ export default function RoomHost() {
 
         {messages.length === 0 && !isListening && participants.length === 0 && (
           <div className="flex-1 flex items-center justify-center">
-            <p className="text-[#F4F4F4]/50 text-sm text-center px-8">{t("waitingForParticipants")}</p>
+            <p className="text-[#F4F4F4]/60 text-sm text-center px-8">{t("waitingForParticipants")}</p>
           </div>
         )}
 
         {messages.length === 0 && !isListening && participants.length > 0 && (
           <div className="flex-1 flex items-center justify-center">
-            <p className="text-[#F4F4F4]/50 text-sm text-center px-8">{t("tapToSpeak")}</p>
+            <p className="text-[#F4F4F4]/60 text-sm text-center px-8">{t("tapToSpeak")}</p>
           </div>
         )}
 
@@ -1045,7 +1045,7 @@ export default function RoomHost() {
                 <p className="text-sm text-[#F4F4F4]/80">{msg.sourceText}</p>
               )}
               {isQuestion && msg.sourceText !== questionInHostLang && (
-                <p className="text-xs text-[#F4F4F4]/30">{msg.sourceText}</p>
+                <p className="text-xs text-[#F4F4F4]/60">{msg.sourceText}</p>
               )}
             </div>
           );
@@ -1055,7 +1055,7 @@ export default function RoomHost() {
           <div className="bg-[#123182]/30 rounded-2xl p-4 border border-[#FFFFFF14]/50 italic">
             <p className="text-lg text-[#F4F4F4]/80">{transcript}</p>
             <div className="flex items-center gap-3 mt-1">
-              <span className="text-xs text-[#F4F4F4]/40">{t("listening")}</span>
+              <span className="text-xs text-[#F4F4F4]/60">{t("listening")}</span>
               {readyChunks > 0 && (
                 <span className="text-xs text-green-400 flex items-center gap-1">
                   <Check className="w-3 h-3" /> {readyChunks}
@@ -1066,7 +1066,7 @@ export default function RoomHost() {
         )}
 
         {isListening && !transcript && (
-          <div className="flex items-center justify-center gap-2 text-[#F4F4F4]/40 text-sm py-4">
+          <div className="flex items-center justify-center gap-2 text-[#F4F4F4]/60 text-sm py-4">
             <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
             {t("listening")}
           </div>
@@ -1091,7 +1091,7 @@ export default function RoomHost() {
         >
           <Mic className="w-9 h-9" />
         </button>
-        <span className="text-xs text-[#F4F4F4]/40">
+        <span className="text-xs text-[#F4F4F4]/60">
           {participants.length === 0 ? t("waitingForParticipants") : isListening ? t("tapToStop") : t("tapToSpeak")}
         </span>
       </div>

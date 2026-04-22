@@ -199,7 +199,7 @@ export default function Home() {
         </span>
         {disabled && (
           <div className="absolute top-2 right-2">
-            <Lock className="w-3.5 h-3.5 text-[#F4F4F4]/40" />
+            <Lock className="w-3.5 h-3.5 text-[#F4F4F4]/60" />
           </div>
         )}
       </button>
@@ -266,7 +266,7 @@ export default function Home() {
 
             <div className="overflow-y-auto p-4 pt-2 space-y-4 flex-1">
               {/* Explanation */}
-              <p className="text-sm text-[#F4F4F4]/50 leading-relaxed">
+              <p className="text-sm text-[#F4F4F4]/60 leading-relaxed">
                 {t("offlineExplanation")}
               </p>
 
@@ -278,7 +278,7 @@ export default function Home() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-bold text-[#F4F4F4]">{t("offlinePhrases")}</p>
-                    <p className="text-xs text-[#F4F4F4]/40 mt-0.5">{t("offlinePhrasesDesc")}</p>
+                    <p className="text-xs text-[#F4F4F4]/60 mt-0.5">{t("offlinePhrasesDesc")}</p>
                   </div>
                 </div>
 
@@ -330,7 +330,7 @@ export default function Home() {
               {/* What requires internet */}
               <div className="bg-[#0E2666]/50 rounded-2xl p-4 border border-[#FFFFFF14]">
                 <p className="text-xs font-bold text-[#F4F4F4]/60 mb-2">{t("offlineRequiresInternet")}</p>
-                <p className="text-xs text-[#F4F4F4]/40 leading-relaxed">{t("offlineRequiresInternetDesc")}</p>
+                <p className="text-xs text-[#F4F4F4]/60 leading-relaxed">{t("offlineRequiresInternetDesc")}</p>
               </div>
             </div>
 
@@ -368,9 +368,9 @@ export default function Home() {
                   </div>
                   <div className="flex-1 min-w-0 text-left">
                     <p className="text-sm font-bold text-[#F4F4F4]">{userName}</p>
-                    <p className="text-xs text-[#F4F4F4]/40">{LANGUAGES.find((l) => l.code === uiLanguage)?.label}</p>
+                    <p className="text-xs text-[#F4F4F4]/60">{LANGUAGES.find((l) => l.code === uiLanguage)?.label}</p>
                   </div>
-                  <Pencil className="w-4 h-4 text-[#F4F4F4]/30 shrink-0" />
+                  <Pencil className="w-4 h-4 text-[#F4F4F4]/60 shrink-0" />
                 </button>
               ) : (
                 <button
@@ -398,10 +398,10 @@ export default function Home() {
               {/* System Language */}
               <div>
                 <div className="flex items-center gap-2 mb-2">
-                  <Globe className="w-4 h-4 text-[#F4F4F4]/50" />
+                  <Globe className="w-4 h-4 text-[#F4F4F4]/60" />
                   <label className="text-sm font-medium text-[#F4F4F4]/80">{t("systemLanguage")}</label>
                 </div>
-                <p className="text-xs text-[#F4F4F4]/40 mb-3">{t("systemLanguageDesc")}</p>
+                <p className="text-xs text-[#F4F4F4]/60 mb-3">{t("systemLanguageDesc")}</p>
                 <select
                   value={settingsLang}
                   onChange={(e) => setSettingsLang(e.target.value)}
@@ -416,7 +416,7 @@ export default function Home() {
               {/* Favorite Languages */}
               <div>
                 <label className="block text-sm font-medium text-[#F4F4F4]/80 mb-1">{t("favoriteLanguages")}</label>
-                <p className="text-xs text-[#F4F4F4]/40 mb-3">{t("favoriteLanguagesDesc")}</p>
+                <p className="text-xs text-[#F4F4F4]/60 mb-3">{t("favoriteLanguagesDesc")}</p>
                 <div className="flex flex-wrap gap-2">
                   {favoriteLanguages.map((code) => {
                     const lang = LANGUAGES.find((l) => l.code === code);
@@ -438,7 +438,7 @@ export default function Home() {
                   })}
                   <button
                     onClick={() => { setLangSearch(""); setShowLangPicker(true); }}
-                    className="flex items-center gap-1.5 bg-[#02114A] border border-dashed border-[#FFFFFF30] text-[#F4F4F4]/50 hover:border-[#295BDB] hover:text-[#295BDB] px-3 py-1.5 rounded-xl text-sm font-medium transition-colors"
+                    className="flex items-center gap-1.5 bg-[#02114A] border border-dashed border-[#FFFFFF30] text-[#F4F4F4]/60 hover:border-[#295BDB] hover:text-[#295BDB] px-3 py-1.5 rounded-xl text-sm font-medium transition-colors"
                   >
                     <Plus className="w-4 h-4" />
                   </button>
@@ -454,16 +454,16 @@ export default function Home() {
                     onClick={(e) => e.stopPropagation()}
                   >
                     <div className="flex items-center gap-3 p-4 border-b border-[#FFFFFF14] shrink-0">
-                      <Search className="w-4 h-4 text-[#F4F4F4]/40" />
+                      <Search className="w-4 h-4 text-[#F4F4F4]/60" />
                       <input
                         type="text"
                         value={langSearch}
                         onChange={(e) => setLangSearch(e.target.value)}
                         placeholder={t("favoriteLanguages")}
                         autoFocus
-                        className="flex-1 bg-transparent text-[#F4F4F4] text-sm outline-none placeholder:text-[#F4F4F4]/30"
+                        className="flex-1 bg-transparent text-[#F4F4F4] text-sm outline-none placeholder:text-[#F4F4F4]/60"
                       />
-                      <button onClick={() => setShowLangPicker(false)} className="text-[#F4F4F4]/40 hover:text-[#F4F4F4]">
+                      <button onClick={() => setShowLangPicker(false)} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
                         <X className="w-5 h-5" />
                       </button>
                     </div>
@@ -505,7 +505,7 @@ export default function Home() {
                   onChange={(e) => setSettingsSpeed(parseFloat(e.target.value))}
                   className="w-full accent-[#295BDB]"
                 />
-                <div className="flex justify-between text-[10px] text-[#F4F4F4]/30 mt-1">
+                <div className="flex justify-between text-[10px] text-[#F4F4F4]/60 mt-1">
                   <span>{t("slow")}</span>
                   <span>{t("normal")}</span>
                   <span>{t("fast")}</span>
@@ -518,10 +518,10 @@ export default function Home() {
 
               <div>
                 <div className="flex items-center gap-2 mb-2">
-                  <MessagesSquare className="w-4 h-4 text-[#F4F4F4]/50" />
+                  <MessagesSquare className="w-4 h-4 text-[#F4F4F4]/60" />
                   <label className="text-sm font-medium text-[#F4F4F4]/80">{translationModeLabel.title}</label>
                 </div>
-                <p className="text-xs text-[#F4F4F4]/40 mb-3">{translationModeLabel.desc}</p>
+                <p className="text-xs text-[#F4F4F4]/60 mb-3">{translationModeLabel.desc}</p>
                 <div className="grid grid-cols-3 gap-2">
                   {([
                     ["auto", translationModeLabel.auto],
@@ -557,8 +557,8 @@ export default function Home() {
               {/* About */}
               <div className="text-center space-y-3 py-2">
                 <p className="text-sm font-bold text-[#F4F4F4]/80">PolyGlotAI</p>
-                <p className="text-xs text-[#F4F4F4]/50">Beta 1.0.5</p>
-                <div className="text-[11px] text-[#F4F4F4]/40 leading-relaxed space-y-2" style={{ fontFamily: "Georgia, 'Times New Roman', serif" }}>
+                <p className="text-xs text-[#F4F4F4]/60">Beta 1.0.5</p>
+                <div className="text-[11px] text-[#F4F4F4]/60 leading-relaxed space-y-2" style={{ fontFamily: "Georgia, 'Times New Roman', serif" }}>
                   <p>PolyGlotAI è un prodotto sviluppato da PC8 S.r.l.<br />Il nome PolyGlotAI è un marchio di PC8 S.r.l.</p>
                   <p>Tutti i contenuti dell'app, inclusi testi, elementi grafici, interfaccia e software, sono protetti ai sensi della normativa applicabile.</p>
                   <p>© 2026 PC8 S.r.l. Tutti i diritti riservati.</p>
@@ -590,7 +590,7 @@ export default function Home() {
                   value={tempName}
                   onChange={(e) => setTempName(e.target.value)}
                   placeholder={t("yourNamePlaceholder")}
-                  className="w-full bg-[#02114A] border border-[#FFFFFF14] rounded-xl p-4 text-[#F4F4F4] outline-none focus:ring-2 focus:ring-[#295BDB] placeholder:text-[#F4F4F4]/30"
+                  className="w-full bg-[#02114A] border border-[#FFFFFF14] rounded-xl p-4 text-[#F4F4F4] outline-none focus:ring-2 focus:ring-[#295BDB] placeholder:text-[#F4F4F4]/60"
                 />
               </div>
 
@@ -656,7 +656,7 @@ export default function Home() {
                   onChange={(e) => setTempSpeed(parseFloat(e.target.value))}
                   className="w-full accent-[#295BDB]"
                 />
-                <div className="flex justify-between text-[10px] text-[#F4F4F4]/30 mt-1">
+                <div className="flex justify-between text-[10px] text-[#F4F4F4]/60 mt-1">
                   <span>{t("slow")}</span>
                   <span>{t("normal")}</span>
                   <span>{t("fast")}</span>

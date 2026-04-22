@@ -239,14 +239,14 @@ export default function SessionHost() {
           {transcript && (
             <div className="bg-[#123182]/50 text-[#F4F4F4]/80 p-4 rounded-2xl rounded-tl-sm self-start max-w-[85%] italic border border-[#FFFFFF14]/50">
               <p className="text-lg">{transcript}</p>
-              <span className="text-xs text-[#F4F4F4]/40 mt-2 block">
+              <span className="text-xs text-[#F4F4F4]/60 mt-2 block">
                 {t("listening")}
               </span>
             </div>
           )}
 
           {isTranslating && (
-            <div className="text-[#F4F4F4]/40 text-sm animate-pulse flex items-center gap-2">
+            <div className="text-[#F4F4F4]/60 text-sm animate-pulse flex items-center gap-2">
               <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
               {t("translating")}
             </div>

@@ -215,10 +215,10 @@ export default function Dashboard() {
                 <p className="text-sm text-red-400">
                   {isIt ? "Questo account non ha i permessi di amministratore." : "This account does not have admin permissions."}
                 </p>
-                <p className="text-xs text-[#F4F4F4]/40 mt-1">{user.email}</p>
+                <p className="text-xs text-[#F4F4F4]/60 mt-1">{user.email}</p>
               </>
             ) : (
-              <p className="text-sm text-[#F4F4F4]/50">
+              <p className="text-sm text-[#F4F4F4]/60">
                 {isIt ? "Accedi per gestire l'app" : "Sign in to manage the app"}
               </p>
             )}
@@ -270,7 +270,7 @@ export default function Dashboard() {
 
               <div className="flex items-center gap-3">
                 <div className="flex-1 h-px bg-[#FFFFFF14]" />
-                <span className="text-xs text-[#F4F4F4]/30">{isIt ? "oppure" : "or"}</span>
+                <span className="text-xs text-[#F4F4F4]/60">{isIt ? "oppure" : "or"}</span>
                 <div className="flex-1 h-px bg-[#FFFFFF14]" />
               </div>
 
@@ -292,7 +292,7 @@ export default function Dashboard() {
 
           <button
             onClick={() => navigate("/")}
-            className="w-full text-[#F4F4F4]/40 text-sm underline text-center"
+            className="w-full text-[#F4F4F4]/60 text-sm underline text-center"
           >
             {isIt ? "Torna all'app" : "Back to app"}
           </button>
@@ -337,7 +337,7 @@ export default function Dashboard() {
         <div className="bg-[#0E2666] border border-[#FFFFFF14] rounded-2xl p-4">
           <h2 className="text-sm font-bold mb-3">{labels.featuresToday}</h2>
           {Object.keys(todayFeatureCounts).length === 0 ? (
-            <p className="text-xs text-[#F4F4F4]/40">{labels.noData}</p>
+            <p className="text-xs text-[#F4F4F4]/60">{labels.noData}</p>
           ) : (
             <div className="space-y-2">
               {Object.entries(todayFeatureCounts)
@@ -373,7 +373,7 @@ export default function Dashboard() {
 
           <div className="grid grid-cols-3 gap-2">
             <div>
-              <label className="text-[10px] text-[#F4F4F4]/40 uppercase">Piano</label>
+              <label className="text-[10px] text-[#F4F4F4]/60 uppercase">Piano</label>
               <select
                 value={lkPlan}
                 onChange={(e) => setLkPlan(e.target.value)}
@@ -386,7 +386,7 @@ export default function Dashboard() {
               </select>
             </div>
             <div>
-              <label className="text-[10px] text-[#F4F4F4]/40 uppercase">{isIt ? "Giorni" : "Days"}</label>
+              <label className="text-[10px] text-[#F4F4F4]/60 uppercase">{isIt ? "Giorni" : "Days"}</label>
               <input
                 type="number"
                 value={lkDays}
@@ -396,7 +396,7 @@ export default function Dashboard() {
               />
             </div>
             <div>
-              <label className="text-[10px] text-[#F4F4F4]/40 uppercase">{isIt ? "Max usi" : "Max uses"}</label>
+              <label className="text-[10px] text-[#F4F4F4]/60 uppercase">{isIt ? "Max usi" : "Max uses"}</label>
               <input
                 type="number"
                 value={lkMaxUses}

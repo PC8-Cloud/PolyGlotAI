@@ -25,13 +25,13 @@ export default function GroupTranslation() {
         <button onClick={() => navigate("/megaphone")} className={btnClass}>
           <Megaphone className="w-14 h-14 mb-4" />
           <span className="text-lg font-bold">{t("megaphone")}</span>
-          <p className="text-xs text-[#F4F4F4]/40 mt-2 text-center">{t("megaphoneDesc")}</p>
+          <p className="text-xs text-[#F4F4F4]/60 mt-2 text-center">{t("megaphoneDesc")}</p>
         </button>
 
         <button onClick={() => navigate("/room")} className={btnClass}>
           <Radio className="w-14 h-14 mb-4" />
           <span className="text-lg font-bold">{t("multilingualRoom")}</span>
-          <p className="text-xs text-[#F4F4F4]/40 mt-2 text-center">{t("multilingualRoomDesc")}</p>
+          <p className="text-xs text-[#F4F4F4]/60 mt-2 text-center">{t("multilingualRoomDesc")}</p>
         </button>
       </div>
     </div>

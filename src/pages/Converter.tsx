@@ -471,7 +471,7 @@ export default function Converter() {
 
   const card = (label: string, children: React.ReactNode) => (
     <div className="bg-[#0E2666] rounded-2xl p-5 border border-[#FFFFFF14]">
-      <label className="text-xs text-[#F4F4F4]/40 uppercase tracking-wider">{label}</label>
+      <label className="text-xs text-[#F4F4F4]/60 uppercase tracking-wider">{label}</label>
       <div className="mt-2">{children}</div>
     </div>
   );
@@ -503,7 +503,7 @@ export default function Converter() {
             key={key}
             onClick={() => setTab(key)}
             className={`flex flex-col items-center gap-1 py-3 px-4 text-xs font-medium whitespace-nowrap transition-colors shrink-0 ${
-              tab === key ? "text-[#295BDB] border-b-2 border-[#295BDB]" : "text-[#F4F4F4]/40 hover:text-[#F4F4F4]/80"
+              tab === key ? "text-[#295BDB] border-b-2 border-[#295BDB]" : "text-[#F4F4F4]/60 hover:text-[#F4F4F4]/80"
             }`}
           >
             <Icon className="w-5 h-5" />
@@ -561,7 +561,7 @@ export default function Converter() {
               </div>
             ))}
             {rates[toCurrency] && (
-              <p className="text-center text-xs text-[#F4F4F4]/40">
+              <p className="text-center text-xs text-[#F4F4F4]/60">
                 1 {fromCurrency} = {rates[toCurrency].toLocaleString(undefined, { maximumFractionDigits: 4 })} {toCurrency}
                 {ratesDate && <span> · {ratesDate}</span>}
               </p>
@@ -666,7 +666,7 @@ export default function Converter() {
                     <span className="text-sm text-[#F4F4F4]/80">{tz.label}</span>
                     <div className="text-right">
                       <p className="text-lg font-bold font-mono text-[#295BDB]">{timeStr}</p>
-                      <p className="text-xs text-[#F4F4F4]/40">{dateStr}</p>
+                      <p className="text-xs text-[#F4F4F4]/60">{dateStr}</p>
                     </div>
                   </div>
                 );
@@ -680,7 +680,7 @@ export default function Converter() {
               <input type="number" value={tipAmount} onChange={(e) => setTipAmount(e.target.value)} className="w-full bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-4 py-3 text-2xl font-bold text-[#F4F4F4] outline-none focus:ring-2 focus:ring-[#295BDB] text-center" min="0" step="any" />
             ))}
             <div>
-              <label className="text-xs text-[#F4F4F4]/40 uppercase tracking-wider block mb-2">{t("tip")} %</label>
+              <label className="text-xs text-[#F4F4F4]/60 uppercase tracking-wider block mb-2">{t("tip")} %</label>
               <div className="grid grid-cols-4 gap-2">
                 {[0, 5, 10, 15, 18, 20, 25].map((p) => (
                   <button key={p} onClick={() => setTipPct(p)}
@@ -691,7 +691,7 @@ export default function Converter() {
               </div>
             </div>
             <div>
-              <label className="text-xs text-[#F4F4F4]/40 uppercase tracking-wider block mb-2">{t("splitBill")}</label>
+              <label className="text-xs text-[#F4F4F4]/60 uppercase tracking-wider block mb-2">{t("splitBill")}</label>
               <input type="number" value={tipPeople} onChange={(e) => setTipPeople(e.target.value)} className="w-full bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-4 py-2.5 text-[#F4F4F4] outline-none focus:ring-2 focus:ring-[#295BDB] text-center" min="1" />
             </div>
             <div className="bg-[#0E2666] rounded-2xl p-4 border border-[#FFFFFF14] space-y-3">
@@ -704,7 +704,7 @@ export default function Converter() {
               </>)}
             </div>
             <div className="space-y-1">
-              <p className="text-xs text-[#F4F4F4]/40 uppercase tracking-wider mb-2">{t("tipByCountry")}</p>
+              <p className="text-xs text-[#F4F4F4]/60 uppercase tracking-wider mb-2">{t("tipByCountry")}</p>
               {TIP_COUNTRIES.map((tc) => (
                 <div key={tc.country} className="flex items-center justify-between bg-[#0E2666]/50 rounded-lg px-3 py-2 text-sm">
                   <span className="text-[#F4F4F4]/80">{tc.country}</span>
@@ -720,7 +720,7 @@ export default function Converter() {
               <input type="number" value={taxAmount} onChange={(e) => setTaxAmount(e.target.value)} className="w-full bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-4 py-3 text-2xl font-bold text-[#F4F4F4] outline-none focus:ring-2 focus:ring-[#295BDB] text-center" min="0" step="any" />
             ))}
             <div>
-              <label className="text-xs text-[#F4F4F4]/40 uppercase tracking-wider block mb-2">{t("country")}</label>
+              <label className="text-xs text-[#F4F4F4]/60 uppercase tracking-wider block mb-2">{t("country")}</label>
               <select value={taxCountry} onChange={(e) => setTaxCountry(parseInt(e.target.value))} className="w-full bg-[#02114A] border border-[#FFFFFF14] rounded-xl px-4 py-3 text-[#F4F4F4] appearance-none outline-none focus:ring-2 focus:ring-[#295BDB]">
                 {TAX_COUNTRIES.map((tc, i) => <option key={i} value={i}>{tc.country} — {tc.vat}%</option>)}
               </select>
@@ -731,7 +731,7 @@ export default function Converter() {
               <div className="flex justify-between"><span className="text-[#F4F4F4]/60">{t("total")}</span><span className="text-xl font-bold text-[#295BDB]">{taxResult.total}</span></div>
             </div>
             <div className="space-y-1">
-              <p className="text-xs text-[#F4F4F4]/40 uppercase tracking-wider mb-2">{t("taxByCountry")}</p>
+              <p className="text-xs text-[#F4F4F4]/60 uppercase tracking-wider mb-2">{t("taxByCountry")}</p>
               {TAX_COUNTRIES.map((tc) => (
                 <div key={tc.country} className="flex items-center justify-between bg-[#0E2666]/50 rounded-lg px-3 py-2 text-sm">
                   <span className="text-[#F4F4F4]/80">{tc.country}</span>

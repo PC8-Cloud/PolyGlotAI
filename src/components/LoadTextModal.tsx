@@ -110,12 +110,12 @@ export default function LoadTextModal({ open, onClose, onLoad }: Props) {
               <Upload className="w-5 h-5" />
               {loading ? "..." : t("loadTextFile")}
             </button>
-            <p className="text-xs text-[#F4F4F4]/30 text-center mt-1.5">.txt, .pdf</p>
+            <p className="text-xs text-[#F4F4F4]/60 text-center mt-1.5">.txt, .pdf</p>
           </div>
 
           <div className="flex items-center gap-3">
             <div className="flex-1 border-t border-[#FFFFFF14]" />
-            <span className="text-xs text-[#F4F4F4]/30">{t("or")}</span>
+            <span className="text-xs text-[#F4F4F4]/60">{t("or")}</span>
             <div className="flex-1 border-t border-[#FFFFFF14]" />
           </div>
 

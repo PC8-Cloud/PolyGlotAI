@@ -179,7 +179,7 @@ export default function VoiceCloneSetup({ onClose }: Props) {
             </p>
           </div>
         </div>
-        <p className="text-xs text-[#F4F4F4]/50">
+        <p className="text-xs text-[#F4F4F4]/60">
           {isIt
             ? "La tua voce clonata viene usata automaticamente per tutte le riproduzioni vocali nell'app."
             : "Your cloned voice is automatically used for all voice playback in the app."}
@@ -232,7 +232,7 @@ export default function VoiceCloneSetup({ onClose }: Props) {
             {isIt ? "Consenso vocale" : "Voice consent"}
           </p>
         </div>
-        <p className="text-xs text-[#F4F4F4]/50">
+        <p className="text-xs text-[#F4F4F4]/60">
           {isIt ? "Leggi ad alta voce il testo qui sotto:" : "Read the following text aloud:"}
         </p>
         <div className="rounded-xl bg-[#02114A]/60 border border-[#FFFFFF14] p-3">
@@ -260,7 +260,7 @@ export default function VoiceCloneSetup({ onClose }: Props) {
             <span className="text-xs text-green-300">{isIt ? "Consenso registrato" : "Consent recorded"}</span>
             <button
               onClick={() => { setConsentAudio(null); setStep("idle"); }}
-              className="ml-auto text-xs text-[#F4F4F4]/40 hover:text-[#F4F4F4]"
+              className="ml-auto text-xs text-[#F4F4F4]/60 hover:text-[#F4F4F4]"
             >
               {isIt ? "Ripeti" : "Redo"}
             </button>
@@ -286,7 +286,7 @@ export default function VoiceCloneSetup({ onClose }: Props) {
             {isIt ? "Campione vocale" : "Voice sample"}
           </p>
         </div>
-        <p className="text-xs text-[#F4F4F4]/50">
+        <p className="text-xs text-[#F4F4F4]/60">
           {isIt
             ? "Leggi questo testo con voce chiara e naturale:"
             : "Read this text clearly and naturally:"}
@@ -316,7 +316,7 @@ export default function VoiceCloneSetup({ onClose }: Props) {
             <span className="text-xs text-green-300">{isIt ? "Campione registrato" : "Sample recorded"}</span>
             <button
               onClick={() => { setSampleAudio(null); setStep("sample"); }}
-              className="ml-auto text-xs text-[#F4F4F4]/40 hover:text-[#F4F4F4]"
+              className="ml-auto text-xs text-[#F4F4F4]/60 hover:text-[#F4F4F4]"
             >
               {isIt ? "Ripeti" : "Redo"}
             </button>

@@ -148,7 +148,7 @@ function BetaGate({ onUnlock }: { onUnlock: () => void }) {
             onChange={(e) => setPassword(e.target.value)}
             placeholder={t("betaPassword")}
             autoFocus
-            className="w-full bg-[#02114A] border border-[#FFFFFF14] rounded-xl p-3 text-[#F4F4F4] text-center outline-none focus:ring-2 focus:ring-[#295BDB] placeholder:text-[#F4F4F4]/30"
+            className="w-full bg-[#02114A] border border-[#FFFFFF14] rounded-xl p-3 text-[#F4F4F4] text-center outline-none focus:ring-2 focus:ring-[#295BDB] placeholder:text-[#F4F4F4]/60"
           />
           {error && (
             <p className="text-xs text-red-400">{t("betaWrongPassword")}</p>
@@ -267,11 +267,11 @@ function FeedbackButton() {
           >
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-bold text-[#F4F4F4]">{t("feedbackTitle")}</h3>
-              <button onClick={() => setOpen(false)} className="text-[#F4F4F4]/40 hover:text-[#F4F4F4]">
+              <button onClick={() => setOpen(false)} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <p className="text-xs text-[#F4F4F4]/50">{t("feedbackDesc")}</p>
+            <p className="text-xs text-[#F4F4F4]/60">{t("feedbackDesc")}</p>
 
             {sent ? (
               <div className="py-8 text-center space-y-2">
@@ -313,7 +313,7 @@ function FeedbackButton() {
                         className={`flex-1 flex flex-col items-center gap-1 py-2.5 rounded-xl text-[10px] font-medium transition-colors border ${
                           category === cat.id
                             ? "bg-[#295BDB]/20 border-[#295BDB] text-[#295BDB]"
-                            : "bg-[#02114A] border-[#FFFFFF14] text-[#F4F4F4]/50 hover:border-[#FFFFFF30]"
+                            : "bg-[#02114A] border-[#FFFFFF14] text-[#F4F4F4]/60 hover:border-[#FFFFFF30]"
                         }`}
                       >
                         <Icon className="w-4 h-4" />
@@ -329,7 +329,7 @@ function FeedbackButton() {
                   onChange={(e) => setText(e.target.value)}
                   placeholder={t("feedbackPlaceholder")}
                   rows={3}
-                  className="w-full bg-[#02114A] border border-[#FFFFFF14] rounded-xl p-3 text-[#F4F4F4] text-sm outline-none focus:ring-2 focus:ring-[#295BDB] placeholder:text-[#F4F4F4]/30 resize-none"
+                  className="w-full bg-[#02114A] border border-[#FFFFFF14] rounded-xl p-3 text-[#F4F4F4] text-sm outline-none focus:ring-2 focus:ring-[#295BDB] placeholder:text-[#F4F4F4]/60 resize-none"
                 />
 
                 {/* Email */}
@@ -338,7 +338,7 @@ function FeedbackButton() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder={t("feedbackEmail")}
-                  className="w-full bg-[#02114A] border border-[#FFFFFF14] rounded-xl p-3 text-[#F4F4F4] text-sm outline-none focus:ring-2 focus:ring-[#295BDB] placeholder:text-[#F4F4F4]/30"
+                  className="w-full bg-[#02114A] border border-[#FFFFFF14] rounded-xl p-3 text-[#F4F4F4] text-sm outline-none focus:ring-2 focus:ring-[#295BDB] placeholder:text-[#F4F4F4]/60"
                 />
 
                 {/* Send */}
