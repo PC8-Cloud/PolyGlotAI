@@ -384,7 +384,7 @@ export default function App() {
   if (!betaUnlocked) {
     return (
       <div className="min-h-screen bg-[#010B2E] flex items-start justify-center">
-        <div className="w-full max-w-[430px] min-h-screen relative shadow-2xl shadow-black/50 overflow-x-hidden">
+        <div className="w-full max-w-[430px] min-h-screen relative shadow-2xl shadow-black/50 overflow-x-hidden md:border-x md:border-white/5">
           <BetaGate onUnlock={() => setBetaUnlocked(true)} />
         </div>
       </div>
@@ -394,7 +394,7 @@ export default function App() {
   if (showSplash) {
     return (
       <div className="min-h-screen bg-[#010B2E] flex items-start justify-center">
-        <div className="w-full max-w-[430px] min-h-screen relative shadow-2xl shadow-black/50 overflow-x-hidden">
+        <div className="w-full max-w-[430px] min-h-screen relative shadow-2xl shadow-black/50 overflow-x-hidden md:border-x md:border-white/5">
           <SplashScreen onDone={() => setShowSplash(false)} />
         </div>
       </div>
@@ -405,7 +405,7 @@ export default function App() {
     <AuthProvider>
       <AutoTranslate />
       <div className="min-h-screen bg-[#010B2E] flex items-start justify-center">
-        <div className="w-full max-w-[430px] min-h-screen relative shadow-2xl shadow-black/50 overflow-x-hidden">
+        <div className="w-full max-w-[430px] min-h-screen relative shadow-2xl shadow-black/50 overflow-x-hidden md:border-x md:border-white/5">
       <NetworkCheck />
       <BrowserRouter>
         <AnalyticsTracker />

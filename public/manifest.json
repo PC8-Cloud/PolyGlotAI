@@ -4,8 +4,8 @@
   "description": "Real-time multilingual translation",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#02114A",
-  "theme_color": "#02114A",
+  "background_color": "#010B2E",
+  "theme_color": "#010B2E",
   "orientation": "portrait",
   "icons": [
     {

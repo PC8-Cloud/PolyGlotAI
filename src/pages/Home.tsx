@@ -194,7 +194,7 @@ export default function Home() {
         className={`${disabled ? btnDisabled : btnClass} relative`}
       >
         <Icon className="w-10 h-10 mb-2" aria-hidden="true" />
-        <span className="text-sm font-medium text-center leading-tight">{label}</span>
+        <h2 className="text-sm font-medium text-center leading-tight">{label}</h2>
         {/* Fixed-height slot for detail badge — keeps all tiles uniform (FIX 6) */}
         <span className={`mt-2 text-[11px] leading-none rounded-full px-2 py-1 ${
           detail && !disabled
