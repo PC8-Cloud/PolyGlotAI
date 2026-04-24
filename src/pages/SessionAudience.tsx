@@ -151,7 +151,7 @@ export default function SessionAudience() {
   return (
     <div className="min-h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans relative">
       {/* Header */}
-      <header className="flex items-center justify-between p-6">
+      <header className="flex items-center justify-between px-6 pb-6 pt-[calc(env(safe-area-inset-top)+1.5rem)]">
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
           <span className="text-sm font-medium text-[#F4F4F4]/60">
@@ -232,7 +232,7 @@ export default function SessionAudience() {
         </div>
 
         {/* Bottom Controls */}
-        <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-slate-950 via-slate-950 to-transparent flex flex-col items-center justify-end">
+        <div className="absolute bottom-0 left-0 right-0 px-6 pt-6 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] bg-gradient-to-t from-slate-950 via-slate-950 to-transparent flex flex-col items-center justify-end">
           {isTranslating && (
             <div className="text-[#295BDB] animate-pulse text-sm font-medium mb-4">
               {t("translating")}

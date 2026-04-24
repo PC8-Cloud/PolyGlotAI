@@ -1019,7 +1019,7 @@ export default function Conversation() {
 
   return (
     <div className="h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans overflow-hidden">
-      <header className="flex items-center gap-3 p-4 border-b border-[#FFFFFF14] bg-[#0E2666] shrink-0">
+      <header className="flex items-center gap-3 px-4 pb-4 pt-[calc(env(safe-area-inset-top)+1rem)] border-b border-[#FFFFFF14] bg-[#0E2666] shrink-0">
         <button onClick={() => { stopConversation(); navigate("/"); }} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
           <ChevronLeft className="w-6 h-6" />
         </button>
@@ -1144,7 +1144,7 @@ export default function Conversation() {
 
       {/* Text input fallback */}
       {showTextInput && (
-        <div className="border-t border-[#FFFFFF14] bg-[#0E2666] p-3 shrink-0">
+        <div className="border-t border-[#FFFFFF14] bg-[#0E2666] px-3 pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] shrink-0">
           <div className="flex items-center gap-2 mb-2">
             <button
               onClick={() => setTextInputSide("you")}
@@ -1185,7 +1185,7 @@ export default function Conversation() {
         </div>
       )}
 
-      <div className="border-t border-[#FFFFFF14] bg-[#0E2666] shrink-0">
+      <div className="border-t border-[#FFFFFF14] bg-[#0E2666] shrink-0 pb-[env(safe-area-inset-bottom)]">
         {/* Mic button + keyboard toggle */}
         <div className="flex items-center justify-center gap-4 py-4">
           <button

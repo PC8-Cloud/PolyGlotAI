@@ -77,7 +77,7 @@ export default function SessionJoin() {
 
   return (
     <div className="min-h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col items-center justify-center p-6 font-sans relative">
-      <div className="absolute top-6 right-6">
+      <div className="absolute right-6" style={{ top: "calc(1.5rem + env(safe-area-inset-top))" }}>
         <LanguageSwitcher />
       </div>
       <div className="w-full max-w-sm bg-[#0E2666] p-8 rounded-3xl border border-[#FFFFFF14] shadow-2xl">

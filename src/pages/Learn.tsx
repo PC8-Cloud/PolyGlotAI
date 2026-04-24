@@ -1663,7 +1663,7 @@ export default function Learn() {
   if (phase === "setup") {
     return (
       <div className="min-h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans">
-        <header className="flex items-center gap-3 p-4 border-b border-[#FFFFFF14] bg-[#0E2666]">
+        <header className="flex items-center gap-3 px-4 pb-4 pt-[calc(env(safe-area-inset-top)+1rem)] border-b border-[#FFFFFF14] bg-[#0E2666]">
           <button onClick={() => { muteAudio(); navigate("/"); }} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
             <ChevronLeft className="w-6 h-6" />
           </button>
@@ -1987,7 +1987,7 @@ export default function Learn() {
 
     return (
       <div className="h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans overflow-hidden">
-        <header className="flex items-center gap-3 p-4 border-b border-[#FFFFFF14] bg-[#0E2666] shrink-0">
+        <header className="flex items-center gap-3 px-4 pb-4 pt-[calc(env(safe-area-inset-top)+1rem)] border-b border-[#FFFFFF14] bg-[#0E2666] shrink-0">
           <button onClick={() => setPhase("setup")} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
             <ChevronLeft className="w-6 h-6" />
           </button>
@@ -2076,7 +2076,7 @@ export default function Learn() {
             </div>
 
             {/* Bottom bar */}
-            <div className="shrink-0 border-t border-[#FFFFFF14] bg-[#0E2666] p-4">
+            <div className="shrink-0 border-t border-[#FFFFFF14] bg-[#0E2666] px-4 pt-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
               <p className="text-xs text-[#F4F4F4]/60 text-center mb-3">
                 {vocabState === "listening" ? t("learnListening") : t("vocabTapToSpeak")}
               </p>
@@ -2127,7 +2127,7 @@ export default function Learn() {
   return (
     <div className="h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans overflow-hidden">
       {/* Header — fixed at top */}
-      <header className="flex items-center gap-3 p-4 border-b border-[#FFFFFF14] bg-[#0E2666] shrink-0 z-10">
+      <header className="flex items-center gap-3 px-4 pb-4 pt-[calc(env(safe-area-inset-top)+1rem)] border-b border-[#FFFFFF14] bg-[#0E2666] shrink-0 z-10">
         <button onClick={resetLesson} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
           <ChevronLeft className="w-6 h-6" />
         </button>
@@ -2265,7 +2265,7 @@ export default function Learn() {
       </div>
 
       {/* Bottom bar — big mic button + text input */}
-      <div className="shrink-0 border-t border-[#FFFFFF14] bg-[#0E2666]">
+      <div className="shrink-0 border-t border-[#FFFFFF14] bg-[#0E2666] pb-[env(safe-area-inset-bottom)]">
         {/* Status strip */}
         {chatState !== "idle" && (
           <div className={`px-4 py-1.5 text-center text-xs font-medium ${

@@ -522,7 +522,7 @@ export default function MegaphonePage() {
 
   return (
     <div className="h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans overflow-hidden">
-      <header className="flex items-center gap-3 p-4 border-b border-[#FFFFFF14] bg-[#0E2666] shrink-0">
+      <header className="flex items-center gap-3 px-4 pb-4 pt-[calc(env(safe-area-inset-top)+1rem)] border-b border-[#FFFFFF14] bg-[#0E2666] shrink-0">
         <button onClick={() => { muteAudio(); navigate("/group"); }} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
           <ChevronLeft className="w-6 h-6" />
         </button>
@@ -680,7 +680,7 @@ export default function MegaphonePage() {
         <div ref={bottomRef} />
       </div>
 
-      <div className="border-t border-[#FFFFFF14] bg-[#0E2666] p-6 flex flex-col items-center gap-3 shrink-0">
+      <div className="border-t border-[#FFFFFF14] bg-[#0E2666] px-6 pt-6 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] flex flex-col items-center gap-3 shrink-0">
         <button
           onClick={toggleListening}
           disabled={busy}

@@ -161,7 +161,7 @@ export default function SessionHost() {
   return (
     <div className="min-h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans">
       {/* Header */}
-      <header className="flex items-center justify-between p-4 border-b border-[#FFFFFF14] bg-[#0E2666]">
+      <header className="flex items-center justify-between px-4 pb-4 pt-[calc(env(safe-area-inset-top)+1rem)] border-b border-[#FFFFFF14] bg-[#0E2666]">
         <div>
           <h1 className="text-xl font-bold">{session.title}</h1>
           <div className="text-xs text-[#F4F4F4]/60 flex items-center gap-2 mt-1">

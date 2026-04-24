@@ -91,7 +91,7 @@ export default function Paywall() {
 
   return (
     <div className="min-h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans">
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto px-6 pb-6 pt-[calc(env(safe-area-inset-top)+1.5rem)]">
         {/* Title */}
         <div className="text-center mb-8 pt-4">
           <h1 className="text-2xl font-black mb-2">{t("choosePlan")}</h1>

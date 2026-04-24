@@ -213,7 +213,7 @@ export default function Home() {
   };
 
   return (
-    <main className="min-h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col items-center justify-center p-6 font-sans relative">
+    <main className="min-h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col items-center justify-center px-6 pb-6 pt-[calc(env(safe-area-inset-top)+1.5rem)] font-sans relative">
       <h1 className="sr-only">PolyGlot AI</h1>
 
       {/* Offline mode banner */}
@@ -264,7 +264,7 @@ export default function Home() {
       {showOffline && (
         <div className="fixed inset-0 z-50 flex flex-col bg-[#02114A]">
           <div className="flex-1 flex flex-col w-full max-w-[430px] mx-auto overflow-hidden">
-            <div className="flex items-center gap-3 p-4 border-b border-[#FFFFFF14] bg-[#0E2666] shrink-0">
+            <div className="flex items-center gap-3 px-4 pb-4 pt-[calc(env(safe-area-inset-top)+1rem)] border-b border-[#FFFFFF14] bg-[#0E2666] shrink-0">
               <button onClick={() => setShowOffline(false)} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
                 <ChevronLeft className="w-6 h-6" />
               </button>
@@ -350,7 +350,7 @@ export default function Home() {
       {showSettings && (
         <div className="fixed inset-0 z-50 flex flex-col bg-[#02114A]">
           <div className="flex-1 flex flex-col w-full max-w-[430px] mx-auto overflow-hidden">
-            <div className="flex items-center gap-3 p-4 border-b border-[#FFFFFF14] bg-[#0E2666] shrink-0">
+            <div className="flex items-center gap-3 px-4 pb-4 pt-[calc(env(safe-area-inset-top)+1rem)] border-b border-[#FFFFFF14] bg-[#0E2666] shrink-0">
               <button onClick={() => setShowSettings(false)} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
                 <ChevronLeft className="w-6 h-6" />
               </button>
@@ -581,7 +581,7 @@ export default function Home() {
       {showPersonalize && (
         <div className="fixed inset-0 z-[70] flex flex-col bg-[#02114A]">
           <div className="flex-1 flex flex-col w-full max-w-[430px] mx-auto overflow-hidden">
-            <div className="flex items-center gap-3 p-4 border-b border-[#FFFFFF14] bg-[#0E2666] shrink-0">
+            <div className="flex items-center gap-3 px-4 pb-4 pt-[calc(env(safe-area-inset-top)+1rem)] border-b border-[#FFFFFF14] bg-[#0E2666] shrink-0">
               <button onClick={() => setShowPersonalize(false)} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
                 <ChevronLeft className="w-6 h-6" />
               </button>
