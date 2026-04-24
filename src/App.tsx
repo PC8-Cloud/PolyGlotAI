@@ -43,6 +43,11 @@ function AutoTranslate() {
     });
   }, [uiLanguage]);
 
+  useEffect(() => {
+    const base = String(uiLanguage || "it").toLowerCase().split("-")[0];
+    document.documentElement.lang = base;
+  }, [uiLanguage]);
+
   return null;
 }
 
@@ -254,9 +259,14 @@ function FeedbackButton() {
     <>
       <button
         onClick={() => setOpen(true)}
+        aria-label={t("a11yFeedbackOpen")}
         className="fixed bottom-6 right-6 z-40 bg-[#295BDB] hover:bg-[#295BDB]/80 text-white rounded-full p-3 shadow-lg shadow-black/30 transition-all hover:scale-105"
+        style={{
+          bottom: "calc(1.5rem + env(safe-area-inset-bottom))",
+          right: "calc(1.5rem + env(safe-area-inset-right))",
+        }}
       >
-        <MessageCircle className="w-5 h-5" />
+        <MessageCircle className="w-5 h-5" aria-hidden="true" />
       </button>
 
       {open && (

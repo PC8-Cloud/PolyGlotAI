@@ -376,6 +376,8 @@ export const translations = {
     offlineModeDesc: "You are offline. Only cached features are available.",
     offlineAvailable: "Available offline",
     offlineUnavailable: "Requires internet",
+    a11yMainNav: "Main functions",
+    a11yFeedbackOpen: "Open feedback",
   },
   it: {
     startBroadcast: "Avvia Trasmissione",
@@ -754,6 +756,8 @@ export const translations = {
     offlineModeDesc: "Sei offline. Solo le funzioni salvate sono disponibili.",
     offlineAvailable: "Disponibile offline",
     offlineUnavailable: "Richiede internet",
+    a11yMainNav: "Funzioni principali",
+    a11yFeedbackOpen: "Apri feedback",
   },
   es: {
     startBroadcast: "Iniciar Transmisión",
@@ -1132,6 +1136,8 @@ export const translations = {
     offlineModeDesc: "Estás sin conexión. Solo las funciones guardadas están disponibles.",
     offlineAvailable: "Disponible sin conexión",
     offlineUnavailable: "Requiere internet",
+    a11yMainNav: "Funciones principales",
+    a11yFeedbackOpen: "Abrir feedback",
   },
   fr: {
     startBroadcast: "Démarrer la diffusion",
@@ -1510,6 +1516,8 @@ export const translations = {
     offlineModeDesc: "Vous êtes hors ligne. Seules les fonctions enregistrées sont disponibles.",
     offlineAvailable: "Disponible hors ligne",
     offlineUnavailable: "Nécessite internet",
+    a11yMainNav: "Fonctions principales",
+    a11yFeedbackOpen: "Ouvrir les commentaires",
   },
   de: {
     startBroadcast: "Übertragung starten",
@@ -1888,6 +1896,8 @@ export const translations = {
     offlineModeDesc: "Sie sind offline. Nur gespeicherte Funktionen sind verfügbar.",
     offlineAvailable: "Offline verfügbar",
     offlineUnavailable: "Erfordert Internet",
+    a11yMainNav: "Hauptfunktionen",
+    a11yFeedbackOpen: "Feedback öffnen",
   },
 };
 

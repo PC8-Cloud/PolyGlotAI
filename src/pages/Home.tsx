@@ -178,6 +178,10 @@ export default function Home() {
     const needsInternet = route && !OFFLINE_ROUTES.has(route);
     const disabled = isOffline && needsInternet;
 
+    const ariaLabel = [label, detail && !disabled ? detail : null, disabled ? t("offlineUnavailable") : null]
+      .filter(Boolean)
+      .join(", ");
+
     return (
       <button
         onClick={() => {
@@ -185,20 +189,22 @@ export default function Home() {
           if (onClick) onClick();
           else if (route) navigate(route);
         }}
+        aria-label={ariaLabel}
+        aria-disabled={disabled || undefined}
         className={`${disabled ? btnDisabled : btnClass} relative`}
       >
-        <Icon className="w-10 h-10 mb-2" />
+        <Icon className="w-10 h-10 mb-2" aria-hidden="true" />
         <span className="text-sm font-medium text-center leading-tight">{label}</span>
         {/* Fixed-height slot for detail badge — keeps all tiles uniform (FIX 6) */}
         <span className={`mt-2 text-[11px] leading-none rounded-full px-2 py-1 ${
           detail && !disabled
             ? "text-[#F4F4F4]/70 bg-[#02114A]/65 border border-[#FFFFFF14]"
             : "invisible"
-        }`}>
+        }`} aria-hidden="true">
           {detail || "\u00A0"}
         </span>
         {disabled && (
-          <div className="absolute top-2 right-2">
+          <div className="absolute top-2 right-2" aria-hidden="true">
             <Lock className="w-3.5 h-3.5 text-[#F4F4F4]/60" />
           </div>
         )}
@@ -207,11 +213,13 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col items-center justify-center p-6 font-sans relative">
+    <main className="min-h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col items-center justify-center p-6 font-sans relative">
+      <h1 className="sr-only">PolyGlot AI</h1>
+
       {/* Offline mode banner */}
       {isOffline && (
-        <div className="w-full max-w-md mb-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3 flex items-center gap-3">
-          <WifiOff className="w-5 h-5 text-amber-400 shrink-0" />
+        <div role="status" aria-live="polite" className="w-full max-w-md mb-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3 flex items-center gap-3">
+          <WifiOff className="w-5 h-5 text-amber-400 shrink-0" aria-hidden="true" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-bold text-amber-400">{t("offlineMode")}</p>
             <p className="text-[11px] text-amber-400/60">{t("offlineModeDesc")}</p>
@@ -219,7 +227,7 @@ export default function Home() {
         </div>
       )}
 
-      <div className="w-full max-w-md">
+      <nav aria-label={t("a11yMainNav")} className="w-full max-w-md">
         <div className="grid grid-cols-2 gap-4">
           <FeatureButton
             route="/conversation"
@@ -250,7 +258,7 @@ export default function Home() {
           <FeatureButton icon={WifiOff} label={t("offlineFunctions")} onClick={() => setShowOffline(true)} />
           <FeatureButton icon={Settings} label={t("settings")} onClick={openSettings} />
         </div>
-      </div>
+      </nav>
 
       {/* Offline Functions Modal */}
       {showOffline && (
@@ -683,6 +691,6 @@ export default function Home() {
           </div>
         </div>
       )}
-    </div>
+    </main>
   );
 }
