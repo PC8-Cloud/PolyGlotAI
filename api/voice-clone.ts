@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { requireApiAccess } from "./auth";
 
 const OPENAI_API_BASE = "https://api.openai.com/v1";
 
@@ -43,6 +44,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
+  const access = await requireApiAccess(req, res, { feature: "voiceClone", paidOnly: true });
+  if (!access) return;
 
   try {
     const { action } = req.body || {};
@@ -103,4 +106,3 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(500).json({ error: message });
   }
 }
-

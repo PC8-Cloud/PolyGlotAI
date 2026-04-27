@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import OpenAI from "openai";
+import { requireApiAccess } from "./auth";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -18,6 +19,8 @@ const TTS_LANGUAGE_HINTS: Record<string, string> = {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  const access = await requireApiAccess(req, res, { feature: "conversation" });
+  if (!access) return;
 
   try {
     const { text, voice, speed, format, model, langCode } = req.body;

@@ -1,6 +1,8 @@
 import { useUserStore } from "./store";
 import { getPromptLanguageName } from "./languages";
 import { isConnectionSlow, isOnline as isOnlineCheck, reportResponseTime, canUseLocalTTS, playLocalTTS, getLastResponseTime } from "./offline";
+import { auth } from "../firebase";
+import { ensureSignedIn } from "./auth";
 
 // ─── User-friendly API error messages ────────────────────────────────────────
 
@@ -19,6 +21,31 @@ export function getApiErrorMessage(err: any): { key: string; fallback: string } 
   }
   // Everything else: transient/network/overload — just say "try again"
   return { key: "genericApiError", fallback: "Temporary error. Try again." };
+}
+
+// ─── Promise timeout guard ───────────────────────────────────────────────────
+// Wraps a promise so it can never hang forever. Used around playback (where
+// AudioContext can be suspended by the OS — e.g. screen off, app backgrounded
+// — and source.onended never fires) so loops that await audio finish do not
+// deadlock the UI.
+
+export async function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  label = "operation",
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<T>((_, reject) => {
+    timer = setTimeout(() => {
+      console.warn(`[withTimeout] ${label} exceeded ${ms}ms`);
+      reject(new Error(`${label} timeout`));
+    }, ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 // ─── Retry with exponential backoff for transient errors ─────────────────────
@@ -50,9 +77,10 @@ class ApiError extends Error {
 }
 
 async function apiFetch(endpoint: string, body: any): Promise<Response> {
+  const authHeaders = await getApiAuthHeaders();
   const res = await fetch(`/api/${endpoint}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -60,6 +88,13 @@ async function apiFetch(endpoint: string, body: any): Promise<Response> {
     throw new ApiError(err.error || "Request failed", err.status || res.status);
   }
   return res;
+}
+
+export async function getApiAuthHeaders(): Promise<Record<string, string>> {
+  await ensureSignedIn();
+  const token = await auth.currentUser?.getIdToken();
+  if (!token) throw new Error("Authentication required");
+  return { Authorization: `Bearer ${token}` };
 }
 
 function getModels() {
@@ -152,8 +187,10 @@ export async function transcribeAudio(
   formData.append("model", getModels().transcribe);
 
   const response = await withRetry(async () => {
+    const authHeaders = await getApiAuthHeaders();
     const res = await fetch("/api/transcribe", {
       method: "POST",
+      headers: authHeaders,
       body: formData,
     });
     if (!res.ok) {
@@ -181,8 +218,10 @@ export async function transcribeAudioDetectLang(
   }
 
   const response = await withRetry(async () => {
+    const authHeaders = await getApiAuthHeaders();
     const res = await fetch("/api/transcribe", {
       method: "POST",
+      headers: authHeaders,
       body: formData,
     });
     if (!res.ok) {
@@ -211,8 +250,10 @@ export async function transcribeMediaWithTimestamps(
   formData.append("detect_language", "true");
 
   const response = await withRetry(async () => {
+    const authHeaders = await getApiAuthHeaders();
     const res = await fetch("/api/transcribe", {
       method: "POST",
+      headers: authHeaders,
       body: formData,
     });
     if (!res.ok) {
@@ -411,9 +452,10 @@ export function getAutoVoiceForLanguage(langCode?: string, gender?: "male" | "fe
 
 export async function listOpenAIVoices(): Promise<OpenAICustomVoice[]> {
   const response = await withRetry(async () => {
+    const authHeaders = await getApiAuthHeaders();
     const res = await fetch("/api/voice-clone", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify({ action: "list_voices" }),
     });
     if (!res.ok) {
@@ -428,9 +470,10 @@ export async function listOpenAIVoices(): Promise<OpenAICustomVoice[]> {
 
 export async function listOpenAIVoiceConsents(): Promise<OpenAIVoiceConsent[]> {
   const response = await withRetry(async () => {
+    const authHeaders = await getApiAuthHeaders();
     const res = await fetch("/api/voice-clone", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify({ action: "list_consents" }),
     });
     if (!res.ok) {
@@ -449,9 +492,10 @@ export async function createOpenAIVoiceConsent(
   recordingBase64: string,
 ): Promise<OpenAIVoiceConsent> {
   const response = await withRetry(async () => {
+    const authHeaders = await getApiAuthHeaders();
     const res = await fetch("/api/voice-clone", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify({
         action: "create_consent",
         name,
@@ -474,9 +518,10 @@ export async function createOpenAICustomVoice(
   audioSampleBase64: string,
 ): Promise<OpenAICustomVoice> {
   const response = await withRetry(async () => {
+    const authHeaders = await getApiAuthHeaders();
     const res = await fetch("/api/voice-clone", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify({
         action: "create_voice",
         name,
@@ -506,9 +551,10 @@ export async function textToSpeech(
   const selectedVoice = voice || getAutoVoiceForLanguage(langCode);
   const format = isSafari ? "mp3" : "opus";
   const response = await withRetry(async () => {
+    const authHeaders = await getApiAuthHeaders();
     const res = await fetch("/api/tts", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify({
         text,
         voice: selectedVoice,

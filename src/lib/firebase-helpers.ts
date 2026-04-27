@@ -1,5 +1,5 @@
 import { db, auth } from "../firebase";
-import { signInAnonymously, signInWithPopup, GoogleAuthProvider } from "firebase/auth";
+import { ensureSignedIn } from "./auth";
 import {
   collection,
   doc,
@@ -14,20 +14,6 @@ import {
   orderBy,
   onSnapshot,
 } from "firebase/firestore";
-
-// Ensure user is authenticated: try anonymous, fall back to Google
-async function ensureAuth(): Promise<string> {
-  if (auth.currentUser) return auth.currentUser.uid;
-  try {
-    const cred = await signInAnonymously(auth);
-    return cred.user.uid;
-  } catch {
-    // Anonymous auth not enabled — fall back to Google
-    const provider = new GoogleAuthProvider();
-    const cred = await signInWithPopup(auth, provider);
-    return cred.user.uid;
-  }
-}
 
 export enum OperationType {
   CREATE = "create",
@@ -105,9 +91,9 @@ export async function joinSession(
   displayName: string,
   role: "HOST" | "GUEST" = "GUEST",
 ) {
-  // We use a random ID for guests if they are not logged in
-  const participantId =
-    auth.currentUser?.uid || doc(collection(db, "dummy")).id;
+  const uid = await ensureSignedIn();
+  // Legacy sessions use the auth UID as participant ID.
+  const participantId = auth.currentUser?.uid || uid;
   const path = `sessions/${sessionId}/participants/${participantId}`;
 
   try {
@@ -118,6 +104,7 @@ export async function joinSession(
         role,
         language,
         displayName,
+        userId: uid,
         joinedAt: serverTimestamp(),
       },
     );
@@ -134,7 +121,7 @@ function generateRoomCode(): string {
 }
 
 export async function createRoom(hostLang: string) {
-  const hostId = await ensureAuth();
+  const hostId = await ensureSignedIn();
   const roomCode = generateRoomCode();
   const sessionId = doc(collection(db, "sessions")).id;
 
@@ -164,7 +151,7 @@ export async function findRoomByCode(code: string): Promise<string | null> {
 }
 
 export async function joinRoom(sessionId: string, language: string, displayName: string) {
-  await ensureAuth();
+  const uid = await ensureSignedIn();
   // Use a unique ID per join (not auth UID) so multiple tabs/devices work independently
   const participantId = doc(collection(db, "sessions", sessionId, "participants")).id;
 
@@ -175,6 +162,7 @@ export async function joinRoom(sessionId: string, language: string, displayName:
       role: "GUEST",
       language,
       displayName,
+      userId: uid,
       joinedAt: serverTimestamp(),
     },
   );

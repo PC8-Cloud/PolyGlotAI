@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { requireApiAccess } from "./auth";
 
 function extractVideoId(input: string): string {
   const value = String(input || "").trim();
@@ -31,6 +32,12 @@ function decodeXmlEntities(text: string): string {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  const access = await requireApiAccess(req, res, {
+    feature: "conversation",
+    quotaKey: "text_translate_requests",
+    quotaAmount: 1,
+  });
+  if (!access) return;
 
   try {
     const { url } = req.body || {};

@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import OpenAI, { toFile } from "openai";
+import { requireApiAccess } from "./auth";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -49,6 +50,12 @@ function parseBody(req: VercelRequest): Promise<Buffer> {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  const access = await requireApiAccess(req, res, {
+    feature: "conversation",
+    quotaKey: "conversation_ms",
+    quotaAmount: 1000,
+  });
+  if (!access) return;
 
   try {
     const rawBody = await parseBody(req);

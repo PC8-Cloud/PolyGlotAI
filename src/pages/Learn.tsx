@@ -28,7 +28,7 @@ import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
-import { playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudio, suspendAudioForMic, translateText, analyzeImage, transcribeMediaWithTimestamps, textToSpeech } from "../lib/openai";
+import { playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudio, suspendAudioForMic, translateText, analyzeImage, transcribeMediaWithTimestamps, textToSpeech, getApiAuthHeaders } from "../lib/openai";
 import { extractTextFromFile } from "../lib/file-reader";
 import { consumeTrialQuota, getTrialUpgradeMessage } from "../lib/trial";
 import pdfjsWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
@@ -852,9 +852,10 @@ export default function Learn() {
     });
 
     try {
+      const authHeaders = await getApiAuthHeaders();
       const resp = await fetch("/api/youtube-transcript", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify({ url: input }),
       });
       const data = await resp.json().catch(() => ({}));
@@ -1178,9 +1179,10 @@ export default function Learn() {
     setChatState("thinking");
 
     try {
+      const authHeaders = await getApiAuthHeaders();
       const res = await fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify({ messages: newApiMessages }),
       });
       if (!res.ok) throw { status: res.status, message: "Chat failed" };
@@ -1257,9 +1259,10 @@ export default function Learn() {
     setError(null);
 
     try {
+      const authHeaders = await getApiAuthHeaders();
       const res = await fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify({ messages: initMessages }),
       });
       if (!res.ok) throw { status: res.status, message: "Chat failed" };
@@ -1434,9 +1437,10 @@ export default function Learn() {
 
     try {
       const prompt = buildVocabPrompt(nativeLangLabel, targetLangLabel, vocabCat);
+      const authHeaders = await getApiAuthHeaders();
       const res = await fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify({
           messages: [
             { role: "system", content: prompt },

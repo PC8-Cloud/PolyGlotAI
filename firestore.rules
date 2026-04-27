@@ -1,8 +1,9 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Helper Functions
+
+    // ─── Helpers ────────────────────────────────────────────────────────────
+
     function isAuthenticated() {
       return request.auth != null;
     }
@@ -14,7 +15,7 @@ service cloud.firestore {
     function isOwner(userId) {
       return isAuthenticated() && request.auth.uid == userId;
     }
-    
+
     function isValidSession(data) {
       return data.keys().hasAll(['hostId', 'title', 'sourceLanguage', 'targetLanguages', 'status', 'createdAt']) &&
              data.hostId is string &&
@@ -24,16 +25,17 @@ service cloud.firestore {
              data.status in ['ACTIVE', 'ENDED'] &&
              data.createdAt is timestamp;
     }
-    
+
     function isValidParticipant(data) {
       return data.keys().hasAll(['sessionId', 'role', 'language', 'joinedAt']) &&
              data.sessionId is string &&
              data.role in ['HOST', 'GUEST'] &&
              data.language is string && data.language.size() >= 2 && data.language.size() <= 5 &&
+             (!('userId' in data) || data.userId == request.auth.uid) &&
              (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 50)) &&
              data.joinedAt is timestamp;
     }
-    
+
     function isValidMessage(data) {
       return data.keys().hasAll(['sessionId', 'senderId', 'type', 'sourceLanguage', 'sourceText', 'createdAt']) &&
              data.sessionId is string &&
@@ -45,61 +47,127 @@ service cloud.firestore {
              data.createdAt is timestamp;
     }
 
-    // User profiles and subscription plans
-    match /users/{userId} {
-      // Users can read their own profile
-      allow read: if isOwner(userId);
-      // Only Cloud Functions (admin SDK) can write plan data
-      // Users can create their own profile
-      allow create: if isOwner(userId);
-      // Users cannot modify plan fields directly — only Cloud Functions can
-      allow update: if isOwner(userId) &&
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['plan', 'planExpiresAt', 'stripeCustomerId', 'stripeSubscriptionId']);
+    function sessionHostId(sessionId) {
+      return get(/databases/$(database)/documents/sessions/$(sessionId)).data.hostId;
     }
 
-    // Admin-only: dashboard metrics
+    function isParticipantOwner(sessionId, participantId) {
+      return isAuthenticated() &&
+             exists(/databases/$(database)/documents/sessions/$(sessionId)/participants/$(participantId)) &&
+             get(/databases/$(database)/documents/sessions/$(sessionId)/participants/$(participantId)).data.userId == request.auth.uid;
+    }
+
+    function canSendSessionMessage(sessionId, senderId) {
+      return isAuthenticated() &&
+             (
+               sessionHostId(sessionId) == request.auth.uid ||
+               senderId == request.auth.uid ||
+               isParticipantOwner(sessionId, senderId)
+             );
+    }
+
+    // ─── Users ──────────────────────────────────────────────────────────────
+
+    // Plan / entitlements / trial fields are server-managed (Cloud Functions
+    // via Stripe webhook, license-key redeem, trial quota). Client must never
+    // touch them directly.
+    function touchesProtectedUserField() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'plan',
+        'planStatus',
+        'planSource',
+        'planExpiresAt',
+        'planSyncedAt',
+        'stripeCustomerId',
+        'stripeSubscriptionId',
+        'entitlements',
+        'trial',
+        'trialUsage',
+      ]);
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId) && !touchesProtectedUserField();
+      allow delete: if false;
+    }
+
+    // ─── Admin-only collections ─────────────────────────────────────────────
+
     match /app_usage_daily/{docId} {
       allow read: if isAdmin();
-      allow write: if true; // client writes usage data
+      // Anonymous client telemetry. Validate the document shape to prevent
+      // arbitrary writes; no auth required so first-open metrics still work.
+      allow create, update: if
+        request.resource.data.dayKey is string &&
+        request.resource.data.dayKey.size() <= 16 &&
+        request.resource.data.deviceId is string &&
+        request.resource.data.deviceId.size() <= 64;
+      allow delete: if false;
     }
 
     match /feedback/{docId} {
       allow read: if isAdmin();
       allow create: if isAuthenticated();
+      allow update, delete: if false;
     }
 
-    // License keys: only Cloud Functions write, admin can read
+    // License keys: Cloud Functions only (admin SDK bypasses rules).
     match /license_keys/{code} {
       allow read: if isAdmin();
-      allow write: if false; // only Cloud Functions (admin SDK)
+      allow write: if false;
     }
 
+    // ─── Sessions and sub-collections ───────────────────────────────────────
+
     match /sessions/{sessionId} {
-      // Anyone can read a session (needed for guests to join via link)
+      // Anyone can read a session (needed for guests joining via link/code).
       allow read: if true;
-      // Only authenticated users can create a session, and they must be the host
-      allow create: if isAuthenticated() && isValidSession(request.resource.data) && request.resource.data.hostId == request.auth.uid;
-      // Only the host can update the session
-      allow update: if isAuthenticated() && isValidSession(request.resource.data) && resource.data.hostId == request.auth.uid && request.resource.data.hostId == resource.data.hostId;
+      allow create: if isAuthenticated() &&
+                    isValidSession(request.resource.data) &&
+                    request.resource.data.hostId == request.auth.uid;
+      allow update: if isAuthenticated() &&
+                    isValidSession(request.resource.data) &&
+                    resource.data.hostId == request.auth.uid &&
+                    request.resource.data.hostId == resource.data.hostId;
       allow delete: if isAuthenticated() && resource.data.hostId == request.auth.uid;
-      
+
       match /participants/{participantId} {
-        // Anyone can read participants in a session
         allow read: if true;
-        // Guests can join without auth, so we allow create if data is valid
-        allow create: if isValidParticipant(request.resource.data) && request.resource.data.sessionId == sessionId;
-        allow update: if isValidParticipant(request.resource.data) && request.resource.data.sessionId == sessionId;
-        allow delete: if true; // Allow guests to leave
+        allow create: if isAuthenticated() &&
+                      isValidParticipant(request.resource.data) &&
+                      request.resource.data.sessionId == sessionId;
+        allow update: if isAuthenticated() &&
+                      isValidParticipant(request.resource.data) &&
+                      request.resource.data.sessionId == sessionId &&
+                      (
+                        resource.data.userId == request.auth.uid ||
+                        participantId == request.auth.uid ||
+                        sessionHostId(sessionId) == request.auth.uid
+                      );
+        allow delete: if isAuthenticated() &&
+                      (
+                        resource.data.userId == request.auth.uid ||
+                        participantId == request.auth.uid ||
+                        sessionHostId(sessionId) == request.auth.uid
+                      );
       }
-      
+
       match /messages/{messageId} {
-        // Anyone can read messages in a session
         allow read: if true;
-        // Anyone can create a message in a session (guests asking questions, host broadcasting)
-        allow create: if isValidMessage(request.resource.data) && request.resource.data.sessionId == sessionId;
-        // Allow updates (e.g., adding translations after the fact)
-        allow update: if isValidMessage(request.resource.data) && request.resource.data.sessionId == sessionId;
-        allow delete: if isAuthenticated() && get(/databases/$(database)/documents/sessions/$(sessionId)).data.hostId == request.auth.uid;
+        allow create: if isAuthenticated() &&
+                      isValidMessage(request.resource.data) &&
+                      request.resource.data.sessionId == sessionId &&
+                      canSendSessionMessage(sessionId, request.resource.data.senderId);
+        // Only the session host can update messages (e.g. attach
+        // translations after the fact from the host UI).
+        allow update: if isAuthenticated() &&
+                      isValidMessage(request.resource.data) &&
+                      request.resource.data.sessionId == sessionId &&
+                      sessionHostId(sessionId) == request.auth.uid;
+        allow delete: if isAuthenticated() &&
+                      sessionHostId(sessionId) == request.auth.uid;
       }
     }
   }
