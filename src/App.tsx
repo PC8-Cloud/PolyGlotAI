@@ -105,71 +105,6 @@ function SplashScreen({ onDone }: { onDone: () => void }) {
   );
 }
 
-const BETA_PASSWORD = "beta26";
-
-function BetaGate({ onUnlock }: { onUnlock: () => void }) {
-  const { setUiLanguage } = useUserStore();
-  const [lang, setLang] = useState<"it" | "en">("it");
-  const t = useTranslation(lang);
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState(false);
-
-  const toggleLang = () => {
-    const next = lang === "it" ? "en" : "it";
-    setLang(next);
-    setUiLanguage(next);
-  };
-
-  const handleSubmit = (e: { preventDefault: () => void }) => {
-    e.preventDefault();
-    if (password.trim().toLowerCase() === BETA_PASSWORD) {
-      logEvent("beta_unlock");
-      onUnlock();
-    } else {
-      setError(true);
-      setTimeout(() => setError(false), 2000);
-    }
-  };
-
-  return (
-    <div className="min-h-screen bg-[#010B2E] flex flex-col items-center justify-center p-6 text-center relative">
-      {/* Language toggle */}
-      <button
-        onClick={toggleLang}
-        className="absolute top-6 right-6 flex items-center gap-1.5 bg-[#0E2666]/80 border border-[#FFFFFF14] rounded-full px-3 py-1.5 text-sm font-medium text-[#F4F4F4]/70 hover:text-[#F4F4F4] transition-colors"
-      >
-        {lang === "it" ? "🇬🇧 English" : "🇮🇹 Italiano"}
-      </button>
-
-      <img src="/splash.png" alt="PolyGlotAI" className="w-48 h-auto mb-8" />
-      <div className="bg-[#0E2666]/50 border border-[#FFFFFF14] rounded-2xl p-6 w-full max-w-sm space-y-4">
-        <h2 className="text-lg font-bold text-[#F4F4F4]">{t("betaTitle")}</h2>
-        <p className="text-sm text-[#F4F4F4]/70">{t("betaSubtitle")}</p>
-        <p className="text-sm text-amber-400 font-medium">{t("betaFeedback")}</p>
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder={t("betaPassword")}
-            autoFocus
-            className="w-full bg-[#02114A] border border-[#FFFFFF14] rounded-xl p-3 text-[#F4F4F4] text-center outline-none focus:ring-2 focus:ring-[#295BDB] placeholder:text-[#F4F4F4]/60"
-          />
-          {error && (
-            <p className="text-xs text-red-400">{t("betaWrongPassword")}</p>
-          )}
-          <button
-            type="submit"
-            className="w-full bg-[#295BDB] hover:bg-[#295BDB]/80 text-[#F4F4F4] font-bold py-3 rounded-xl transition-colors"
-          >
-            {t("betaEnter")}
-          </button>
-        </form>
-      </div>
-    </div>
-  );
-}
-
 // Map routes to feature names for analytics
 const ROUTE_FEATURES: Record<string, string> = {
   "/": "home",
@@ -370,7 +305,6 @@ function FeedbackButton() {
 }
 
 export default function App() {
-  const { betaUnlocked, setBetaUnlocked } = useUserStore();
   const [showSplash, setShowSplash] = useState(true);
 
   // Log app open
@@ -379,17 +313,6 @@ export default function App() {
     ensureTrialStarted();
     void trackAppOpenDaily();
   }, []);
-
-  // Beta gate (before splash)
-  if (!betaUnlocked) {
-    return (
-      <div className="min-h-screen bg-[#010B2E] flex items-start justify-center">
-        <div className="w-full max-w-[430px] min-h-screen relative shadow-2xl shadow-black/50 overflow-x-hidden md:border-x md:border-white/5">
-          <BetaGate onUnlock={() => setBetaUnlocked(true)} />
-        </div>
-      </div>
-    );
-  }
 
   if (showSplash) {
     return (
