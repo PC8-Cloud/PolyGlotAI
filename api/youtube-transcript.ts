@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { requireApiAccess } from "./auth";
+import { requireApiAccess } from "./auth.js";
 
 function extractVideoId(input: string): string {
   const value = String(input || "").trim();

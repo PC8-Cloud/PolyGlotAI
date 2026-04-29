@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import OpenAI from "openai";
-import { requireApiAccess } from "./auth";
+import { requireApiAccess } from "./auth.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
