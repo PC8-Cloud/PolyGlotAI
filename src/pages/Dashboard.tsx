@@ -2,12 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronLeft, BarChart3, RefreshCw, LogIn, Plus, Loader2, Key } from "lucide-react";
 import { collection, getDocs, query, where, Timestamp } from "firebase/firestore";
-import { GoogleAuthProvider, signInWithPopup, signInWithRedirect, signInWithEmailAndPassword, signOut } from "firebase/auth";
-import { db, auth } from "../firebase";
+import { db } from "../firebase";
+import { signInWithEmail, signInWithGoogle, signOutCurrent } from "../lib/auth";
 import { useUserStore } from "../lib/store";
 import { useAuth } from "../components/AuthProvider";
-
-const ADMIN_EMAILS = ["polyglot.app2@gmail.com"];
+import { CREATE_LICENSE_KEY_URL, isAdminEmail } from "../lib/config";
 
 type UsageDoc = {
   dayKey?: string;
@@ -32,7 +31,7 @@ export default function Dashboard() {
   const { uiLanguage } = useUserStore();
   const { user, ready } = useAuth();
   const isIt = String(uiLanguage).toLowerCase().startsWith("it");
-  const isAdmin = user?.email ? ADMIN_EMAILS.includes(user.email) : false;
+  const isAdmin = isAdminEmail(user?.email);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -61,8 +60,8 @@ export default function Dashboard() {
     setAuthLoading(true);
     setLoginError(null);
     try {
-      await signInWithEmailAndPassword(auth, loginEmail.trim(), loginPassword);
-    } catch (e: any) {
+      await signInWithEmail(loginEmail, loginPassword);
+    } catch {
       setLoginError(isIt ? "Email o password non validi" : "Invalid email or password");
     } finally {
       setAuthLoading(false);
@@ -73,18 +72,9 @@ export default function Dashboard() {
     setAuthLoading(true);
     setLoginError(null);
     try {
-      await signInWithPopup(auth, new GoogleAuthProvider());
-    } catch (e: any) {
-      // If popup blocked or closed, fall back to redirect
-      if (e?.code === "auth/popup-blocked" || e?.code === "auth/popup-closed-by-browser" || e?.code === "auth/cancelled-popup-request") {
-        try {
-          await signInWithRedirect(auth, new GoogleAuthProvider());
-          return;
-        } catch {
-          // redirect will navigate away
-        }
-      }
-      // user cancelled or other error
+      await signInWithGoogle();
+    } catch {
+      // user cancelled or redirect already navigated away
     } finally {
       setAuthLoading(false);
     }
@@ -96,19 +86,16 @@ export default function Dashboard() {
     setLkResult(null);
     try {
       const token = await user.getIdToken();
-      const res = await fetch(
-        `https://europe-west1-polyglot-c1941.cloudfunctions.net/createLicenseKey`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({
-            code: lkCode.trim(),
-            plan: lkPlan,
-            durationDays: lkDays ? Number(lkDays) : null,
-            maxUses: lkMaxUses ? Number(lkMaxUses) : null,
-          }),
-        },
-      );
+      const res = await fetch(CREATE_LICENSE_KEY_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          code: lkCode.trim(),
+          plan: lkPlan,
+          durationDays: lkDays ? Number(lkDays) : null,
+          maxUses: lkMaxUses ? Number(lkMaxUses) : null,
+        }),
+      });
       const data = await res.json();
       if (!res.ok) {
         setLkResult(`❌ ${data.error}`);
@@ -226,7 +213,7 @@ export default function Dashboard() {
 
           {user && !isAdmin && (
             <button
-              onClick={() => signOut(auth)}
+              onClick={() => signOutCurrent()}
               className="w-full flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-red-500/20 border border-red-500/30 text-red-300 font-medium text-sm hover:bg-red-500/30 transition-colors"
             >
               {isIt ? "Esci e accedi con un altro account" : "Sign out and use another account"}

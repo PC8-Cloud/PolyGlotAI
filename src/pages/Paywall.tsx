@@ -5,6 +5,7 @@ import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { useAuth } from "../components/AuthProvider";
 import { canStartCheckout, getBillingHint, startCheckout } from "../lib/billing";
+import { REDEEM_LICENSE_KEY_URL } from "../lib/config";
 const PLANS = [
   {
     id: "tourist_weekly" as const,
@@ -52,14 +53,11 @@ export default function Paywall() {
     setLicenseResult(null);
     try {
       const token = await user.getIdToken();
-      const res = await fetch(
-        `https://europe-west1-polyglot-c1941.cloudfunctions.net/redeemLicenseKey`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ code: licenseCode.trim() }),
-        },
-      );
+      const res = await fetch(REDEEM_LICENSE_KEY_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ code: licenseCode.trim() }),
+      });
       const data = await res.json();
       if (!res.ok) {
         setError(data.error || (isIt ? "Codice non valido" : "Invalid code"));

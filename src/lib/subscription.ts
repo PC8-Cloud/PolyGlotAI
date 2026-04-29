@@ -1,19 +1,20 @@
 import { doc, onSnapshot } from "firebase/firestore";
-import { db } from "../firebase";
+import { auth, db, cloudFunctionUrl } from "../firebase";
 import { useUserStore, PlanType } from "./store";
 import { isTrialActive } from "./trial";
 import { parseEntitlementsFromUserDoc } from "./entitlements";
 
-// Stripe Checkout URLs — replace with your actual Stripe payment links
-export const STRIPE_LINKS = {
-  tourist_weekly: "https://buy.stripe.com/14AfZh0wVgHf2Hk2Yjes004",
-  tourist: "https://buy.stripe.com/bJeeVd6Vj76F5Tw1Ufes001",
-  pro: "https://buy.stripe.com/8x2dR9enLdv33Lo42nes002",
-  business: "https://buy.stripe.com/bJe8wP3J7dv36XA7ezes003",
-};
+function envString(key: string, fallback: string): string {
+  return String((import.meta as any).env?.[key] || fallback).trim();
+}
 
-// Stripe Customer Portal — users manage their subscription here
-export const STRIPE_PORTAL_URL = "https://billing.stripe.com/p/login/YOUR_PORTAL_LINK";
+// Stripe Checkout URLs. Override per deployment with VITE_STRIPE_LINK_* env vars.
+export const STRIPE_LINKS = {
+  tourist_weekly: envString("VITE_STRIPE_LINK_TOURIST_WEEKLY", "https://buy.stripe.com/14AfZh0wVgHf2Hk2Yjes004"),
+  tourist: envString("VITE_STRIPE_LINK_TOURIST", "https://buy.stripe.com/bJeeVd6Vj76F5Tw1Ufes001"),
+  pro: envString("VITE_STRIPE_LINK_PRO", "https://buy.stripe.com/8x2dR9enLdv33Lo42nes002"),
+  business: envString("VITE_STRIPE_LINK_BUSINESS", "https://buy.stripe.com/bJe8wP3J7dv36XA7ezes003"),
+};
 
 // Plan features
 export interface PlanFeatures {
@@ -138,7 +139,35 @@ export function openCheckout(plan: "tourist_weekly" | "tourist" | "pro" | "busin
   window.open(url.toString(), "_blank");
 }
 
-// Open Stripe Customer Portal to manage subscription
-export function openBillingPortal() {
-  window.open(STRIPE_PORTAL_URL, "_blank");
+// Open Stripe Customer Portal to manage subscription.
+// Opens a blank tab synchronously (popup-blocker safe), then asks the
+// `createPortalSession` Cloud Function for a one-time URL signed for the
+// current user and redirects the tab there.
+export async function openBillingPortal(): Promise<void> {
+  const user = auth.currentUser;
+  if (!user) throw new Error("Not signed in");
+
+  const win = window.open("", "_blank");
+  try {
+    const idToken = await user.getIdToken();
+    const res = await fetch(cloudFunctionUrl("createPortalSession"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${idToken}`,
+      },
+      body: JSON.stringify({}),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err?.error || `Portal session failed (${res.status})`);
+    }
+    const { url } = await res.json();
+    if (!url) throw new Error("Portal URL missing");
+    if (win) win.location.href = url;
+    else window.location.href = url;
+  } catch (err) {
+    win?.close();
+    throw err;
+  }
 }

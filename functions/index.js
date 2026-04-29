@@ -11,27 +11,48 @@ const db = admin.firestore();
 const stripeSecretKey = defineSecret("STRIPE_SECRET_KEY");
 const stripeWebhookSecret = defineSecret("STRIPE_WEBHOOK_SECRET");
 
+function parseCsvEnv(name, fallback) {
+  return String(process.env[name] || fallback || "")
+    .split(",")
+    .map((value) => value.trim())
+    .map((value) => value.toLowerCase())
+    .filter(Boolean);
+}
+
+function parseJsonEnv(name, fallback) {
+  try {
+    const parsed = JSON.parse(process.env[name] || "");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function numberEnv(name, fallback) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) ? value : fallback;
+}
+
 // Plan mapping: Stripe Price ID → PolyGlot plan name
-// Update these after creating products in Stripe Dashboard
-// TODO: Replace with actual Stripe Price IDs (find them in Stripe Dashboard → each product → Pricing section)
+// Override with STRIPE_PRICE_TO_PLAN_JSON when price IDs change.
 // Product IDs for reference:
 // Tourist Weekly: prod_U9fYGH1wm37kad
 // Tourist:        prod_U9fZcf4G3ilSDM
 // Pro:            prod_U9faR6uaTtvhkK
 // Business:       prod_U9fbdJFO8lCutl
-const PRICE_TO_PLAN = {
+const PRICE_TO_PLAN = parseJsonEnv("STRIPE_PRICE_TO_PLAN_JSON", {
   "price_1TBMD0FMY3pYKHOxGEX1KFSx": "tourist_weekly",
   "price_1TBMELFMY3pYKHOxiB3PP3Uy": "tourist",
   "price_1TBMFOFMY3pYKHOxzK4r2qUF": "pro",
   "price_1TBMGeFMY3pYKHOx5DdCzOPH": "business",
-};
+});
 
-const TRIAL_DURATION_DAYS = 5;
+const TRIAL_DURATION_DAYS = numberEnv("TRIAL_DURATION_DAYS", 5);
 const TRIAL_DAILY_LIMITS = {
-  conversation_ms: 6 * 60 * 1000,
-  megaphone_ms: 6 * 60 * 1000,
-  camera_scans: 8,
-  text_translate_requests: 15,
+  conversation_ms: numberEnv("TRIAL_CONVERSATION_MS", 6 * 60 * 1000),
+  megaphone_ms: numberEnv("TRIAL_MEGAPHONE_MS", 6 * 60 * 1000),
+  camera_scans: numberEnv("TRIAL_CAMERA_SCANS", 8),
+  text_translate_requests: numberEnv("TRIAL_TEXT_TRANSLATE_REQUESTS", 15),
 };
 
 function todayUtcKey(date = new Date()) {
@@ -266,19 +287,38 @@ exports.stripeWebhook = onRequest(
 
 /**
  * Create a Stripe Customer Portal session
- * Called from the app when user clicks "Manage Billing"
+ * Called from the app when user clicks "Manage Billing".
+ * Requires a Firebase ID token; uid is taken from the verified token to
+ * prevent a caller from opening another user's portal.
  */
 exports.createPortalSession = onRequest(
   { secrets: [stripeSecretKey], cors: true, invoker: "public" },
   async (req, res) => {
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
+    }
     if (req.method !== "POST") {
       res.status(405).send("Method not allowed");
       return;
     }
 
-    const { uid } = req.body;
+    const token = readBearerToken(req);
+    if (!token) {
+      res.status(401).json({ error: "Missing bearer token" });
+      return;
+    }
+
+    let uid;
+    try {
+      const decoded = await admin.auth().verifyIdToken(token);
+      uid = decoded?.uid;
+    } catch {
+      res.status(401).json({ error: "Invalid auth token" });
+      return;
+    }
     if (!uid) {
-      res.status(400).json({ error: "Missing uid" });
+      res.status(401).json({ error: "Invalid auth token" });
       return;
     }
 
@@ -588,7 +628,7 @@ exports.redeemLicenseKey = onRequest(
 );
 
 // ─── Create License Key (admin only) ────────────────────────────────────────
-const ADMIN_EMAILS = ["polyglot.app2@gmail.com"];
+const ADMIN_EMAILS = parseCsvEnv("ADMIN_EMAILS", "polyglot.app2@gmail.com");
 
 exports.createLicenseKey = onRequest(
   { cors: true, region: "europe-west1" },
@@ -607,7 +647,7 @@ exports.createLicenseKey = onRequest(
       return res.status(401).json({ error: "Invalid token" });
     }
 
-    if (!ADMIN_EMAILS.includes(email)) {
+    if (!ADMIN_EMAILS.includes(String(email || "").toLowerCase())) {
       return res.status(403).json({ error: "Forbidden" });
     }
 

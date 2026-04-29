@@ -38,12 +38,17 @@ const TRIAL_FEATURE_LABELS = {
   },
 } as const;
 
-export const TRIAL_DURATION_DAYS = 5;
+function envNumber(key: string, fallback: number): number {
+  const value = Number((import.meta as any)?.env?.[key]);
+  return Number.isFinite(value) ? value : fallback;
+}
+
+export const TRIAL_DURATION_DAYS = envNumber("VITE_TRIAL_DURATION_DAYS", 5);
 export const TRIAL_DAILY_LIMITS: Record<TrialQuotaKey, number> = {
-  conversation_ms: 6 * 60 * 1000,
-  megaphone_ms: 6 * 60 * 1000,
-  camera_scans: 8,
-  text_translate_requests: 15,
+  conversation_ms: envNumber("VITE_TRIAL_CONVERSATION_MS", 6 * 60 * 1000),
+  megaphone_ms: envNumber("VITE_TRIAL_MEGAPHONE_MS", 6 * 60 * 1000),
+  camera_scans: envNumber("VITE_TRIAL_CAMERA_SCANS", 8),
+  text_translate_requests: envNumber("VITE_TRIAL_TEXT_TRANSLATE_REQUESTS", 15),
 };
 
 interface TrialQuotaResult {

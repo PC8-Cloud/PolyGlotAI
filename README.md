@@ -27,6 +27,20 @@ VITE_DISTRIBUTION_CHANNEL=web_pwa
 
 # Server-side trial quota endpoint (Cloud Function URL)
 VITE_TRIAL_CONSUME_URL=
+
+# Optional overrides
+VITE_ADMIN_EMAILS=polyglot.app2@gmail.com
+VITE_CREATE_LICENSE_KEY_URL=
+VITE_REDEEM_LICENSE_KEY_URL=
+VITE_STRIPE_LINK_TOURIST_WEEKLY=
+VITE_STRIPE_LINK_TOURIST=
+VITE_STRIPE_LINK_PRO=
+VITE_STRIPE_LINK_BUSINESS=
+VITE_TRIAL_DURATION_DAYS=5
+VITE_TRIAL_CONVERSATION_MS=360000
+VITE_TRIAL_MEGAPHONE_MS=360000
+VITE_TRIAL_CAMERA_SCANS=8
+VITE_TRIAL_TEXT_TRANSLATE_REQUESTS=15
 ```
 
 Server-side secrets used by the Vercel API routes (`api/*.ts`) and Firebase
@@ -37,6 +51,9 @@ dashboards, not in `.env.local`:
   `api/tts.ts`, `api/analyze-image.ts`, `api/voice-clone.ts`, `api/chat.ts`.
 - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` — Firebase Functions secrets,
   set with `firebase functions:secrets:set`.
+- `ADMIN_EMAILS`, `STRIPE_PRICE_TO_PLAN_JSON`, `TRIAL_DURATION_DAYS`,
+  `TRIAL_CONVERSATION_MS`, `TRIAL_MEGAPHONE_MS`, `TRIAL_CAMERA_SCANS`,
+  `TRIAL_TEXT_TRANSLATE_REQUESTS` — optional Firebase Functions env overrides.
 
 The Firebase web config is checked in at `src/firebase-applet-config.json`
 and is safe to ship publicly (it's a public identifier, protected by
