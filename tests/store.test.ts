@@ -10,7 +10,6 @@ beforeEach(() => {
     uiLanguage: "en",
     defaultSourceLanguage: "en",
     defaultTargetLanguages: ["es", "fr", "it", "de"],
-    openaiApiKey: "",
     textModel: "gpt-4.1-mini",
     transcribeModel: "gpt-4o-transcribe",
     ttsModel: "gpt-4o-mini-tts",
@@ -37,11 +36,6 @@ describe("useUserStore", () => {
   it("setLanguage updates language", () => {
     useUserStore.getState().setLanguage("it");
     expect(useUserStore.getState().language).toBe("it");
-  });
-
-  it("setOpenaiApiKey updates key", () => {
-    useUserStore.getState().setOpenaiApiKey("sk-test123");
-    expect(useUserStore.getState().openaiApiKey).toBe("sk-test123");
   });
 
   it("setPlan updates plan and expiry", () => {

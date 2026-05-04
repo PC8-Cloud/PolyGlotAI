@@ -6,7 +6,7 @@ beforeEach(() => {
     userId: null, role: null, displayName: null,
     language: "en", uiLanguage: "en",
     defaultSourceLanguage: "en", defaultTargetLanguages: ["es", "fr", "it", "de"],
-    openaiApiKey: "", textModel: "gpt-4.1-mini",
+    textModel: "gpt-4.1-mini",
     transcribeModel: "gpt-4o-transcribe", ttsModel: "gpt-4o-mini-tts",
     ttsVoice: "nova", ttsSpeed: 1.0, plan: "free", planExpiresAt: null,
   });
@@ -71,13 +71,6 @@ describe("Stress: rapid state updates", () => {
     }
     // Last iteration: 499 % 2 = 1 → null
     expect(useSessionStore.getState().sessionId).toBeNull();
-  });
-
-  it("API key changes 200 times", () => {
-    for (let i = 0; i < 200; i++) {
-      useUserStore.getState().setOpenaiApiKey(`sk-key-${i}`);
-    }
-    expect(useUserStore.getState().openaiApiKey).toBe("sk-key-199");
   });
 });
 

@@ -18,7 +18,6 @@ interface UserState {
   userName: string;
   userGender: "male" | "female" | "";
   betaUnlocked: boolean;
-  openaiApiKey: string;
   textModel: string;
   transcribeModel: string;
   ttsModel: string;
@@ -44,7 +43,6 @@ interface UserState {
   setUserName: (name: string) => void;
   setUserGender: (gender: "male" | "female" | "") => void;
   setBetaUnlocked: (unlocked: boolean) => void;
-  setOpenaiApiKey: (key: string) => void;
   setTextModel: (model: string) => void;
   setTranscribeModel: (model: string) => void;
   setTtsModel: (model: string) => void;
@@ -76,7 +74,6 @@ export const useUserStore = create<UserState>()(
       userName: "",
       userGender: "",
       betaUnlocked: false,
-      openaiApiKey: "",
       textModel: "gpt-4.1-mini",
       transcribeModel: "gpt-4o-transcribe",
       ttsModel: "gpt-4o-mini-tts",
@@ -102,7 +99,6 @@ export const useUserStore = create<UserState>()(
       setUserName: (name) => set({ userName: name }),
       setUserGender: (gender) => set({ userGender: gender }),
       setBetaUnlocked: (unlocked) => set({ betaUnlocked: unlocked }),
-      setOpenaiApiKey: (key) => set({ openaiApiKey: key }),
       setTextModel: (model) => set({ textModel: model }),
       setTranscribeModel: (model) => set({ transcribeModel: model }),
       setTtsModel: (model) => set({ ttsModel: model }),
@@ -122,6 +118,13 @@ export const useUserStore = create<UserState>()(
     }),
     {
       name: "polyglot-user-storage",
+      version: 1,
+      migrate: (persistedState: unknown) => {
+        if (persistedState && typeof persistedState === "object") {
+          delete (persistedState as Record<string, unknown>).openaiApiKey;
+        }
+        return persistedState as UserState;
+      },
     },
   ),
 );
