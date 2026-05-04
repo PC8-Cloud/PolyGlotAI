@@ -5,7 +5,11 @@ import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLabelForCode } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
-import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudioDetectLang, suspendAudioForMic } from "../lib/openai";
+import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudioDetectLang, suspendAudioForMic, withTimeout } from "../lib/openai";
+
+// Hard cap on a single TTS playback so a suspended AudioContext (screen off,
+// app backgrounded) cannot deadlock the conversation loop.
+const TTS_PLAYBACK_TIMEOUT_MS = 90_000;
 import { consumeTrialQuota, getTrialUpgradeMessage } from "../lib/trial";
 
 type MsgStatus = "sent" | "translated" | "playing" | "done";
@@ -885,7 +889,11 @@ export default function Conversation() {
         try {
           // Voice matches the detected speaker's gender (pitch analysis), fallback to user profile
           const speakerGender = detectedGenderRef.current || userGender;
-          await playTTS(translatedText, undefined, undefined, targetLang, speakerGender);
+          await withTimeout(
+            playTTS(translatedText, undefined, undefined, targetLang, speakerGender),
+            TTS_PLAYBACK_TIMEOUT_MS,
+            "playTTS",
+          );
         } catch (e) {
           console.error("TTS failed:", e);
         } finally {
@@ -979,7 +987,11 @@ export default function Conversation() {
     setChatState("speaking");
     try {
       const speakerGender = msgGender || userGender;
-      await playTTS(text, undefined, undefined, langCode, speakerGender);
+      await withTimeout(
+        playTTS(text, undefined, undefined, langCode, speakerGender),
+        TTS_PLAYBACK_TIMEOUT_MS,
+        "playTTS",
+      );
     } catch (e) {
       console.error("TTS failed:", e);
     } finally {

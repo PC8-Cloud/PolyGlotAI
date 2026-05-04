@@ -1,11 +1,16 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Mic, Volume2, VolumeX, Megaphone, Check, Upload, ClipboardPaste, FolderOpen } from "lucide-react";
+import { ChevronLeft, Mic, Volume2, VolumeX, Megaphone, Check, Upload, ClipboardPaste, FolderOpen, ArrowRightLeft } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLocaleForCode } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
-import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, getRealtimeTranslationConfig, suspendAudioForMic } from "../lib/openai";
+import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, getRealtimeTranslationConfig, suspendAudioForMic, withTimeout } from "../lib/openai";
+
+// Hard cap on a single TTS playback. Long enough for any sensible sentence,
+// short enough to recover quickly if AudioContext was suspended mid-play
+// (background, screen off) and `onended` never fires.
+const TTS_PLAYBACK_TIMEOUT_MS = 90_000;
 import { extractTextFromFile } from "../lib/file-reader";
 import { consumeTrialQuota, getTrialUpgradeMessage } from "../lib/trial";
 
@@ -385,7 +390,11 @@ export default function MegaphonePage() {
 
         if (autoSpeak && translated !== "...") {
           try {
-            await playTTS(translated, undefined, undefined, targetLang, userGender);
+            await withTimeout(
+              playTTS(translated, undefined, undefined, targetLang, userGender),
+              TTS_PLAYBACK_TIMEOUT_MS,
+              "playTTS",
+            );
           } catch (e) {
             console.error("TTS chunk failed:", e);
           }
@@ -411,12 +420,12 @@ export default function MegaphonePage() {
       console.error("Translation failed:", e);
       const { key, fallback } = getApiErrorMessage(e);
       setError((t as any)[key] || fallback);
+    } finally {
+      setIsSpeaking(false);
+      releaseWakeLock();
+      resetIncrementalState();
+      processingRef.current = false;
     }
-
-    setIsSpeaking(false);
-    releaseWakeLock();
-    resetIncrementalState();
-    processingRef.current = false;
   };
 
   const resetIncrementalState = () => {
@@ -452,7 +461,11 @@ export default function MegaphonePage() {
           const s = sentence.trim();
           if (s) {
             try {
-              await playTTS(s, undefined, undefined, targetLang, userGender);
+              await withTimeout(
+                playTTS(s, undefined, undefined, targetLang, userGender),
+                TTS_PLAYBACK_TIMEOUT_MS,
+                "playTTS",
+              );
             } catch (e) {
               console.error("TTS chunk failed:", e);
             }
@@ -551,7 +564,16 @@ export default function MegaphonePage() {
         >
           <LanguageOptions />
         </select>
-        <span className="text-[#F4F4F4]/60 text-lg">→</span>
+        <button
+          onClick={() => {
+            setSpeakerLang(targetLang);
+            setTargetLang(speakerLang);
+          }}
+          aria-label={String(uiLanguage).toLowerCase().startsWith("it") ? "Inverti lingue" : "Swap languages"}
+          className="p-2 bg-[#123182] rounded-xl text-[#F4F4F4]/60 hover:bg-[#295BDB] hover:text-[#F4F4F4] transition-colors shrink-0"
+        >
+          <ArrowRightLeft className="w-4 h-4" />
+        </button>
         <select
           value={targetLang}
           onChange={(e) => setTargetLang(e.target.value)}
