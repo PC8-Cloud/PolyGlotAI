@@ -2,8 +2,8 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { createSession } from "../lib/firebase-helpers";
 import { Settings, Camera, MessagesSquare, Coins, MessageSquarePlus, Users, Globe, ChevronLeft, WifiOff, Download, Check, Loader2, GraduationCap, Plus, X, Search, User, Pencil, Lock } from "lucide-react";
-import { signInWithPopup, GoogleAuthProvider } from "firebase/auth";
 import { auth } from "../firebase";
+import { signInWithGoogle } from "../lib/auth";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore, useNetworkStore } from "../lib/store";
 import { LANGUAGES } from "../lib/languages";
@@ -85,8 +85,7 @@ export default function Home() {
   const handleStartSession = async () => {
     if (!auth.currentUser) {
       try {
-        const provider = new GoogleAuthProvider();
-        await signInWithPopup(auth, provider);
+        await signInWithGoogle();
       } catch (e) {
         console.error("Login failed", e);
         return;
