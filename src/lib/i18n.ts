@@ -382,6 +382,7 @@ export const translations = {
     micPermissionDesc: "Needed to translate your voice. Tap to enable now.",
     micPermissionDeniedDesc: "Blocked. Enable it in your browser settings to use voice features.",
     micPermissionAllow: "Allow",
+    micPermissionLater: "Not now",
   },
   it: {
     startBroadcast: "Avvia Trasmissione",
@@ -766,6 +767,7 @@ export const translations = {
     micPermissionDesc: "Serve per tradurre la tua voce. Tocca per abilitarlo ora.",
     micPermissionDeniedDesc: "Bloccato. Abilitalo nelle impostazioni del browser per usare le funzioni vocali.",
     micPermissionAllow: "Consenti",
+    micPermissionLater: "Non ora",
   },
   es: {
     startBroadcast: "Iniciar Transmisión",
@@ -1150,6 +1152,7 @@ export const translations = {
     micPermissionDesc: "Necesario para traducir tu voz. Toca para habilitarlo ahora.",
     micPermissionDeniedDesc: "Bloqueado. Habilítalo en los ajustes del navegador para usar las funciones de voz.",
     micPermissionAllow: "Permitir",
+    micPermissionLater: "Ahora no",
   },
   fr: {
     startBroadcast: "Démarrer la diffusion",
@@ -1534,6 +1537,7 @@ export const translations = {
     micPermissionDesc: "Nécessaire pour traduire votre voix. Touchez pour l'activer.",
     micPermissionDeniedDesc: "Bloqué. Activez-le dans les paramètres du navigateur pour utiliser les fonctions vocales.",
     micPermissionAllow: "Autoriser",
+    micPermissionLater: "Plus tard",
   },
   de: {
     startBroadcast: "Übertragung starten",
@@ -1918,6 +1922,7 @@ export const translations = {
     micPermissionDesc: "Erforderlich, um deine Stimme zu übersetzen. Tippe, um zu aktivieren.",
     micPermissionDeniedDesc: "Blockiert. Aktiviere es in den Browsereinstellungen, um Sprachfunktionen zu nutzen.",
     micPermissionAllow: "Zulassen",
+    micPermissionLater: "Später",
   },
 };
 
