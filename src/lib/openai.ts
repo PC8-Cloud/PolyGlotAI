@@ -116,7 +116,7 @@ export function getEffectiveTranslationPerformance(targetCount = 1): EffectiveTr
 
   const lastResponse = getLastResponseTime();
   if (!isOnlineCheck() || isConnectionSlow()) return "fast";
-  if (lastResponse > 2200) return "fast";
+  if (lastResponse > 3500) return "fast";
   if (targetCount >= 4) return "fast";
   return "balanced";
 }
@@ -417,7 +417,7 @@ export interface OpenAICustomVoice {
 // Male voices: echo, onyx, ash, fable
 // Female voices: nova, shimmer, alloy, coral, sage, ballad
 const AUTO_TTS_VOICE_BY_LANG_FEMALE: Record<string, TTSVoice> = {
-  it: "sage",
+  it: "nova",
   en: "nova",
   de: "alloy",
   es: "coral",
@@ -430,7 +430,7 @@ const AUTO_TTS_VOICE_BY_LANG_FEMALE: Record<string, TTSVoice> = {
 };
 
 const AUTO_TTS_VOICE_BY_LANG_MALE: Record<string, TTSVoice> = {
-  it: "ash",
+  it: "onyx",
   en: "echo",
   de: "onyx",
   es: "fable",
@@ -715,10 +715,12 @@ export async function playTTS(
   const selectedSpeed = Math.max(0.7, Math.min(1.8, baseSpeed * userSpeed));
   const spokenText = normalizeTextForSpeech(text, langCode);
 
-  // If connection is slow or offline, use local TTS
-  if (isConnectionSlow() || !isOnlineCheck()) {
+  // Only fall back to the (robotic) browser TTS when truly offline.
+  // A "slow" connection alone is not enough — the user prefers a few extra
+  // seconds of OpenAI voice over the system synth.
+  if (!isOnlineCheck()) {
     if (canUseLocalTTS()) {
-      if (AUDIO_DEBUG) console.log("[Audio] playTTS -> localTTS", { langCode, textPreview: spokenText.slice(0, 60) });
+      if (AUDIO_DEBUG) console.log("[Audio] playTTS -> localTTS (offline)", { langCode, textPreview: spokenText.slice(0, 60) });
       return playLocalTTS(spokenText, langCode);
     }
   }

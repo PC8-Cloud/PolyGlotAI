@@ -6,6 +6,7 @@ import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLocaleForCode } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
 import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, getRealtimeTranslationConfig, suspendAudioForMic, withTimeout } from "../lib/openai";
+import { startPitchAnalyzer, type PitchAnalyzer, type Gender } from "../lib/gender-detect";
 
 // Hard cap on a single TTS playback. Long enough for any sensible sentence,
 // short enough to recover quickly if AudioContext was suspended mid-play
@@ -57,6 +58,12 @@ export default function MegaphonePage() {
   const processingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const listeningStartedAtRef = useRef<number | null>(null);
+
+  // Parallel mic stream for pitch-based gender detection (SpeechRecognition
+  // doesn't expose raw audio, so we open our own stream alongside it).
+  const pitchStreamRef = useRef<MediaStream | null>(null);
+  const pitchAnalyzerRef = useRef<PitchAnalyzer | null>(null);
+  const detectedGenderRef = useRef<Gender>("");
 
   // Incremental translation refs
   const segmentsRef = useRef<string[]>([]); // isFinal results
@@ -147,7 +154,18 @@ export default function MegaphonePage() {
     stopKeepAliveFallback();
   }, [stopKeepAliveFallback]);
 
-  useEffect(() => () => { releaseWakeLock(); muteAudio(); }, [releaseWakeLock]);
+  useEffect(() => () => {
+    releaseWakeLock();
+    muteAudio();
+    if (pitchAnalyzerRef.current) {
+      pitchAnalyzerRef.current.cancel();
+      pitchAnalyzerRef.current = null;
+    }
+    if (pitchStreamRef.current) {
+      pitchStreamRef.current.getTracks().forEach((t) => t.stop());
+      pitchStreamRef.current = null;
+    }
+  }, [releaseWakeLock]);
 
   useEffect(() => {
     if (isListening || isSpeaking || isTranslating || processingRef.current) {
@@ -265,6 +283,7 @@ export default function MegaphonePage() {
       isListeningRef.current = false;
       setIsListening(false);
       releaseWakeLock();
+      stopPitchAnalysis();
     };
 
     rec.onend = () => {
@@ -276,6 +295,7 @@ export default function MegaphonePage() {
         setIsListening(false);
         setTranscript("");
         releaseWakeLock();
+        stopPitchAnalysis();
       }
     };
 
@@ -290,9 +310,23 @@ export default function MegaphonePage() {
     segmentsRef.current = [];
     translatedCountRef.current = 0;
     translationPromisesRef.current = [];
+    detectedGenderRef.current = "";
     setReadyChunks(0);
     setError(null);
     acquireWakeLock();
+
+    // Open a parallel mic stream just for pitch analysis. Best-effort: if
+    // the browser denies a second mic grab, we silently fall back to the
+    // user-profile gender preference.
+    void (async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        pitchStreamRef.current = stream;
+        pitchAnalyzerRef.current = startPitchAnalyzer(stream);
+      } catch (err) {
+        console.warn("[Megaphone] pitch stream unavailable:", err);
+      }
+    })();
 
     try {
       rec.start();
@@ -301,6 +335,20 @@ export default function MegaphonePage() {
       isListeningRef.current = false;
       setIsListening(false);
       releaseWakeLock();
+      stopPitchAnalysis();
+    }
+  };
+
+  const stopPitchAnalysis = () => {
+    if (pitchAnalyzerRef.current) {
+      const g = pitchAnalyzerRef.current.finish();
+      detectedGenderRef.current = g;
+      pitchAnalyzerRef.current = null;
+      console.log("[Megaphone] detected gender:", g || "(unknown)");
+    }
+    if (pitchStreamRef.current) {
+      pitchStreamRef.current.getTracks().forEach((t) => t.stop());
+      pitchStreamRef.current = null;
     }
   };
 
@@ -320,6 +368,7 @@ export default function MegaphonePage() {
       try { recognitionRef.current.stop(); } catch {}
       recognitionRef.current = null;
     }
+    stopPitchAnalysis();
     const listenedMs = listeningStartedAtRef.current ? Math.max(0, Date.now() - listeningStartedAtRef.current) : 0;
     listeningStartedAtRef.current = null;
 
@@ -390,8 +439,9 @@ export default function MegaphonePage() {
 
         if (autoSpeak && translated !== "...") {
           try {
+            const speakerGender = detectedGenderRef.current || userGender;
             await withTimeout(
-              playTTS(translated, undefined, undefined, targetLang, userGender),
+              playTTS(translated, undefined, undefined, targetLang, speakerGender),
               TTS_PLAYBACK_TIMEOUT_MS,
               "playTTS",
             );
@@ -461,8 +511,9 @@ export default function MegaphonePage() {
           const s = sentence.trim();
           if (s) {
             try {
+              const speakerGender = detectedGenderRef.current || userGender;
               await withTimeout(
-                playTTS(s, undefined, undefined, targetLang, userGender),
+                playTTS(s, undefined, undefined, targetLang, speakerGender),
                 TTS_PLAYBACK_TIMEOUT_MS,
                 "playTTS",
               );

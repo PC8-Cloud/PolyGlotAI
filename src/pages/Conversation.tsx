@@ -6,6 +6,7 @@ import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLabelForCode } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
 import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudioDetectLang, suspendAudioForMic, withTimeout } from "../lib/openai";
+import { detectPitch, classifyGender } from "../lib/gender-detect";
 
 // Hard cap on a single TTS playback so a suspended AudioContext (screen off,
 // app backgrounded) cannot deadlock the conversation loop.
@@ -353,42 +354,6 @@ export default function Conversation() {
     }
     return `Unexpected language${detected}. Please speak only ${langA} or ${langB}.`;
   };
-
-  // ─── Pitch-based gender detection ──────────────────────────────────────
-  /** Autocorrelation pitch detector — returns F0 in Hz or 0 if unclear */
-  const detectPitch = useCallback((buf: Float32Array, sampleRate: number): number => {
-    const SIZE = buf.length;
-    // Find RMS — skip if too quiet
-    let rmsVal = 0;
-    for (let i = 0; i < SIZE; i++) rmsVal += buf[i] * buf[i];
-    rmsVal = Math.sqrt(rmsVal / SIZE);
-    if (rmsVal < 0.01) return 0;
-
-    // Autocorrelation
-    const minLag = Math.floor(sampleRate / 400); // max F0 = 400 Hz
-    const maxLag = Math.floor(sampleRate / 70);  // min F0 = 70 Hz
-    let bestCorr = 0;
-    let bestLag = 0;
-    for (let lag = minLag; lag <= Math.min(maxLag, SIZE - 1); lag++) {
-      let corr = 0;
-      for (let i = 0; i < SIZE - lag; i++) corr += buf[i] * buf[i + lag];
-      if (corr > bestCorr) { bestCorr = corr; bestLag = lag; }
-    }
-    if (bestLag === 0) return 0;
-    return sampleRate / bestLag;
-  }, []);
-
-  /** Classify gender from collected pitch samples */
-  const classifyGender = useCallback((pitches: number[]): "male" | "female" | "" => {
-    if (pitches.length < 3) return "";
-    // Median pitch
-    const sorted = [...pitches].sort((a, b) => a - b);
-    const median = sorted[Math.floor(sorted.length / 2)];
-    // Male: ~85-160 Hz, Female: ~160-300 Hz
-    if (median < 160) return "male";
-    if (median >= 160) return "female";
-    return "";
-  }, []);
 
   // ─── Silence detection ────────────────────────────────────────────────
 

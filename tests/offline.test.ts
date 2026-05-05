@@ -123,15 +123,15 @@ describe("Connection quality monitor", () => {
   });
 
   it("becomes slow after consecutive slow responses", () => {
-    reportResponseTime(4000); // slow
+    reportResponseTime(6000); // slow
     expect(isConnectionSlow()).toBe(false); // need 2
-    reportResponseTime(4000); // slow again
+    reportResponseTime(6000); // slow again
     expect(isConnectionSlow()).toBe(true);
   });
 
   it("recovers after fast responses", () => {
-    reportResponseTime(4000);
-    reportResponseTime(4000);
+    reportResponseTime(6000);
+    reportResponseTime(6000);
     expect(isConnectionSlow()).toBe(true);
     reportResponseTime(500); // fast
     reportResponseTime(500); // fast

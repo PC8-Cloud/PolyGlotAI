@@ -120,7 +120,7 @@ export function isOnline(): boolean {
 
 let lastResponseTime = 0;
 let slowCount = 0;
-const SLOW_THRESHOLD_MS = 3000;
+const SLOW_THRESHOLD_MS = 5000;
 const SLOW_COUNT_TRIGGER = 2;
 
 export function reportResponseTime(ms: number) {
