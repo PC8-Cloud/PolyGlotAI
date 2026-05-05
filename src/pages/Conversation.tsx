@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { ChevronLeft, Mic, MicOff, Send, Volume2, VolumeX, ArrowRightLeft, Check, CheckCheck, Upload, MessagesSquare } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
-import { LANGUAGES, getLabelForCode } from "../lib/languages";
+import { LANGUAGES, getLabelForCode, getLocaleForCode } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
 import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudioDetectLang, suspendAudioForMic, withTimeout } from "../lib/openai";
 import { detectPitch, classifyGender } from "../lib/gender-detect";
@@ -164,6 +164,10 @@ export default function Conversation() {
   const [error, setError] = useState<string | null>(null);
   const [showTrialUpgradeModal, setShowTrialUpgradeModal] = useState(false);
   const [liveLevel, setLiveLevel] = useState(0); // mic audio level for visual feedback
+  // Live partial transcript shown to the user while they speak. Comes from
+  // the browser SpeechRecognition (cheap, fast). The accurate final
+  // transcription still comes from Whisper after stopListening.
+  const [interimText, setInterimText] = useState("");
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesRef = useRef<Message[]>([]);
@@ -173,6 +177,11 @@ export default function Conversation() {
   const yourLangRef = useRef(yourLang);
   const theirLangRef = useRef(theirLang);
   const autoSpeakRef = useRef(autoSpeak);
+
+  // Browser SpeechRecognition — used only for the live preview text overlay.
+  // Coexists with MediaRecorder; if unsupported or it fails, the recorder
+  // path keeps working and the user just doesn't see partial text.
+  const interimRecognitionRef = useRef<any>(null);
 
   // MediaRecorder refs
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -681,6 +690,44 @@ export default function Conversation() {
     }
   }
 
+  const startInterimRecognition = useCallback(() => {
+    const SR =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) return;
+    // Stop any prior instance before starting a fresh one.
+    if (interimRecognitionRef.current) {
+      try { interimRecognitionRef.current.stop(); } catch {}
+      interimRecognitionRef.current = null;
+    }
+    try {
+      const rec = new SR();
+      rec.continuous = true;
+      rec.interimResults = true;
+      const locale = getLocaleForCode(yourLangRef.current);
+      if (locale) rec.lang = locale;
+      rec.onresult = (event: any) => {
+        let text = "";
+        for (let i = 0; i < event.results.length; i++) {
+          text += event.results[i][0].transcript;
+        }
+        setInterimText(text);
+      };
+      rec.onerror = () => { /* live preview is best-effort */ };
+      rec.onend = () => { /* swallowed; recorder drives the real flow */ };
+      rec.start();
+      interimRecognitionRef.current = rec;
+    } catch {
+      interimRecognitionRef.current = null;
+    }
+  }, []);
+
+  const stopInterimRecognition = useCallback(() => {
+    if (interimRecognitionRef.current) {
+      try { interimRecognitionRef.current.stop(); } catch {}
+      interimRecognitionRef.current = null;
+    }
+  }, []);
+
   const startListening = useCallback(async () => {
     if (!conversationActiveRef.current || processingRef.current || mediaRecorderRef.current?.state === "recording") return;
     if (CONVERSATION_DEBUG) console.log("[Conversation] startListening");
@@ -784,6 +831,8 @@ export default function Conversation() {
       // Using timeslice caused overlapping chunks on Android = duplicate audio.
       recorder.start();
       mediaRecorderRef.current = recorder;
+      setInterimText("");
+      startInterimRecognition();
       startSilenceDetection(analyser);
 
       // Safety net: max recording duration 30s (in case silence detection fails on iOS)
@@ -802,18 +851,19 @@ export default function Conversation() {
       // Fall back to text input
       setShowTextInput(true);
     }
-  }, [ensureMicReady, releaseMicResources, scheduleListeningRestart, startSilenceDetection]);
+  }, [ensureMicReady, releaseMicResources, scheduleListeningRestart, startSilenceDetection, startInterimRecognition]);
 
   // ─── Stop listening ───────────────────────────────────────────────────
 
   const stopListening = useCallback(() => {
     if (CONVERSATION_DEBUG) console.log("[Conversation] stopListening");
     cancelAnimationFrame(animFrameRef.current);
+    stopInterimRecognition();
     if (mediaRecorderRef.current?.state === "recording") {
       mediaRecorderRef.current.stop();
     }
     setLiveLevel(0);
-  }, []);
+  }, [stopInterimRecognition]);
 
   // ─── Process a message (translate + speak + continue) ─────────────────
 
@@ -828,6 +878,7 @@ export default function Conversation() {
       ...prev,
       { id: newId, side, originalText: text, translatedText: "...", sourceLang, status: "sent", gender: detectedGenderRef.current || userGender },
     ]);
+    setInterimText("");
 
     setChatState("translating");
     setError(null);
@@ -912,6 +963,7 @@ export default function Conversation() {
     }
     stopListening();
     releaseMicResources();
+    setInterimText("");
     setChatState("idle");
   };
 
@@ -1100,11 +1152,18 @@ export default function Conversation() {
 
         {/* Listening indicator */}
         {(chatState === "listening" || chatState === "transcribing") && (
-          <div className="flex items-center justify-center gap-3 py-2">
-            <div className={`w-3 h-3 rounded-full animate-pulse ${chatState === "listening" ? "bg-red-500" : "bg-amber-500"}`} />
-            <span className="text-sm text-[#F4F4F4]/60">
-              {chatState === "listening" ? t("listeningBoth") : t("learnTranscribing")}
-            </span>
+          <div className="flex flex-col items-center gap-2 py-2">
+            <div className="flex items-center justify-center gap-3">
+              <div className={`w-3 h-3 rounded-full animate-pulse ${chatState === "listening" ? "bg-red-500" : "bg-amber-500"}`} />
+              <span className="text-sm text-[#F4F4F4]/60">
+                {chatState === "listening" ? t("listeningBoth") : t("learnTranscribing")}
+              </span>
+            </div>
+            {interimText && (
+              <p className="max-w-md text-center text-sm text-[#F4F4F4]/80 italic px-4 leading-relaxed">
+                {interimText}
+              </p>
+            )}
           </div>
         )}
 
