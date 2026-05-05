@@ -378,6 +378,10 @@ export const translations = {
     offlineUnavailable: "Requires internet",
     a11yMainNav: "Main functions",
     a11yFeedbackOpen: "Open feedback",
+    micPermissionTitle: "Microphone access",
+    micPermissionDesc: "Needed to translate your voice. Tap to enable now.",
+    micPermissionDeniedDesc: "Blocked. Enable it in your browser settings to use voice features.",
+    micPermissionAllow: "Allow",
   },
   it: {
     startBroadcast: "Avvia Trasmissione",
@@ -758,6 +762,10 @@ export const translations = {
     offlineUnavailable: "Richiede internet",
     a11yMainNav: "Funzioni principali",
     a11yFeedbackOpen: "Apri feedback",
+    micPermissionTitle: "Accesso al microfono",
+    micPermissionDesc: "Serve per tradurre la tua voce. Tocca per abilitarlo ora.",
+    micPermissionDeniedDesc: "Bloccato. Abilitalo nelle impostazioni del browser per usare le funzioni vocali.",
+    micPermissionAllow: "Consenti",
   },
   es: {
     startBroadcast: "Iniciar Transmisión",
@@ -1138,6 +1146,10 @@ export const translations = {
     offlineUnavailable: "Requiere internet",
     a11yMainNav: "Funciones principales",
     a11yFeedbackOpen: "Abrir feedback",
+    micPermissionTitle: "Acceso al micrófono",
+    micPermissionDesc: "Necesario para traducir tu voz. Toca para habilitarlo ahora.",
+    micPermissionDeniedDesc: "Bloqueado. Habilítalo en los ajustes del navegador para usar las funciones de voz.",
+    micPermissionAllow: "Permitir",
   },
   fr: {
     startBroadcast: "Démarrer la diffusion",
@@ -1518,6 +1530,10 @@ export const translations = {
     offlineUnavailable: "Nécessite internet",
     a11yMainNav: "Fonctions principales",
     a11yFeedbackOpen: "Ouvrir les commentaires",
+    micPermissionTitle: "Accès au microphone",
+    micPermissionDesc: "Nécessaire pour traduire votre voix. Touchez pour l'activer.",
+    micPermissionDeniedDesc: "Bloqué. Activez-le dans les paramètres du navigateur pour utiliser les fonctions vocales.",
+    micPermissionAllow: "Autoriser",
   },
   de: {
     startBroadcast: "Übertragung starten",
@@ -1898,6 +1914,10 @@ export const translations = {
     offlineUnavailable: "Erfordert Internet",
     a11yMainNav: "Hauptfunktionen",
     a11yFeedbackOpen: "Feedback öffnen",
+    micPermissionTitle: "Mikrofonzugriff",
+    micPermissionDesc: "Erforderlich, um deine Stimme zu übersetzen. Tippe, um zu aktivieren.",
+    micPermissionDeniedDesc: "Blockiert. Aktiviere es in den Browsereinstellungen, um Sprachfunktionen zu nutzen.",
+    micPermissionAllow: "Zulassen",
   },
 };
 

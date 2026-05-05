@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { createSession } from "../lib/firebase-helpers";
-import { Settings, Camera, MessagesSquare, Coins, MessageSquarePlus, Users, Globe, ChevronLeft, WifiOff, Download, Check, Loader2, GraduationCap, Plus, X, Search, User, Pencil, Lock } from "lucide-react";
+import { Settings, Camera, MessagesSquare, Coins, MessageSquarePlus, Users, Globe, ChevronLeft, WifiOff, Download, Check, Loader2, GraduationCap, Plus, X, Search, User, Pencil, Lock, Mic } from "lucide-react";
 import { auth } from "../firebase";
 import { signInWithGoogle } from "../lib/auth";
+import { getMicPermissionState, requestMicPermission, watchMicPermission, type MicPermissionState } from "../lib/mic-permission";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore, useNetworkStore } from "../lib/store";
 import { LANGUAGES } from "../lib/languages";
@@ -117,6 +118,32 @@ export default function Home() {
   const [downloadingPhrases, setDownloadingPhrases] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState("");
 
+  // Mic permission status — drives the upfront grant banner.
+  const [micState, setMicState] = useState<MicPermissionState>("unknown");
+  const [requestingMic, setRequestingMic] = useState(false);
+
+  useEffect(() => {
+    let unsub: (() => void) | undefined;
+    void (async () => {
+      setMicState(await getMicPermissionState());
+      unsub = await watchMicPermission(setMicState);
+    })();
+    return () => { unsub?.(); };
+  }, []);
+
+  const handleGrantMic = async () => {
+    if (requestingMic) return;
+    setRequestingMic(true);
+    try {
+      const granted = await requestMicPermission();
+      setMicState(granted ? "granted" : "denied");
+    } finally {
+      setRequestingMic(false);
+    }
+  };
+
+  const showMicBanner = micState === "prompt" || micState === "unknown" || micState === "denied";
+
   // Refresh offline status when modal opens
   useEffect(() => {
     if (showOffline) {
@@ -223,6 +250,33 @@ export default function Home() {
             <p className="text-sm font-bold text-amber-400">{t("offlineMode")}</p>
             <p className="text-[11px] text-amber-400/60">{t("offlineModeDesc")}</p>
           </div>
+        </div>
+      )}
+
+      {/* Mic permission banner — upfront one-tap grant. Hidden once granted. */}
+      {showMicBanner && (
+        <div
+          role="region"
+          aria-label={t("micPermissionTitle")}
+          className="w-full max-w-md mb-4 bg-[#123182] border border-[#295BDB]/30 rounded-2xl p-3 flex items-center gap-3"
+        >
+          <Mic className="w-5 h-5 text-[#295BDB] shrink-0" aria-hidden="true" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-[#F4F4F4]">{t("micPermissionTitle")}</p>
+            <p className="text-[11px] text-[#F4F4F4]/60">
+              {micState === "denied" ? t("micPermissionDeniedDesc") : t("micPermissionDesc")}
+            </p>
+          </div>
+          {micState !== "denied" && (
+            <button
+              type="button"
+              onClick={handleGrantMic}
+              disabled={requestingMic}
+              className="bg-[#295BDB] hover:bg-[#3A6BEA] disabled:opacity-50 text-white text-sm font-semibold px-3 py-2 rounded-xl shrink-0"
+            >
+              {requestingMic ? <Loader2 className="w-4 h-4 animate-spin" /> : t("micPermissionAllow")}
+            </button>
+          )}
         </div>
       )}
 
