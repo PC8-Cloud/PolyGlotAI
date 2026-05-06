@@ -75,6 +75,8 @@ export default function SessionAudience() {
             session.sourceLanguage,
           ], {
             mode: "question",
+            feature: "room",
+            consumeTextQuota: false,
           });
           await sendMessage(
             sessionId!,
@@ -109,6 +111,8 @@ export default function SessionAudience() {
         session.sourceLanguage,
       ], {
         mode: "question",
+        feature: "room",
+        consumeTextQuota: false,
       });
       await sendMessage(
         sessionId!,

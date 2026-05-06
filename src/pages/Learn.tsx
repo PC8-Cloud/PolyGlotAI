@@ -30,7 +30,6 @@ import { LANGUAGES } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
 import { playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudio, suspendAudioForMic, translateText, analyzeImage, transcribeMediaWithTimestamps, textToSpeech, getApiAuthHeaders } from "../lib/openai";
 import { extractTextFromFile } from "../lib/file-reader";
-import { consumeTrialQuota, getTrialUpgradeMessage } from "../lib/trial";
 import pdfjsWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -539,11 +538,6 @@ export default function Learn() {
   const translatePlainText = useCallback(async (text: string) => {
     const source = text.trim();
     if (!source) return;
-    const trialQuota = await consumeTrialQuota("text_translate_requests", 1);
-    if (!trialQuota.allowed) {
-      setError(getTrialUpgradeMessage(uiLanguage, "textTranslate"));
-      return;
-    }
     setTextTranslateBusy(true);
     setError(null);
     try {
@@ -597,12 +591,6 @@ export default function Learn() {
   const handleTextTranslateFile = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const trialQuota = await consumeTrialQuota("text_translate_requests", 1);
-    if (!trialQuota.allowed) {
-      setError(getTrialUpgradeMessage(uiLanguage, "textTranslate"));
-      if (textFileInputRef.current) textFileInputRef.current.value = "";
-      return;
-    }
     setTextTranslateBusy(true);
     setError(null);
     try {

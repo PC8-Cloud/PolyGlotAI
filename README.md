@@ -49,6 +49,8 @@ dashboards, not in `.env.local`:
 
 - `OPENAI_API_KEY` — required by `api/translate.ts`, `api/transcribe.ts`,
   `api/tts.ts`, `api/analyze-image.ts`, `api/voice-clone.ts`, `api/chat.ts`.
+  Do not use `VITE_OPENAI_API_KEY`; `VITE_` variables are exposed to the
+  browser bundle.
 - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` — Firebase Functions secrets,
   set with `firebase functions:secrets:set`.
 - `ADMIN_EMAILS`, `STRIPE_PRICE_TO_PLAN_JSON`, `TRIAL_DURATION_DAYS`,

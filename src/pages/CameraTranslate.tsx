@@ -6,7 +6,6 @@ import { useUserStore } from "../lib/store";
 import { LANGUAGES } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
 import { analyzeImage, playTTS, prepareAudioForSafari, muteAudio, type ImageAnalysisResult } from "../lib/openai";
-import { consumeTrialQuota, getTrialUpgradeMessage } from "../lib/trial";
 
 const CAMERA_MAX_SIDE = 1600;
 const CAMERA_JPEG_QUALITY = 0.82;
@@ -123,12 +122,6 @@ export default function CameraTranslate() {
 
       const base64 = dataUrl.split(",")[1];
       if (!base64) return;
-
-      const trialQuota = await consumeTrialQuota("camera_scans", 1);
-      if (!trialQuota.allowed) {
-        setError(getTrialUpgradeMessage(uiLanguage, "camera"));
-        return;
-      }
 
       setAnalyzing(true);
       const langLabel =

@@ -287,6 +287,8 @@ export default function Phrases() {
     try {
       const result = await translateText(phrase, "en", [targetLang], {
         mode: "phrases",
+        feature: "phrases",
+        consumeTextQuota: false,
         glossaryHints: categoryId ? CATEGORY_GLOSSARY_HINTS[categoryId] || [] : [],
       });
       const translated = result[targetLang] || "...";

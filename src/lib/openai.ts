@@ -13,7 +13,10 @@ export function getApiErrorMessage(err: any): { key: string; fallback: string } 
   if (msg.includes("API key") || status === 401) {
     return { key: "apiKeyExpired", fallback: "Your API key has expired" };
   }
-  if (status === 402 || status === 403 || msg.includes("insufficient_quota") || msg.includes("billing")) {
+  if (status === 402) {
+    return { key: "upgradeRequired", fallback: "Upgrade required" };
+  }
+  if (status === 403 || msg.includes("insufficient_quota") || msg.includes("billing")) {
     return { key: "apiKeyExpired", fallback: "Your API key has expired" };
   }
   if (!navigator.onLine) {
@@ -180,11 +183,17 @@ function writeTranslationCache(cacheKey: string, value: Record<string, string>) 
 export async function transcribeAudio(
   audioBlob: Blob,
   language?: string,
+  options?: { feature?: "conversation" | "megaphone"; quotaAmountMs?: number },
 ): Promise<string> {
   const formData = new FormData();
   formData.append("file", audioBlob, "audio.webm");
   if (language && language !== "auto") formData.append("language", language);
   formData.append("model", getModels().transcribe);
+  if (options?.feature) formData.append("feature", options.feature);
+  const quotaAmountMs = Number(options?.quotaAmountMs);
+  if (Number.isFinite(quotaAmountMs)) {
+    formData.append("quota_amount_ms", String(Math.max(0, Math.floor(quotaAmountMs))));
+  }
 
   const response = await withRetry(async () => {
     const authHeaders = await getApiAuthHeaders();
@@ -208,11 +217,17 @@ export async function transcribeAudio(
 export async function transcribeAudioDetectLang(
   audioBlob: Blob,
   expectedLanguages?: string[],
+  options?: { feature?: "conversation" | "megaphone"; quotaAmountMs?: number },
 ): Promise<{ text: string; language: string }> {
   const formData = new FormData();
   formData.append("file", audioBlob, "audio.webm");
   formData.append("model", getModels().transcribe);
   formData.append("detect_language", "true");
+  if (options?.feature) formData.append("feature", options.feature);
+  const quotaAmountMs = Number(options?.quotaAmountMs);
+  if (Number.isFinite(quotaAmountMs)) {
+    formData.append("quota_amount_ms", String(Math.max(0, Math.floor(quotaAmountMs))));
+  }
   if (Array.isArray(expectedLanguages) && expectedLanguages.length > 0) {
     formData.append("expected_languages", expectedLanguages.join(","));
   }
@@ -291,6 +306,8 @@ export async function translateText(
     mode?: "general" | "live" | "phrases" | "tourism" | "room" | "question";
     glossaryHints?: string[];
     cache?: boolean;
+    feature?: "conversation" | "megaphone" | "room" | "phrases" | "converter";
+    consumeTextQuota?: boolean;
   },
 ): Promise<Record<string, string>> {
   if (!text.trim() || targetLanguages.length === 0) return {};
@@ -322,6 +339,8 @@ export async function translateText(
         ),
         mode,
         glossaryHints,
+        feature: options?.feature,
+        consumeTextQuota: options?.consumeTextQuota,
         model: getModels().text,
       })
     );

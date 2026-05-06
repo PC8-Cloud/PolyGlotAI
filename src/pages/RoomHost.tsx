@@ -415,6 +415,8 @@ export default function RoomHost() {
     if (targetLangs.length === 0) return;
     const promise = translateText(text, speakerLang, targetLangs, {
       mode: "room",
+      feature: "room",
+      consumeTextQuota: false,
     }).catch(() => ({}));
     chunkTranslationsRef.current.push(promise);
     promise.then(() => setReadyChunks((c) => c + 1));
@@ -655,6 +657,8 @@ export default function RoomHost() {
       if (remaining && targetLangs.length > 0 && shouldUsePreview(remaining)) {
         const promise = translateText(remaining, speakerLang, targetLangs, {
           mode: "room",
+          feature: "room",
+          consumeTextQuota: false,
         }).catch(() => ({}));
         chunkTranslationsRef.current.push(promise);
       }
@@ -676,6 +680,8 @@ export default function RoomHost() {
             ? await mergeChunkTranslations(targetLangs)
           : await translateText(fullText, speakerLang, targetLangs, {
               mode: "room",
+              feature: "room",
+              consumeTextQuota: false,
             });
         translations[speakerLang] = fullText;
         if (msgId) {
@@ -728,6 +734,8 @@ export default function RoomHost() {
       if (targetLangs.length > 0) {
         const translations = await translateText(text, speakerLang, targetLangs, {
           mode: "room",
+          feature: "room",
+          consumeTextQuota: false,
         });
         translations[speakerLang] = text;
         if (msgId) {

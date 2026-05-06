@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import { requireApiAccess } from "./auth.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+type AccessFeature = "conversation" | "megaphone" | "room" | "phrases" | "converter";
 
 const PROMPT_LANGUAGE_OVERRIDES: Record<string, string> = {
   zh: "Chinese (Simplified)",
@@ -264,10 +265,26 @@ async function requestSingleTranslation(
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  const requestedFeature = String(req.body?.feature || "").trim();
+  const mode = String(req.body?.mode || "general");
+  const feature: AccessFeature =
+    requestedFeature === "megaphone" ||
+    requestedFeature === "room" ||
+    requestedFeature === "phrases" ||
+    requestedFeature === "converter"
+      ? requestedFeature
+      : mode === "room"
+        ? "room"
+        : mode === "phrases"
+          ? "phrases"
+          : "conversation";
+  const consumeTextQuota =
+    typeof req.body?.consumeTextQuota === "boolean"
+      ? req.body.consumeTextQuota
+      : true;
   const access = await requireApiAccess(req, res, {
-    feature: "conversation",
-    quotaKey: "text_translate_requests",
-    quotaAmount: 1,
+    feature,
+    ...(consumeTextQuota ? { quotaKey: "text_translate_requests" as const, quotaAmount: 1 } : {}),
   });
   if (!access) return;
 

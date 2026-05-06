@@ -322,6 +322,8 @@ export default function RoomJoin() {
       if (allLangs.length > 0 && allLangs[0] !== myLang) {
         translations = await translateText(text, myLang, allLangs, {
           mode: "question",
+          feature: "room",
+          consumeTextQuota: false,
         });
       }
       translations[myLang] = text;

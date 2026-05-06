@@ -3,6 +3,7 @@ import OpenAI, { toFile } from "openai";
 import { requireApiAccess } from "./auth.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+type MeteredFeature = "conversation" | "megaphone";
 
 export const config = {
   api: {
@@ -50,13 +51,6 @@ function parseBody(req: VercelRequest): Promise<Buffer> {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
-  const access = await requireApiAccess(req, res, {
-    feature: "conversation",
-    quotaKey: "conversation_ms",
-    quotaAmount: 1000,
-  });
-  if (!access) return;
-
   try {
     const rawBody = await parseBody(req);
 
@@ -75,11 +69,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const modelPart = parts.find((p) => p.name === "model");
       const includeTimestampsPart = parts.find((p) => p.name === "include_timestamps");
       const expectedLanguagesPart = parts.find((p) => p.name === "expected_languages");
+      const featurePart = parts.find((p) => p.name === "feature");
+      const quotaAmountPart = parts.find((p) => p.name === "quota_amount_ms");
 
       if (!filePart?.data) return res.status(400).json({ error: "No audio file" });
 
       const language = languagePart?.data?.toString() || undefined;
       const model = modelPart?.data?.toString() || "gpt-4o-transcribe";
+      const requestedFeature = featurePart?.data?.toString() === "megaphone" ? "megaphone" : "conversation";
+      const feature: MeteredFeature = includeTimestampsPart?.data?.toString() === "true"
+        ? "conversation"
+        : requestedFeature;
+      const quotaAmount = Math.max(1, Math.floor(Number(quotaAmountPart?.data?.toString()) || 1000));
+      const access = await requireApiAccess(req, res, {
+        feature,
+        quotaKey: feature === "megaphone" ? "megaphone_ms" : "conversation_ms",
+        quotaAmount,
+      });
+      if (!access) return;
 
       const file = await toFile(filePart.data, filePart.filename || "audio.webm", {
         type: filePart.contentType || "audio/webm",

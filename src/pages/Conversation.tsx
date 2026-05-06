@@ -7,11 +7,11 @@ import { LANGUAGES, getLabelForCode, getLocaleForCode } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
 import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudioDetectLang, suspendAudioForMic, withTimeout } from "../lib/openai";
 import { detectPitch, classifyGender } from "../lib/gender-detect";
+import { getTrialUpgradeMessage } from "../lib/trial";
 
 // Hard cap on a single TTS playback so a suspended AudioContext (screen off,
 // app backgrounded) cannot deadlock the conversation loop.
 const TTS_PLAYBACK_TIMEOUT_MS = 90_000;
-import { consumeTrialQuota, getTrialUpgradeMessage } from "../lib/trial";
 
 type MsgStatus = "sent" | "translated" | "playing" | "done";
 
@@ -583,10 +583,14 @@ export default function Conversation() {
   async function processRecordedChunk(blob: Blob, recordDuration: number, peakLevel: number) {
     setChatState("transcribing");
     try {
-      const { text, language: detectedLang } = await transcribeAudioDetectLang(blob, [
-        yourLangRef.current,
-        theirLangRef.current,
-      ]);
+      const { text, language: detectedLang } = await transcribeAudioDetectLang(
+        blob,
+        [
+          yourLangRef.current,
+          theirLangRef.current,
+        ],
+        { feature: "conversation", quotaAmountMs: recordDuration },
+      );
       if (CONVERSATION_DEBUG) console.log("[Conversation] detected:", { text: text.substring(0, 50), language: detectedLang, blobSize: blob.size, blobType: blob.type });
 
       // Filter out empty, too-short, or Whisper hallucination artifacts
@@ -777,18 +781,6 @@ export default function Conversation() {
           return;
         }
 
-        const trialQuota = await consumeTrialQuota("conversation_ms", recordDuration);
-        if (!trialQuota.allowed) {
-          setError(getTrialUpgradeMessage(uiLanguage, "conversation"));
-          setShowTrialUpgradeModal(true);
-          processingRef.current = false;
-          conversationActiveRef.current = false;
-          setConversationActive(false);
-          setChatState("listening");
-          releaseMicResources();
-          releaseWakeLock();
-          return;
-        }
         // Compute average RMS across the recording
         const avgRms = rmsAccRef.current.count > 0
           ? rmsAccRef.current.sum / rmsAccRef.current.count
@@ -886,6 +878,8 @@ export default function Conversation() {
     try {
       const translations = await translateText(text, sourceLang, [targetLang], {
         mode: "live",
+        feature: "conversation",
+        consumeTextQuota: false,
       });
       const translatedText = translations[targetLang] || "...";
 

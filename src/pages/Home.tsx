@@ -177,6 +177,8 @@ export default function Home() {
         const results = await Promise.all(
           batch.map((phrase) => translateText(phrase, "en", [langCode], {
             mode: "phrases",
+            feature: "phrases",
+            consumeTextQuota: false,
           })),
         );
         const toSave: Record<string, string> = {};

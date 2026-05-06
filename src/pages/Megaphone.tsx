@@ -207,6 +207,8 @@ export default function MegaphonePage() {
     translatedCountRef.current = segmentsRef.current.length;
     const promise = translateText(text, speakerLang, [targetLang], {
       mode: "tourism",
+      feature: "megaphone",
+      consumeTextQuota: false,
     })
       .then((r) => r[targetLang] || "...")
       .catch(() => "...");
@@ -404,6 +406,8 @@ export default function MegaphonePage() {
     if (remaining && shouldUsePreview(remaining)) {
       const promise = translateText(remaining, speakerLang, [targetLang], {
         mode: "tourism",
+        feature: "megaphone",
+        consumeTextQuota: false,
       })
         .then((r) => r[targetLang] || "...")
         .catch(() => "...");
@@ -414,6 +418,8 @@ export default function MegaphonePage() {
     if (translationPromisesRef.current.length === 0) {
       const promise = translateText(fullText, speakerLang, [targetLang], {
         mode: "tourism",
+        feature: "megaphone",
+        consumeTextQuota: false,
       })
         .then((r) => r[targetLang] || "...")
         .catch(() => "...");
@@ -462,6 +468,8 @@ export default function MegaphonePage() {
           ? previewTranslation
           : (await translateText(fullText, speakerLang, [targetLang], {
               mode: "tourism",
+              feature: "megaphone",
+              consumeTextQuota: false,
             }))[targetLang] || previewTranslation || "...";
       setEntries((prev) =>
         prev.map((e) => (e.id === entryId ? { ...e, translatedText: finalTranslation } : e))
@@ -500,6 +508,8 @@ export default function MegaphonePage() {
     try {
       const result = await translateText(text, speakerLang, [targetLang], {
         mode: "tourism",
+        feature: "megaphone",
+        consumeTextQuota: false,
       });
       const translated = result[targetLang] || "...";
       setEntries((prev) =>
