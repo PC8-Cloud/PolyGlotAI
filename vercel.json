@@ -21,6 +21,9 @@
     },
     "api/chat.ts": {
       "maxDuration": 30
+    },
+    "api/realtime-token.ts": {
+      "maxDuration": 15
     }
   }
 }

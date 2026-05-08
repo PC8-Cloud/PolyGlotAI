@@ -5,7 +5,7 @@ import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLabelForCode, getLocaleForCode } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
-import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudioDetectLang, suspendAudioForMic, withTimeout } from "../lib/openai";
+import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudioDetectLang, suspendAudioForMic, withTimeout, createRealtimeTranscriptionToken } from "../lib/openai";
 import { detectPitch, classifyGender } from "../lib/gender-detect";
 import { getTrialUpgradeMessage } from "../lib/trial";
 
@@ -42,6 +42,7 @@ const MIN_AVG_RMS_THRESHOLD = 0.012;
 const MIN_AUDIO_BLOB_BYTES = 1000;
 const MAX_DUPLICATE_SIMILARITY = 0.8; // reject if >80% similar to a recent message
 const CONVERSATION_DEBUG = typeof import.meta !== "undefined" ? Boolean((import.meta as any).env?.DEV) : false;
+const REALTIME_WEBRTC_URL = "https://api.openai.com/v1/realtime/calls";
 
 function isLikelyPromptLeakTranscript(text: string): boolean {
   const lower = text.toLowerCase();
@@ -200,6 +201,11 @@ export default function Conversation() {
   const wakeLockReleaseHandlerRef = useRef<(() => void) | null>(null);
   const detectedGenderRef = useRef<"male" | "female" | "">("");
   const lastDetectedSideRef = useRef<"you" | "them" | null>(null);
+  const realtimePcRef = useRef<RTCPeerConnection | null>(null);
+  const realtimeDcRef = useRef<RTCDataChannel | null>(null);
+  const realtimeTrackRef = useRef<MediaStreamTrack | null>(null);
+  const realtimeActiveRef = useRef(false);
+  const realtimeTranscriptRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -283,6 +289,7 @@ export default function Conversation() {
   useEffect(() => {
     return () => {
       if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+      closeRealtimeSession();
       stopListening();
       releaseMicResources();
       releaseWakeLock();
@@ -355,6 +362,26 @@ export default function Conversation() {
     return null;
   };
 
+  const setRealtimeMicEnabled = (enabled: boolean) => {
+    if (realtimeTrackRef.current && realtimeTrackRef.current.readyState === "live") {
+      realtimeTrackRef.current.enabled = enabled;
+    }
+  };
+
+  const closeRealtimeSession = useCallback(() => {
+    realtimeActiveRef.current = false;
+    realtimeTranscriptRef.current = {};
+    if (realtimeDcRef.current) {
+      try { realtimeDcRef.current.close(); } catch {}
+      realtimeDcRef.current = null;
+    }
+    if (realtimePcRef.current) {
+      try { realtimePcRef.current.close(); } catch {}
+      realtimePcRef.current = null;
+    }
+    realtimeTrackRef.current = null;
+  }, []);
+
   const getUnexpectedLanguageMessage = (detectedLanguage?: string): string => {
     const langA = getLabelForCode(yourLangRef.current);
     const langB = getLabelForCode(theirLangRef.current);
@@ -366,6 +393,24 @@ export default function Conversation() {
   };
 
   // ─── Silence detection ────────────────────────────────────────────────
+
+  const startLevelMeter = useCallback((analyser: AnalyserNode) => {
+    const dataArray = new Uint8Array(analyser.fftSize);
+    const check = () => {
+      analyser.getByteTimeDomainData(dataArray);
+      let sum = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        const v = (dataArray[i] - 128) / 128;
+        sum += v * v;
+      }
+      setLiveLevel(Math.sqrt(sum / dataArray.length));
+      if (conversationActiveRef.current && realtimeActiveRef.current) {
+        animFrameRef.current = requestAnimationFrame(check);
+      }
+    };
+    cancelAnimationFrame(animFrameRef.current);
+    check();
+  }, []);
 
   const startSilenceDetection = useCallback((analyser: AnalyserNode) => {
     const dataArray = new Uint8Array(analyser.fftSize);
@@ -742,6 +787,147 @@ export default function Conversation() {
     }
   }, []);
 
+  const handleRealtimeTranscript = useCallback(async (text: string, itemId: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || processingRef.current || !conversationActiveRef.current) return;
+
+    realtimeTranscriptRef.current[itemId] = "";
+    setInterimText("");
+    processingRef.current = true;
+    setRealtimeMicEnabled(false);
+    setChatState("transcribing");
+
+    try {
+      const lower = trimmed.toLowerCase();
+      const cleanedLower = lower.replace(/[^\p{L}\p{N}\s]/gu, "").trim();
+      const isSilenceToken = /^(you|uh|um|hmm+|mm+|eh+|ah+|ok+|okay)$/.test(cleanedLower);
+      const isPromptLeak = isLikelyPromptLeakTranscript(trimmed);
+      const isHallucination =
+        trimmed.length < 2 ||
+        /^[\s.,!?…\-—–]+$/.test(trimmed) ||
+        /^(music|applause|laughter|silence|background|thank you|thanks for watching)/i.test(trimmed) ||
+        /^\[.*\]$/.test(trimmed) ||
+        /^\(.*\)$/.test(trimmed) ||
+        /sottotitoli|subtitles|subs by|sub(scribe|bed)|www\.|\.com|\.co\.|\.uk|\.org|\.net/i.test(trimmed) ||
+        /^(.{1,4})\1{2,}$/i.test(trimmed.replace(/\s+/g, "")) ||
+        lower.includes("amara.org") ||
+        lower.includes("copyright") ||
+        lower.includes("♪") ||
+        lower.includes("🎵") ||
+        isSilenceToken ||
+        isPromptLeak;
+
+      if (isHallucination) {
+        if (CONVERSATION_DEBUG) console.log("[Conversation] realtime filtered:", trimmed.substring(0, 40));
+        return;
+      }
+
+      const recentMessages = messagesRef.current.slice(-5);
+      const isDuplicate = recentMessages.some((m) => {
+        const sim = textSimilarity(lower, m.originalText.toLowerCase());
+        return sim > MAX_DUPLICATE_SIMILARITY;
+      });
+      if (isDuplicate) return;
+
+      const side = detectSideFromText(trimmed);
+      lastDetectedSideRef.current = side;
+      await processMessage(side, trimmed);
+    } catch (e: any) {
+      const { key, fallback } = getApiErrorMessage(e);
+      setError((t as any)[key] || fallback);
+    } finally {
+      processingRef.current = false;
+      if (conversationActiveRef.current && realtimeActiveRef.current) {
+        setRealtimeMicEnabled(true);
+        setChatState("listening");
+      }
+    }
+  }, [t]);
+
+  const handleRealtimeEvent = useCallback((event: any) => {
+    const type = String(event?.type || "");
+    const itemId = String(event?.item_id || event?.item?.id || event?.response_id || "default");
+
+    if (type.endsWith(".delta") && typeof event?.delta === "string") {
+      const next = `${realtimeTranscriptRef.current[itemId] || ""}${event.delta}`;
+      realtimeTranscriptRef.current[itemId] = next;
+      setInterimText(next.trim());
+      return;
+    }
+
+    const transcript =
+      typeof event?.transcript === "string"
+        ? event.transcript
+        : typeof event?.item?.transcript === "string"
+          ? event.item.transcript
+          : typeof event?.text === "string"
+            ? event.text
+            : "";
+
+    if ((type.endsWith(".completed") || type.includes("transcription.completed")) && transcript.trim()) {
+      void handleRealtimeTranscript(transcript, itemId);
+    }
+  }, [handleRealtimeTranscript]);
+
+  const startRealtimeConversation = useCallback(async (): Promise<boolean> => {
+    if (typeof RTCPeerConnection === "undefined") return false;
+    try {
+      const { stream, analyser } = await ensureMicReady();
+      const token = await createRealtimeTranscriptionToken([yourLangRef.current, theirLangRef.current]);
+      const pc = new RTCPeerConnection();
+      const dc = pc.createDataChannel("oai-events");
+      const track = stream.getAudioTracks()[0];
+      if (!track) throw new Error("No microphone track");
+
+      dc.onmessage = (message) => {
+        try {
+          handleRealtimeEvent(JSON.parse(String(message.data || "{}")));
+        } catch (e) {
+          if (CONVERSATION_DEBUG) console.warn("[Conversation] bad realtime event", e);
+        }
+      };
+      pc.onconnectionstatechange = () => {
+        if (CONVERSATION_DEBUG) console.log("[Conversation] realtime state", pc.connectionState);
+        if (["failed", "disconnected", "closed"].includes(pc.connectionState) && conversationActiveRef.current) {
+          setError((t as any).genericApiError || "Temporary error. Try again.");
+          stopConversation();
+        }
+      };
+
+      pc.addTrack(track, stream);
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      const sdpResponse = await fetch(REALTIME_WEBRTC_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/sdp",
+        },
+        body: offer.sdp || "",
+      });
+      if (!sdpResponse.ok) {
+        const text = await sdpResponse.text().catch(() => "");
+        throw new Error(text || `Realtime connect failed (${sdpResponse.status})`);
+      }
+
+      await pc.setRemoteDescription({ type: "answer", sdp: await sdpResponse.text() });
+      realtimePcRef.current = pc;
+      realtimeDcRef.current = dc;
+      realtimeTrackRef.current = track;
+      realtimeActiveRef.current = true;
+      realtimeTranscriptRef.current = {};
+      setChatState("listening");
+      setLiveLevel(0);
+      startLevelMeter(analyser);
+      return true;
+    } catch (e) {
+      console.warn("[Conversation] realtime unavailable, falling back:", e);
+      closeRealtimeSession();
+      return false;
+    }
+  }, [closeRealtimeSession, ensureMicReady, handleRealtimeEvent, startLevelMeter, t]);
+
   const startListening = useCallback(async () => {
     if (!conversationActiveRef.current || processingRef.current || mediaRecorderRef.current?.state === "recording") return;
     if (CONVERSATION_DEBUG) console.log("[Conversation] startListening");
@@ -928,7 +1114,7 @@ export default function Conversation() {
 
   // ─── Start / Stop conversation ────────────────────────────────────────
 
-  const startConversation = () => {
+  const startConversation = async () => {
     prepareAudioForSafari();
     setConversationActive(true);
     conversationActiveRef.current = true;
@@ -940,7 +1126,10 @@ export default function Conversation() {
     setMessages([]);
     setError(null);
     processingRef.current = false;
-    startListening();
+    const realtimeStarted = await startRealtimeConversation();
+    if (!realtimeStarted && conversationActiveRef.current) {
+      startListening();
+    }
   };
 
   const stopConversation = () => {
@@ -952,6 +1141,7 @@ export default function Conversation() {
       clearTimeout(restartTimerRef.current);
       restartTimerRef.current = null;
     }
+    closeRealtimeSession();
     stopListening();
     releaseMicResources();
     setInterimText("");
@@ -980,7 +1170,12 @@ export default function Conversation() {
     } finally {
       processingRef.current = false;
       if (conversationActiveRef.current) {
-        scheduleListeningRestart();
+        if (realtimeActiveRef.current) {
+          setRealtimeMicEnabled(true);
+          setChatState("listening");
+        } else {
+          scheduleListeningRestart();
+        }
       }
     }
   };
@@ -989,7 +1184,8 @@ export default function Conversation() {
     if (playingId !== null) return;
     // Pause mic so playback doesn't get re-captured
     const wasListening = chatState === "listening";
-    if (wasListening) stopListening();
+    if (wasListening && realtimeActiveRef.current) setRealtimeMicEnabled(false);
+    else if (wasListening) stopListening();
     prepareAudioForSafari();
     setPlayingId(id);
     setChatState("speaking");
@@ -1005,7 +1201,12 @@ export default function Conversation() {
     } finally {
       setPlayingId(null);
       if (conversationActiveRef.current) {
-        scheduleListeningRestart();
+        if (realtimeActiveRef.current) {
+          setRealtimeMicEnabled(true);
+          setChatState("listening");
+        } else {
+          scheduleListeningRestart();
+        }
       } else {
         setChatState("idle");
       }

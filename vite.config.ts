@@ -13,6 +13,7 @@ const API_MODULES: Record<string, string> = {
   '/api/chat': '/api/chat.ts',
   '/api/youtube-transcript': '/api/youtube-transcript.ts',
   '/api/voice-clone': '/api/voice-clone.ts',
+  '/api/realtime-token': '/api/realtime-token.ts',
 };
 
 async function readJsonBody(req: any): Promise<any> {

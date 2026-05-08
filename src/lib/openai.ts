@@ -100,6 +100,28 @@ export async function getApiAuthHeaders(): Promise<Record<string, string>> {
   return { Authorization: `Bearer ${token}` };
 }
 
+export async function createRealtimeTranscriptionToken(
+  languages: string[],
+  model?: string,
+): Promise<string> {
+  const authHeaders = await getApiAuthHeaders();
+  const res = await fetch("/api/realtime-token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders },
+    body: JSON.stringify({
+      languages,
+      model: model || getModels().transcribe,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: "Realtime token failed", status: res.status }));
+    throw new ApiError(err.error || "Realtime token failed", err.status || res.status);
+  }
+  const data = await res.json();
+  if (!data?.value) throw new Error("Realtime token missing");
+  return String(data.value);
+}
+
 function getModels() {
   const state = useUserStore.getState();
   return {
