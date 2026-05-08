@@ -28,17 +28,17 @@ interface Message {
 
 // Silence detection — adaptive timeout based on speech duration
 // Short speech → shorter pause tolerance, long speech → more patience for natural pauses
-const SILENCE_TIMEOUT_SHORT = 1.8; // after < 3s of speech: probably a short reply
-const SILENCE_TIMEOUT_NORMAL = 2.8; // after 3-8s of speech: normal sentence
-const SILENCE_TIMEOUT_LONG = 3.8; // after > 8s of speech: longer monologue, allow thinking pauses
-const SILENCE_THRESHOLD = 0.06;
-const VOICE_ACTIVITY_THRESHOLD = 0.07;
-const VOICE_ACTIVITY_FRAMES = 4;
-const NO_SPEECH_TIMEOUT_MS = 4500;
-const MIN_SPEECH_DURATION_MS = 420;
-const SPEECH_PEAK_THRESHOLD = 0.12;
-const WEAK_PEAK_THRESHOLD = 0.08;
-const MIN_AVG_RMS_THRESHOLD = 0.06;
+const SILENCE_TIMEOUT_SHORT = 2.4; // after < 3s of speech: allow short thinking pauses
+const SILENCE_TIMEOUT_NORMAL = 3.4; // after 3-8s of speech: normal sentence
+const SILENCE_TIMEOUT_LONG = 4.8; // after > 8s of speech: longer monologue, allow thinking pauses
+const SILENCE_THRESHOLD = 0.025;
+const VOICE_ACTIVITY_THRESHOLD = 0.035;
+const VOICE_ACTIVITY_FRAMES = 3;
+const NO_SPEECH_TIMEOUT_MS = 6500;
+const MIN_SPEECH_DURATION_MS = 300;
+const SPEECH_PEAK_THRESHOLD = 0.06;
+const WEAK_PEAK_THRESHOLD = 0.025;
+const MIN_AVG_RMS_THRESHOLD = 0.012;
 const MIN_AUDIO_BLOB_BYTES = 1000;
 const MAX_DUPLICATE_SIMILARITY = 0.8; // reject if >80% similar to a recent message
 const CONVERSATION_DEBUG = typeof import.meta !== "undefined" ? Boolean((import.meta as any).env?.DEV) : false;
@@ -189,6 +189,7 @@ export default function Conversation() {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number>(0);
   const audioCtxRef = useRef<AudioContext | null>(null);
+  const processedStreamRef = useRef<MediaStream | null>(null);
   const peakLevelRef = useRef(0); // track peak audio level during recording
   const rmsAccRef = useRef({ sum: 0, count: 0 }); // accumulate RMS samples for average
   const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -471,6 +472,8 @@ export default function Conversation() {
       clearTimeout(restartTimerRef.current);
       restartTimerRef.current = null;
     }
+    processedStreamRef.current?.getTracks().forEach((track) => track.stop());
+    processedStreamRef.current = null;
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
@@ -503,7 +506,7 @@ export default function Conversation() {
         await audioCtxRef.current.resume();
       }
       return {
-        stream: streamRef.current!,
+        stream: processedStreamRef.current || streamRef.current!,
         analyser: analyserRef.current,
       };
     }
@@ -554,17 +557,24 @@ export default function Conversation() {
     // 5. Analyser — for silence detection / visual level
     const analyser = audioCtx.createAnalyser();
     analyser.fftSize = 2048;
+    analyser.smoothingTimeConstant = 0.3;
 
-    // Chain: mic → inputGain → highpass → compressor → makeupGain → analyser
+    // 6. Processed output — this is what MediaRecorder sends to transcription.
+    // Recording the raw mic stream loses the gain/compressor improvements above.
+    const processedDestination = audioCtx.createMediaStreamDestination();
+
+    // Chain: mic → inputGain → highpass → compressor → makeupGain → analyser → recorder
     source.connect(inputGain);
     inputGain.connect(highpass);
     highpass.connect(compressor);
     compressor.connect(makeupGain);
     makeupGain.connect(analyser);
+    analyser.connect(processedDestination);
 
     analyserRef.current = analyser;
+    processedStreamRef.current = processedDestination.stream;
 
-    return { stream, analyser };
+    return { stream: processedDestination.stream, analyser };
   }, []);
 
   // ─── Start listening ──────────────────────────────────────────────────
@@ -786,24 +796,11 @@ export default function Conversation() {
           ? rmsAccRef.current.sum / rmsAccRef.current.count
           : 0;
 
-        // Reject distant/background audio (TV, YouTube, speakers nearby)
-        // Direct speech into phone mic: avgRms typically 0.06-0.30
-        // Background TV/speakers: avgRms typically 0.01-0.03
-        if (avgRms < MIN_AVG_RMS_THRESHOLD) {
-          if (CONVERSATION_DEBUG) console.log("[Conversation] rejected: avg RMS too low (distant audio)", {
-            avgRms: avgRms.toFixed(4),
-            peakLevel: peakLevel.toFixed(3),
-          });
-          scheduleListeningRestart();
-          return;
-        }
-        if (peakLevel < WEAK_PEAK_THRESHOLD) {
-          if (CONVERSATION_DEBUG) console.log("[Conversation] rejected: peak too quiet", {
+        if (avgRms < MIN_AVG_RMS_THRESHOLD || peakLevel < WEAK_PEAK_THRESHOLD) {
+          if (CONVERSATION_DEBUG) console.log("[Conversation] weak capture, still transcribing", {
             peakLevel: peakLevel.toFixed(3),
             avgRms: avgRms.toFixed(4),
           });
-          scheduleListeningRestart();
-          return;
         }
         if (recordDuration < MIN_SPEECH_DURATION_MS && peakLevel < SPEECH_PEAK_THRESHOLD) {
           if (CONVERSATION_DEBUG) console.log("[Conversation] rejected: short + weak capture", {
