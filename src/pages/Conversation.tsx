@@ -1089,6 +1089,15 @@ export default function Conversation() {
       return;
     }
 
+    if (type === "input_audio_buffer.speech_stopped") {
+      // Same audible cue the legacy pipeline played when silence detection
+      // closed the recording — fires the moment the server VAD decides the
+      // utterance is over, just before transcription/translation kicks in.
+      playCutoffChime();
+      setChatState("transcribing");
+      return;
+    }
+
     if (type === "error") {
       if (CONVERSATION_DEBUG) console.warn("[Translator] server error", event);
       const message = event?.error?.message || event?.message;
