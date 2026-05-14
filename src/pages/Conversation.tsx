@@ -5,7 +5,7 @@ import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLabelForCode, getLocaleForCode } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
-import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudioDetectLang, suspendAudioForMic, withTimeout, createRealtimeTranscriptionToken } from "../lib/openai";
+import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudioDetectLang, suspendAudioForMic, withTimeout, createRealtimeTranscriptionToken, createRealtimeTranslatorToken } from "../lib/openai";
 import { detectPitch, classifyGender } from "../lib/gender-detect";
 import { getTrialUpgradeMessage } from "../lib/trial";
 
@@ -206,6 +206,14 @@ export default function Conversation() {
   const realtimeTrackRef = useRef<MediaStreamTrack | null>(null);
   const realtimeActiveRef = useRef(false);
   const realtimeTranscriptRef = useRef<Record<string, string>>({});
+  // Translator (full-duplex speech-to-speech) refs
+  type RealtimeMode = "translator" | "transcription" | "none";
+  const realtimeModeRef = useRef<RealtimeMode>("none");
+  const realtimeAudioElRef = useRef<HTMLAudioElement | null>(null);
+  // Map of input item_id → local message id, so streaming response events
+  // (response.audio_transcript.delta/done) can update the right bubble.
+  const translatorMessageMapRef = useRef<Record<string, number>>({});
+  const translatorResponseToItemRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -370,7 +378,10 @@ export default function Conversation() {
 
   const closeRealtimeSession = useCallback(() => {
     realtimeActiveRef.current = false;
+    realtimeModeRef.current = "none";
     realtimeTranscriptRef.current = {};
+    translatorMessageMapRef.current = {};
+    translatorResponseToItemRef.current = {};
     if (realtimeDcRef.current) {
       try { realtimeDcRef.current.close(); } catch {}
       realtimeDcRef.current = null;
@@ -380,6 +391,13 @@ export default function Conversation() {
       realtimePcRef.current = null;
     }
     realtimeTrackRef.current = null;
+    if (realtimeAudioElRef.current) {
+      try {
+        realtimeAudioElRef.current.pause();
+        realtimeAudioElRef.current.srcObject = null;
+      } catch {}
+      realtimeAudioElRef.current = null;
+    }
   }, []);
 
   const getUnexpectedLanguageMessage = (detectedLanguage?: string): string => {
@@ -794,7 +812,10 @@ export default function Conversation() {
     realtimeTranscriptRef.current[itemId] = "";
     setInterimText("");
     processingRef.current = true;
-    setRealtimeMicEnabled(false);
+    // Keep the mic track live during translate+TTS so the server VAD doesn't
+    // saturate with silence frames. We rely on processingRef + echo cancellation
+    // to avoid feedback. Stale audio buffered while we were busy is cleared
+    // below before we go back to listening.
     setChatState("transcribing");
 
     try {
@@ -838,7 +859,12 @@ export default function Conversation() {
     } finally {
       processingRef.current = false;
       if (conversationActiveRef.current && realtimeActiveRef.current) {
-        setRealtimeMicEnabled(true);
+        // Clear server-side audio buffer so silence frames captured while we
+        // were translating + speaking don't get queued for the next turn.
+        const dc = realtimeDcRef.current;
+        if (dc && dc.readyState === "open") {
+          try { dc.send(JSON.stringify({ type: "input_audio_buffer.clear" })); } catch {}
+        }
         setChatState("listening");
       }
     }
@@ -917,6 +943,7 @@ export default function Conversation() {
       realtimeTrackRef.current = track;
       realtimeActiveRef.current = true;
       realtimeTranscriptRef.current = {};
+      realtimeModeRef.current = "transcription";
       setChatState("listening");
       setLiveLevel(0);
       startLevelMeter(analyser);
@@ -927,6 +954,232 @@ export default function Conversation() {
       return false;
     }
   }, [closeRealtimeSession, ensureMicReady, handleRealtimeEvent, startLevelMeter, t]);
+
+  // ─── Translator (full-duplex speech-to-speech) ────────────────────────
+  // The server receives mic audio, transcribes it, generates a translation,
+  // and streams the translated audio back over WebRTC. We do not call
+  // /api/translate or /api/tts — latency is < 1s end-to-end.
+
+  const upsertTranslatorMessage = useCallback((itemId: string, patch: Partial<Message> & { originalText?: string }) => {
+    const existingId = translatorMessageMapRef.current[itemId];
+    if (existingId == null) {
+      msgIdRef.current += 1;
+      const newId = msgIdRef.current;
+      translatorMessageMapRef.current[itemId] = newId;
+      const side: "you" | "them" = patch.side || detectSideFromText(patch.originalText || "");
+      lastDetectedSideRef.current = side;
+      const sourceLang = side === "you" ? yourLangRef.current : theirLangRef.current;
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: newId,
+          side,
+          originalText: patch.originalText || "",
+          translatedText: patch.translatedText || "...",
+          sourceLang,
+          status: patch.status || "sent",
+          gender: detectedGenderRef.current || userGender,
+        },
+      ]);
+      return newId;
+    }
+    setMessages((prev) =>
+      prev.map((m) => (m.id === existingId ? { ...m, ...patch } : m))
+    );
+    return existingId;
+  }, [userGender]);
+
+  const handleTranslatorEvent = useCallback((event: any) => {
+    const type = String(event?.type || "");
+    const itemId = String(event?.item_id || event?.item?.id || "");
+    const responseId = String(event?.response_id || event?.response?.id || "");
+
+    // Live partial transcript of the user's speech (input side)
+    if (type === "conversation.item.input_audio_transcription.delta" && typeof event?.delta === "string") {
+      const prev = realtimeTranscriptRef.current[itemId] || "";
+      const next = `${prev}${event.delta}`;
+      realtimeTranscriptRef.current[itemId] = next;
+      setInterimText(next.trim());
+      return;
+    }
+
+    if (type === "conversation.item.input_audio_transcription.completed") {
+      const transcript = String(event?.transcript || "").trim();
+      realtimeTranscriptRef.current[itemId] = "";
+      setInterimText("");
+      if (!transcript) return;
+      // Filter known hallucinations / prompt leaks just like the legacy path.
+      const lower = transcript.toLowerCase();
+      const cleanedLower = lower.replace(/[^\p{L}\p{N}\s]/gu, "").trim();
+      const isSilenceToken = /^(you|uh|um|hmm+|mm+|eh+|ah+|ok+|okay)$/.test(cleanedLower);
+      const isPromptLeak = isLikelyPromptLeakTranscript(transcript);
+      if (transcript.length < 2 || isSilenceToken || isPromptLeak) {
+        if (CONVERSATION_DEBUG) console.log("[Translator] filtered:", transcript.slice(0, 40));
+        return;
+      }
+      const side = detectSideFromText(transcript);
+      upsertTranslatorMessage(itemId, {
+        side,
+        originalText: transcript,
+        translatedText: "...",
+        status: "translated",
+      });
+      setChatState("translating");
+      return;
+    }
+
+    if (type === "conversation.item.input_audio_transcription.failed") {
+      if (CONVERSATION_DEBUG) console.warn("[Translator] transcription failed", event);
+      return;
+    }
+
+    // Track which response_id was generated for which input item.
+    // The Realtime API emits response.created after speech_stopped; the response
+    // is generated from the most recent input item we just transcribed.
+    if (type === "response.created" && responseId) {
+      // Latest item we have a bubble for.
+      const itemIds = Object.keys(translatorMessageMapRef.current);
+      const lastItemId = itemIds[itemIds.length - 1];
+      if (lastItemId) translatorResponseToItemRef.current[responseId] = lastItemId;
+      setChatState("translating");
+      return;
+    }
+
+    // Streaming translated text (token by token)
+    if ((type === "response.output_audio_transcript.delta" || type === "response.audio_transcript.delta") && typeof event?.delta === "string") {
+      const targetItemId = translatorResponseToItemRef.current[responseId];
+      const messageId = targetItemId ? translatorMessageMapRef.current[targetItemId] : undefined;
+      if (messageId == null) return;
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.id !== messageId) return m;
+          const current = m.translatedText === "..." ? "" : m.translatedText;
+          return { ...m, translatedText: `${current}${event.delta}`, status: "playing" };
+        })
+      );
+      setChatState("speaking");
+      return;
+    }
+
+    if ((type === "response.output_audio_transcript.done" || type === "response.audio_transcript.done")) {
+      const transcript = String(event?.transcript || "").trim();
+      const targetItemId = translatorResponseToItemRef.current[responseId];
+      const messageId = targetItemId ? translatorMessageMapRef.current[targetItemId] : undefined;
+      if (messageId == null) return;
+      setMessages((prev) =>
+        prev.map((m) => (m.id === messageId ? { ...m, translatedText: transcript || m.translatedText, status: "playing" } : m))
+      );
+      return;
+    }
+
+    if (type === "response.done") {
+      const targetItemId = translatorResponseToItemRef.current[responseId];
+      const messageId = targetItemId ? translatorMessageMapRef.current[targetItemId] : undefined;
+      if (messageId != null) {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === messageId ? { ...m, status: "done" } : m))
+        );
+      }
+      if (conversationActiveRef.current) setChatState("listening");
+      return;
+    }
+
+    if (type === "input_audio_buffer.speech_started") {
+      setChatState("listening");
+      return;
+    }
+
+    if (type === "error") {
+      if (CONVERSATION_DEBUG) console.warn("[Translator] server error", event);
+      const message = event?.error?.message || event?.message;
+      if (message && conversationActiveRef.current) setError(String(message));
+    }
+  }, [upsertTranslatorMessage]);
+
+  const startRealtimeTranslator = useCallback(async (): Promise<boolean> => {
+    if (typeof RTCPeerConnection === "undefined") return false;
+    try {
+      const { stream, analyser } = await ensureMicReady();
+      // Realtime API supports a fixed voice per session. "marin" is the most
+      // recent multilingual voice and renders both directions naturally.
+      const token = await createRealtimeTranslatorToken(
+        [yourLangRef.current, theirLangRef.current],
+        { voice: "marin" },
+      );
+      const pc = new RTCPeerConnection();
+      const dc = pc.createDataChannel("oai-events");
+      const track = stream.getAudioTracks()[0];
+      if (!track) throw new Error("No microphone track");
+
+      // Audio sink: server-generated speech arrives as a remote track.
+      const audioEl = new Audio();
+      audioEl.autoplay = true;
+      (audioEl as any).playsInline = true;
+      realtimeAudioElRef.current = audioEl;
+      pc.ontrack = (ev) => {
+        const [remoteStream] = ev.streams;
+        if (remoteStream && realtimeAudioElRef.current) {
+          realtimeAudioElRef.current.srcObject = remoteStream;
+          realtimeAudioElRef.current.play().catch(() => {});
+        }
+      };
+
+      dc.onmessage = (message) => {
+        try {
+          handleTranslatorEvent(JSON.parse(String(message.data || "{}")));
+        } catch (e) {
+          if (CONVERSATION_DEBUG) console.warn("[Translator] bad event", e);
+        }
+      };
+      pc.onconnectionstatechange = () => {
+        if (CONVERSATION_DEBUG) console.log("[Translator] state", pc.connectionState);
+        if (["failed", "disconnected", "closed"].includes(pc.connectionState) && conversationActiveRef.current) {
+          setError((t as any).genericApiError || "Temporary error. Try again.");
+          stopConversation();
+        }
+      };
+
+      pc.addTrack(track, stream);
+      // We want to receive audio from the server too.
+      pc.addTransceiver("audio", { direction: "sendrecv" });
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      const sdpResponse = await fetch(REALTIME_WEBRTC_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/sdp",
+        },
+        body: offer.sdp || "",
+      });
+      if (!sdpResponse.ok) {
+        const text = await sdpResponse.text().catch(() => "");
+        throw new Error(text || `Realtime connect failed (${sdpResponse.status})`);
+      }
+      await pc.setRemoteDescription({ type: "answer", sdp: await sdpResponse.text() });
+
+      realtimePcRef.current = pc;
+      realtimeDcRef.current = dc;
+      realtimeTrackRef.current = track;
+      realtimeActiveRef.current = true;
+      realtimeModeRef.current = "translator";
+      realtimeTranscriptRef.current = {};
+      translatorMessageMapRef.current = {};
+      translatorResponseToItemRef.current = {};
+      setChatState("listening");
+      setLiveLevel(0);
+      startLevelMeter(analyser);
+      return true;
+    } catch (e) {
+      console.warn("[Translator] unavailable, falling back:", e);
+      closeRealtimeSession();
+      return false;
+    }
+  // stopConversation is defined later — it is stable across renders, captured via ref-like access from the closure
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [closeRealtimeSession, ensureMicReady, handleTranslatorEvent, startLevelMeter, t, userGender]);
 
   const startListening = useCallback(async () => {
     if (!conversationActiveRef.current || processingRef.current || mediaRecorderRef.current?.state === "recording") return;
@@ -1126,9 +1379,15 @@ export default function Conversation() {
     setMessages([]);
     setError(null);
     processingRef.current = false;
-    const realtimeStarted = await startRealtimeConversation();
-    if (!realtimeStarted && conversationActiveRef.current) {
-      startListening();
+    // Preferred: full-duplex speech-to-speech translator (lowest latency).
+    // Falls back to transcription-only realtime + client-side translate/TTS,
+    // and finally to the MediaRecorder pipeline if WebRTC is unavailable.
+    const translatorStarted = await startRealtimeTranslator();
+    if (!translatorStarted && conversationActiveRef.current) {
+      const transcriptionStarted = await startRealtimeConversation();
+      if (!transcriptionStarted && conversationActiveRef.current) {
+        startListening();
+      }
     }
   };
 

@@ -20,7 +20,12 @@ const LANGUAGE_HINTS: Record<string, string> = {
   tr: "Turkish",
 };
 
-function buildPrompt(languages: unknown): string {
+function langName(code: unknown): string {
+  const c = String(code || "").toLowerCase().split("-")[0];
+  return LANGUAGE_HINTS[c] || (c ? c.toUpperCase() : "");
+}
+
+function buildTranscriptionPrompt(languages: unknown): string {
   const names = [...new Set(
     (Array.isArray(languages) ? languages : [])
       .map((code) => LANGUAGE_HINTS[String(code || "").toLowerCase().split("-")[0]])
@@ -32,6 +37,26 @@ function buildPrompt(languages: unknown): string {
     "Preserve short words, names, numbers, hesitation markers, and partial conversational phrases.",
     "Do not translate, summarize, add subtitles, or add words that were not spoken.",
     expected,
+  ].join(" ");
+}
+
+function buildTranslatorInstructions(yourLang: unknown, theirLang: unknown): string {
+  const A = langName(yourLang) || "language A";
+  const B = langName(theirLang) || "language B";
+  return [
+    `You are a live, bidirectional speech translator between ${A} and ${B}.`,
+    `Rules — follow strictly:`,
+    `1) Detect which of the two languages the user just spoke.`,
+    `2) If the user spoke ${A}, translate the meaning into ${B}.`,
+    `3) If the user spoke ${B}, translate the meaning into ${A}.`,
+    `4) Speak ONLY the translation, using a natural, fluent, native-sounding voice in the target language.`,
+    `5) Do NOT respond conversationally, do NOT add commentary, greetings, apologies, or any preamble.`,
+    `6) Do NOT repeat the original text. Do NOT explain. Do NOT ask questions.`,
+    `7) Preserve names, numbers, dates, and proper nouns exactly.`,
+    `8) Keep the tone, register and emotion of the original speaker.`,
+    `9) If you cannot understand or the audio is silent, stay silent — do not invent content.`,
+    `10) If the user clearly speaks a third language (neither ${A} nor ${B}), stay silent.`,
+    `You are a pure translator. Output is the translation only.`,
   ].join(" ");
 }
 
@@ -50,7 +75,67 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(500).json({ error: "OPENAI_API_KEY missing", status: 500 });
     }
 
-    const model = String(req.body?.model || "gpt-4o-transcribe").trim();
+    const mode = String(req.body?.mode || "transcription").trim();
+    const languages = Array.isArray(req.body?.languages) ? req.body.languages : [];
+
+    let sessionBody: Record<string, unknown>;
+
+    if (mode === "translator") {
+      const yourLang = languages[0];
+      const theirLang = languages[1];
+      const voice = String(req.body?.voice || "marin").trim();
+      const transcribeModel = String(req.body?.transcribeModel || "gpt-4o-transcribe").trim();
+      const model = String(req.body?.model || "gpt-realtime").trim();
+
+      sessionBody = {
+        type: "realtime",
+        model,
+        output_modalities: ["audio"],
+        audio: {
+          input: {
+            noise_reduction: { type: "near_field" },
+            transcription: {
+              model: transcribeModel,
+              prompt: buildTranscriptionPrompt(languages),
+            },
+            turn_detection: {
+              type: "server_vad",
+              threshold: 0.5,
+              prefix_padding_ms: 300,
+              silence_duration_ms: 500,
+              create_response: true,
+              interrupt_response: true,
+            },
+          },
+          output: {
+            voice,
+            format: { type: "audio/pcm", rate: 24000 },
+          },
+        },
+        instructions: buildTranslatorInstructions(yourLang, theirLang),
+      };
+    } else {
+      const model = String(req.body?.model || "gpt-4o-transcribe").trim();
+      sessionBody = {
+        type: "transcription",
+        audio: {
+          input: {
+            noise_reduction: { type: "near_field" },
+            transcription: {
+              model,
+              prompt: buildTranscriptionPrompt(languages),
+            },
+            turn_detection: {
+              type: "server_vad",
+              threshold: 0.35,
+              prefix_padding_ms: 500,
+              silence_duration_ms: 500,
+            },
+          },
+        },
+      };
+    }
+
     const response = await fetch(`${OPENAI_API_BASE}/realtime/client_secrets`, {
       method: "POST",
       headers: {
@@ -60,24 +145,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       },
       body: JSON.stringify({
         expires_after: { anchor: "created_at", seconds: 600 },
-        session: {
-          type: "transcription",
-          audio: {
-            input: {
-              noise_reduction: { type: "near_field" },
-              transcription: {
-                model,
-                prompt: buildPrompt(req.body?.languages),
-              },
-              turn_detection: {
-                type: "server_vad",
-                threshold: 0.35,
-                prefix_padding_ms: 500,
-                silence_duration_ms: 700,
-              },
-            },
-          },
-        },
+        session: sessionBody,
       }),
     });
 

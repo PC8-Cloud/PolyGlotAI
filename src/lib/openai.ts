@@ -109,8 +109,40 @@ export async function createRealtimeTranscriptionToken(
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders },
     body: JSON.stringify({
+      mode: "transcription",
       languages,
       model: model || getModels().transcribe,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: "Realtime token failed", status: res.status }));
+    throw new ApiError(err.error || "Realtime token failed", err.status || res.status);
+  }
+  const data = await res.json();
+  if (!data?.value) throw new Error("Realtime token missing");
+  return String(data.value);
+}
+
+/**
+ * Bidirectional speech-to-speech translator token. Returns a Realtime API
+ * ephemeral token whose session is pre-configured as a pure translator
+ * between languages[0] and languages[1]. The model speaks the translation
+ * directly, so the client does not call /api/translate or /api/tts.
+ */
+export async function createRealtimeTranslatorToken(
+  languages: string[],
+  options?: { voice?: string; model?: string; transcribeModel?: string },
+): Promise<string> {
+  const authHeaders = await getApiAuthHeaders();
+  const res = await fetch("/api/realtime-token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders },
+    body: JSON.stringify({
+      mode: "translator",
+      languages,
+      voice: options?.voice,
+      model: options?.model,
+      transcribeModel: options?.transcribeModel || getModels().transcribe,
     }),
   });
   if (!res.ok) {
