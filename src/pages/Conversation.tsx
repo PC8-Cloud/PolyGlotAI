@@ -214,6 +214,13 @@ export default function Conversation() {
   // (response.audio_transcript.delta/done) can update the right bubble.
   const translatorMessageMapRef = useRef<Record<string, number>>({});
   const translatorResponseToItemRef = useRef<Record<string, string>>({});
+  // Most recent input item the server created from the user's speech.
+  // We use this to associate the next response.created with the right turn.
+  const translatorLastInputItemRef = useRef<string | null>(null);
+  // True while the model is generating audio for us. Used to mute the mic
+  // track so the model's own speech (echo from speakers) does not feed back
+  // into the input buffer and get re-transcribed as the next "user turn".
+  const modelSpeakingRef = useRef<boolean>(false);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -382,6 +389,8 @@ export default function Conversation() {
     realtimeTranscriptRef.current = {};
     translatorMessageMapRef.current = {};
     translatorResponseToItemRef.current = {};
+    translatorLastInputItemRef.current = null;
+    modelSpeakingRef.current = false;
     if (realtimeDcRef.current) {
       try { realtimeDcRef.current.close(); } catch {}
       realtimeDcRef.current = null;
@@ -960,55 +969,86 @@ export default function Conversation() {
   // and streams the translated audio back over WebRTC. We do not call
   // /api/translate or /api/tts — latency is < 1s end-to-end.
 
-  const upsertTranslatorMessage = useCallback((itemId: string, patch: Partial<Message> & { originalText?: string }) => {
+  /** Ensure a message bubble exists for the given input item_id. Returns its id. */
+  const ensureTranslatorBubble = useCallback((itemId: string): number => {
     const existingId = translatorMessageMapRef.current[itemId];
-    if (existingId == null) {
-      msgIdRef.current += 1;
-      const newId = msgIdRef.current;
-      translatorMessageMapRef.current[itemId] = newId;
-      const side: "you" | "them" = patch.side || detectSideFromText(patch.originalText || "");
-      lastDetectedSideRef.current = side;
-      const sourceLang = side === "you" ? yourLangRef.current : theirLangRef.current;
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: newId,
-          side,
-          originalText: patch.originalText || "",
-          translatedText: patch.translatedText || "...",
-          sourceLang,
-          status: patch.status || "sent",
-          gender: detectedGenderRef.current || userGender,
-        },
-      ]);
-      return newId;
-    }
-    setMessages((prev) =>
-      prev.map((m) => (m.id === existingId ? { ...m, ...patch } : m))
-    );
-    return existingId;
+    if (existingId != null) return existingId;
+    msgIdRef.current += 1;
+    const newId = msgIdRef.current;
+    translatorMessageMapRef.current[itemId] = newId;
+    // Alternate side by default (will be re-detected once the transcript lands).
+    const guessedSide: "you" | "them" =
+      lastDetectedSideRef.current === "you" ? "them" : "you";
+    const sourceLang = guessedSide === "you" ? yourLangRef.current : theirLangRef.current;
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: newId,
+        side: guessedSide,
+        originalText: "",
+        translatedText: "...",
+        sourceLang,
+        status: "sent",
+        gender: detectedGenderRef.current || userGender,
+      },
+    ]);
+    return newId;
   }, [userGender]);
+
+  const setMicMutedForEcho = useCallback((muted: boolean) => {
+    const track = realtimeTrackRef.current;
+    if (!track || track.readyState !== "live") return;
+    track.enabled = !muted;
+    if (!muted) {
+      // We just unmuted — clear whatever the server buffered for us during the
+      // mute window so it does not get treated as a fresh user turn.
+      const dc = realtimeDcRef.current;
+      if (dc && dc.readyState === "open") {
+        try { dc.send(JSON.stringify({ type: "input_audio_buffer.clear" })); } catch {}
+      }
+    }
+  }, []);
 
   const handleTranslatorEvent = useCallback((event: any) => {
     const type = String(event?.type || "");
-    const itemId = String(event?.item_id || event?.item?.id || "");
+    const evItemId = String(event?.item_id || event?.item?.id || "");
     const responseId = String(event?.response_id || event?.response?.id || "");
 
-    // Live partial transcript of the user's speech (input side)
+    if (CONVERSATION_DEBUG && type && !type.endsWith(".delta")) {
+      console.log("[Translator] evt", type, { evItemId, responseId });
+    }
+
+    // ── 1. The server confirms it has captured the user's turn ───────────
+    // This fires right after speech_stopped — before transcription completes.
+    // We use it to (a) create the bubble immediately, (b) remember which input
+    // item the upcoming response will be for.
+    if (type === "conversation.item.created") {
+      const item = event?.item;
+      const role = item?.role;
+      const itemType = item?.type;
+      const id = String(item?.id || "");
+      if (role === "user" && itemType === "message" && id) {
+        translatorLastInputItemRef.current = id;
+        ensureTranslatorBubble(id);
+      }
+      return;
+    }
+
+    // ── 2. Live partial transcript of the user's speech ─────────────────
     if (type === "conversation.item.input_audio_transcription.delta" && typeof event?.delta === "string") {
-      const prev = realtimeTranscriptRef.current[itemId] || "";
+      const prev = realtimeTranscriptRef.current[evItemId] || "";
       const next = `${prev}${event.delta}`;
-      realtimeTranscriptRef.current[itemId] = next;
+      realtimeTranscriptRef.current[evItemId] = next;
       setInterimText(next.trim());
       return;
     }
 
+    // ── 3. Final transcript of the user's speech ────────────────────────
     if (type === "conversation.item.input_audio_transcription.completed") {
       const transcript = String(event?.transcript || "").trim();
-      realtimeTranscriptRef.current[itemId] = "";
+      realtimeTranscriptRef.current[evItemId] = "";
       setInterimText("");
       if (!transcript) return;
-      // Filter known hallucinations / prompt leaks just like the legacy path.
       const lower = transcript.toLowerCase();
       const cleanedLower = lower.replace(/[^\p{L}\p{N}\s]/gu, "").trim();
       const isSilenceToken = /^(you|uh|um|hmm+|mm+|eh+|ah+|ok+|okay)$/.test(cleanedLower);
@@ -1018,13 +1058,16 @@ export default function Conversation() {
         return;
       }
       const side = detectSideFromText(transcript);
-      upsertTranslatorMessage(itemId, {
-        side,
-        originalText: transcript,
-        translatedText: "...",
-        status: "translated",
-      });
-      setChatState("translating");
+      lastDetectedSideRef.current = side;
+      const sourceLang = side === "you" ? yourLangRef.current : theirLangRef.current;
+      const messageId = ensureTranslatorBubble(evItemId);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId
+            ? { ...m, originalText: transcript, side, sourceLang, status: "translated" }
+            : m,
+        ),
+      );
       return;
     }
 
@@ -1033,19 +1076,24 @@ export default function Conversation() {
       return;
     }
 
-    // Track which response_id was generated for which input item.
-    // The Realtime API emits response.created after speech_stopped; the response
-    // is generated from the most recent input item we just transcribed.
+    // ── 4. The server is starting to generate the translation ───────────
     if (type === "response.created" && responseId) {
-      // Latest item we have a bubble for.
-      const itemIds = Object.keys(translatorMessageMapRef.current);
-      const lastItemId = itemIds[itemIds.length - 1];
-      if (lastItemId) translatorResponseToItemRef.current[responseId] = lastItemId;
+      const lastItemId = translatorLastInputItemRef.current;
+      if (lastItemId) {
+        translatorResponseToItemRef.current[responseId] = lastItemId;
+        // Make sure the bubble exists even if conversation.item.created hasn't
+        // been observed (some SDK versions skip it).
+        ensureTranslatorBubble(lastItemId);
+      }
+      // Mute the mic while the model speaks so its own output (echo through
+      // speakers) is not re-captured and re-transcribed as a new user turn.
+      modelSpeakingRef.current = true;
+      setMicMutedForEcho(true);
       setChatState("translating");
       return;
     }
 
-    // Streaming translated text (token by token)
+    // ── 5. Streaming translated text (token by token) ───────────────────
     if ((type === "response.output_audio_transcript.delta" || type === "response.audio_transcript.delta") && typeof event?.delta === "string") {
       const targetItemId = translatorResponseToItemRef.current[responseId];
       const messageId = targetItemId ? translatorMessageMapRef.current[targetItemId] : undefined;
@@ -1055,44 +1103,54 @@ export default function Conversation() {
           if (m.id !== messageId) return m;
           const current = m.translatedText === "..." ? "" : m.translatedText;
           return { ...m, translatedText: `${current}${event.delta}`, status: "playing" };
-        })
+        }),
       );
       setChatState("speaking");
       return;
     }
 
-    if ((type === "response.output_audio_transcript.done" || type === "response.audio_transcript.done")) {
+    if (type === "response.output_audio_transcript.done" || type === "response.audio_transcript.done") {
       const transcript = String(event?.transcript || "").trim();
       const targetItemId = translatorResponseToItemRef.current[responseId];
       const messageId = targetItemId ? translatorMessageMapRef.current[targetItemId] : undefined;
       if (messageId == null) return;
       setMessages((prev) =>
-        prev.map((m) => (m.id === messageId ? { ...m, translatedText: transcript || m.translatedText, status: "playing" } : m))
+        prev.map((m) =>
+          m.id === messageId
+            ? { ...m, translatedText: transcript || m.translatedText, status: "playing" }
+            : m,
+        ),
       );
       return;
     }
 
-    if (type === "response.done") {
+    // ── 6. Model has finished speaking ──────────────────────────────────
+    if (type === "response.done" || type === "output_audio_buffer.stopped") {
       const targetItemId = translatorResponseToItemRef.current[responseId];
       const messageId = targetItemId ? translatorMessageMapRef.current[targetItemId] : undefined;
       if (messageId != null) {
         setMessages((prev) =>
-          prev.map((m) => (m.id === messageId ? { ...m, status: "done" } : m))
+          prev.map((m) => (m.id === messageId ? { ...m, status: "done" } : m)),
         );
       }
-      if (conversationActiveRef.current) setChatState("listening");
+      // Re-arm mic shortly after the local audio element has flushed the tail
+      // of the response. 250ms is enough to clear residual playback echo.
+      window.setTimeout(() => {
+        if (!conversationActiveRef.current) return;
+        modelSpeakingRef.current = false;
+        setMicMutedForEcho(false);
+        setChatState("listening");
+      }, 250);
       return;
     }
 
     if (type === "input_audio_buffer.speech_started") {
-      setChatState("listening");
+      if (!modelSpeakingRef.current) setChatState("listening");
       return;
     }
 
     if (type === "input_audio_buffer.speech_stopped") {
-      // Same audible cue the legacy pipeline played when silence detection
-      // closed the recording — fires the moment the server VAD decides the
-      // utterance is over, just before transcription/translation kicks in.
+      if (modelSpeakingRef.current) return; // echo, ignore
       playCutoffChime();
       setChatState("transcribing");
       return;
@@ -1103,7 +1161,7 @@ export default function Conversation() {
       const message = event?.error?.message || event?.message;
       if (message && conversationActiveRef.current) setError(String(message));
     }
-  }, [upsertTranslatorMessage]);
+  }, [ensureTranslatorBubble, setMicMutedForEcho]);
 
   const startRealtimeTranslator = useCallback(async (): Promise<boolean> => {
     if (typeof RTCPeerConnection === "undefined") return false;
