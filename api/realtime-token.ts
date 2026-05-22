@@ -94,9 +94,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             },
             turn_detection: {
               type: "server_vad",
-              threshold: 0.65,
-              prefix_padding_ms: 400,
-              silence_duration_ms: 1100,
+              threshold: 0.5,
+              // Capture 700ms of audio before VAD trips so the attack of the
+              // first word is never lost when listening resumes.
+              prefix_padding_ms: 700,
+              silence_duration_ms: 800,
               // The client validates the transcript first, then issues an
               // explicit response.create with source→target instructions.
               // This prevents the model from inventing "Sorry / Mi scusi"

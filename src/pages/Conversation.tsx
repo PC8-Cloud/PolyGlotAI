@@ -578,7 +578,12 @@ export default function Conversation() {
         await audioCtxRef.current.resume();
       }
       return {
-        stream: processedStreamRef.current || streamRef.current!,
+        // rawStream is the original getUserMedia track — feed this to WebRTC
+        // so the browser can apply native echo cancellation against the audio
+        // we are about to play back. processedStream goes only to MediaRecorder
+        // (where gain/compression help noisy audio without breaking AEC).
+        rawStream: streamRef.current!,
+        processedStream: processedStreamRef.current || streamRef.current!,
         analyser: analyserRef.current,
       };
     }
@@ -646,7 +651,11 @@ export default function Conversation() {
     analyserRef.current = analyser;
     processedStreamRef.current = processedDestination.stream;
 
-    return { stream: processedDestination.stream, analyser };
+    return {
+      rawStream: stream,
+      processedStream: processedDestination.stream,
+      analyser,
+    };
   }, []);
 
   // ─── Start listening ──────────────────────────────────────────────────
@@ -907,7 +916,8 @@ export default function Conversation() {
   const startRealtimeConversation = useCallback(async (): Promise<boolean> => {
     if (typeof RTCPeerConnection === "undefined") return false;
     try {
-      const { stream, analyser } = await ensureMicReady();
+      // Raw mic stream — preserves the browser's native echo cancellation.
+      const { rawStream: stream, analyser } = await ensureMicReady();
       const token = await createRealtimeTranscriptionToken([yourLangRef.current, theirLangRef.current]);
       const pc = new RTCPeerConnection();
       const dc = pc.createDataChannel("oai-events");
@@ -1027,20 +1037,6 @@ export default function Conversation() {
     }
   }, []);
 
-  const setMicMutedForEcho = useCallback((muted: boolean) => {
-    const track = realtimeTrackRef.current;
-    if (!track || track.readyState !== "live") return;
-    track.enabled = !muted;
-    if (!muted) {
-      // We just unmuted — clear whatever the server buffered for us during the
-      // mute window so it does not get treated as a fresh user turn.
-      const dc = realtimeDcRef.current;
-      if (dc && dc.readyState === "open") {
-        try { dc.send(JSON.stringify({ type: "input_audio_buffer.clear" })); } catch {}
-      }
-    }
-  }, []);
-
   const handleTranslatorEvent = useCallback((event: any) => {
     const type = String(event?.type || "");
     const evItemId = String(event?.item_id || event?.item?.id || "");
@@ -1127,10 +1123,10 @@ export default function Conversation() {
         // been observed (some SDK versions skip it).
         ensureTranslatorBubble(lastItemId);
       }
-      // Mute the mic while the model speaks so its own output (echo through
-      // speakers) is not re-captured and re-transcribed as a new user turn.
+      // Note: we no longer mute the mic. The raw mic stream goes to WebRTC
+      // and the browser's native echo cancellation handles the playback loop.
+      // Muting cost us the attack of the next user word.
       modelSpeakingRef.current = true;
-      setMicMutedForEcho(true);
       setChatState("translating");
       return;
     }
@@ -1167,7 +1163,10 @@ export default function Conversation() {
     }
 
     // ── 6. Model has finished speaking ──────────────────────────────────
-    if (type === "response.done" || type === "output_audio_buffer.stopped") {
+    // We wait for output_audio_buffer.stopped (audio actually flushed) rather
+    // than response.done (server logical completion) so that the UI returns
+    // to "listening" only once playback is genuinely silent.
+    if (type === "output_audio_buffer.stopped") {
       const targetItemId = translatorResponseToItemRef.current[responseId];
       const messageId = targetItemId ? translatorMessageMapRef.current[targetItemId] : undefined;
       if (messageId != null) {
@@ -1175,24 +1174,27 @@ export default function Conversation() {
           prev.map((m) => (m.id === messageId ? { ...m, status: "done" } : m)),
         );
       }
-      // Re-arm mic shortly after the local audio element has flushed the tail
-      // of the response. 250ms is enough to clear residual playback echo.
-      window.setTimeout(() => {
-        if (!conversationActiveRef.current) return;
-        modelSpeakingRef.current = false;
-        setMicMutedForEcho(false);
-        setChatState("listening");
-      }, 250);
+      modelSpeakingRef.current = false;
+      if (conversationActiveRef.current) setChatState("listening");
+      return;
+    }
+
+    if (type === "response.done") {
+      // Server-side completion only — playback may still be flushing.
+      // We don't change UI state here; output_audio_buffer.stopped will.
       return;
     }
 
     if (type === "input_audio_buffer.speech_started") {
-      if (!modelSpeakingRef.current) setChatState("listening");
+      // User has started speaking. If the model is still playing its previous
+      // turn, server VAD with interrupt_response will cut it. We immediately
+      // mark the model as idle so the next response.create is not blocked.
+      modelSpeakingRef.current = false;
+      setChatState("listening");
       return;
     }
 
     if (type === "input_audio_buffer.speech_stopped") {
-      if (modelSpeakingRef.current) return; // echo, ignore
       playCutoffChime();
       setChatState("transcribing");
       return;
@@ -1203,12 +1205,16 @@ export default function Conversation() {
       const message = event?.error?.message || event?.message;
       if (message && conversationActiveRef.current) setError(String(message));
     }
-  }, [ensureTranslatorBubble, setMicMutedForEcho, sendTranslateResponse]);
+  }, [ensureTranslatorBubble, sendTranslateResponse]);
 
   const startRealtimeTranslator = useCallback(async (): Promise<boolean> => {
     if (typeof RTCPeerConnection === "undefined") return false;
     try {
-      const { stream, analyser } = await ensureMicReady();
+      // Raw mic stream — the browser's native echo cancellation cancels the
+      // translated audio we're playing back through the remote track. Sending
+      // the processed WebAudio stream would break AEC and create a feedback
+      // loop where the model hears its own voice as a new user turn.
+      const { rawStream: stream, analyser } = await ensureMicReady();
       // Realtime API supports a fixed voice per session. "marin" is the most
       // recent multilingual voice and renders both directions naturally.
       const token = await createRealtimeTranslatorToken(
@@ -1305,7 +1311,8 @@ export default function Conversation() {
     noSpeechCaptureRef.current = false;
 
     try {
-      const { stream, analyser } = await ensureMicReady();
+      // MediaRecorder path benefits from gain/compression, no AEC needed.
+      const { processedStream: stream, analyser } = await ensureMicReady();
 
       const mimeType = getRecorderMimeType();
       const recorder = mimeType
