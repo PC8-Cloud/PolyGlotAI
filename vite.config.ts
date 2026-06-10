@@ -14,6 +14,7 @@ const API_MODULES: Record<string, string> = {
   '/api/youtube-transcript': '/api/youtube-transcript.ts',
   '/api/voice-clone': '/api/voice-clone.ts',
   '/api/realtime-token': '/api/realtime-token.ts',
+  '/api/rates': '/api/rates.ts',
 };
 
 async function readJsonBody(req: any): Promise<any> {

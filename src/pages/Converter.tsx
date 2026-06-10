@@ -376,7 +376,7 @@ export default function Converter() {
       return;
     }
 
-    fetch(`https://api.frankfurter.app/latest?from=${fromCurrency}`)
+    fetch(`/api/rates?from=${fromCurrency}`)
       .then((r) => r.json())
       .then((data) => {
         setRates(data.rates || {});

@@ -370,7 +370,7 @@ export default function Home() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-bold text-[#F4F4F4]">{t("offlineConversions")}</p>
-                    <p className="text-xs text-green-400 mt-0.5">{t("worksOffline")}</p>
+                    <p className="text-xs text-amber-400 mt-0.5">{t("worksOffline")}</p>
                   </div>
                 </div>
               </div>
