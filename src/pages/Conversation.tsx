@@ -8,6 +8,7 @@ import { LanguageOptions } from "../components/LanguageOptions";
 import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudioDetectLang, suspendAudioForMic, withTimeout, createRealtimeTranscriptionToken, createRealtimeTranslatorToken } from "../lib/openai";
 import { detectPitch, classifyGender } from "../lib/gender-detect";
 import { getTrialUpgradeMessage } from "../lib/trial";
+import { getMicPermissionState } from "../lib/mic-permission";
 
 // Hard cap on a single TTS playback so a suspended AudioContext (screen off,
 // app backgrounded) cannot deadlock the conversation loop.
@@ -234,6 +235,19 @@ export default function Conversation() {
   useEffect(() => { theirLangRef.current = theirLang; }, [theirLang]);
   useEffect(() => { autoSpeakRef.current = autoSpeak; }, [autoSpeak]);
   useEffect(() => { conversationActiveRef.current = conversationActive; }, [conversationActive]);
+
+  // Pre-warm mic stream on mount if permission is already granted so that
+  // getUserMedia does not add latency when the user presses Start.
+  useEffect(() => {
+    void (async () => {
+      const state = await getMicPermissionState();
+      if (state === "granted") {
+        await ensureMicReady().catch(() => {});
+      }
+    })();
+  // ensureMicReady is stable (useCallback); run once on mount.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const startKeepAliveFallback = useCallback(async () => {
     if (keepAliveCtxRef.current) return;
@@ -918,9 +932,11 @@ export default function Conversation() {
   const startRealtimeConversation = useCallback(async (): Promise<boolean> => {
     if (typeof RTCPeerConnection === "undefined") return false;
     try {
-      // Raw mic stream — preserves the browser's native echo cancellation.
-      const { rawStream: stream, analyser } = await ensureMicReady();
-      const token = await createRealtimeTranscriptionToken([yourLangRef.current, theirLangRef.current]);
+      // Mic init and token fetch are independent — run in parallel to save ~300ms.
+      const [{ rawStream: stream, analyser }, token] = await Promise.all([
+        ensureMicReady(),
+        createRealtimeTranscriptionToken([yourLangRef.current, theirLangRef.current]),
+      ]);
       const pc = new RTCPeerConnection();
       const dc = pc.createDataChannel("oai-events");
       const track = stream.getAudioTracks()[0];
@@ -1213,17 +1229,16 @@ export default function Conversation() {
   const startRealtimeTranslator = useCallback(async (): Promise<boolean> => {
     if (typeof RTCPeerConnection === "undefined") return false;
     try {
-      // Raw mic stream — the browser's native echo cancellation cancels the
-      // translated audio we're playing back through the remote track. Sending
-      // the processed WebAudio stream would break AEC and create a feedback
-      // loop where the model hears its own voice as a new user turn.
-      const { rawStream: stream, analyser } = await ensureMicReady();
-      // Realtime API supports a fixed voice per session. "marin" is the most
-      // recent multilingual voice and renders both directions naturally.
-      const token = await createRealtimeTranslatorToken(
-        [yourLangRef.current, theirLangRef.current],
-        { voice: "marin" },
-      );
+      // Mic init and token fetch are independent — run in parallel to save ~300ms.
+      // Raw stream goes to WebRTC so the browser AEC can cancel translated audio
+      // played back through speakers; processed stream is not needed here.
+      const [{ rawStream: stream, analyser }, token] = await Promise.all([
+        ensureMicReady(),
+        createRealtimeTranslatorToken(
+          [yourLangRef.current, theirLangRef.current],
+          { voice: "marin" },
+        ),
+      ]);
       const pc = new RTCPeerConnection();
       const dc = pc.createDataChannel("oai-events");
       const track = stream.getAudioTracks()[0];
