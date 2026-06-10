@@ -11,7 +11,7 @@ import { getTrialUpgradeMessage } from "../lib/trial";
 
 // Hard cap on a single TTS playback so a suspended AudioContext (screen off,
 // app backgrounded) cannot deadlock the conversation loop.
-const TTS_PLAYBACK_TIMEOUT_MS = 90_000;
+const TTS_PLAYBACK_TIMEOUT_MS = 12_000;
 
 type MsgStatus = "sent" | "translated" | "playing" | "done";
 
@@ -221,6 +221,9 @@ export default function Conversation() {
   // track so the model's own speech (echo from speakers) does not feed back
   // into the input buffer and get re-transcribed as the next "user turn".
   const modelSpeakingRef = useRef<boolean>(false);
+  // Always holds the latest startListening, so callbacks defined before it can
+  // safely call it via ref without stale-closure issues.
+  const startListeningCallbackRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -692,7 +695,7 @@ export default function Conversation() {
       const isSilenceToken =
         /^(you|uh|um|hmm+|mm+|eh+|ah+|ok+|okay)$/.test(cleanedLower);
       const isLikelyGhostPronoun =
-        /^(you|tu|du|voi|sie|te)$/.test(cleanedLower) && recordDuration < 1600;
+        /^(you|tu|du|voi|sie|te)$/.test(cleanedLower) && recordDuration < 700;
       const isPromptLeak = isLikelyPromptLeakTranscript(trimmed);
       const isHallucination =
         !trimmed ||
@@ -838,9 +841,9 @@ export default function Conversation() {
 
     try {
       const lower = trimmed.toLowerCase();
-      const cleanedLower = lower.replace(/[^\p{L}\p{N}\s]/gu, "").trim();
-      const isSilenceToken = /^(you|uh|um|hmm+|mm+|eh+|ah+|ok+|okay)$/.test(cleanedLower);
       const isPromptLeak = isLikelyPromptLeakTranscript(trimmed);
+      // Note: isSilenceToken removed here — server VAD already filters genuine
+      // silence; removing it prevents "OK?", "Sì?", "Tu?" from being dropped.
       const isHallucination =
         trimmed.length < 2 ||
         /^[\s.,!?…\-—–]+$/.test(trimmed) ||
@@ -853,7 +856,6 @@ export default function Conversation() {
         lower.includes("copyright") ||
         lower.includes("♪") ||
         lower.includes("🎵") ||
-        isSilenceToken ||
         isPromptLeak;
 
       if (isHallucination) {
@@ -934,8 +936,11 @@ export default function Conversation() {
       pc.onconnectionstatechange = () => {
         if (CONVERSATION_DEBUG) console.log("[Conversation] realtime state", pc.connectionState);
         if (["failed", "disconnected", "closed"].includes(pc.connectionState) && conversationActiveRef.current) {
-          setError((t as any).genericApiError || "Temporary error. Try again.");
-          stopConversation();
+          // Close Realtime session but keep the conversation alive via MediaRecorder fallback.
+          closeRealtimeSession();
+          setTimeout(() => {
+            if (conversationActiveRef.current) startListeningCallbackRef.current();
+          }, 300);
         }
       };
 
@@ -1079,10 +1084,8 @@ export default function Conversation() {
       setInterimText("");
       if (!transcript) return;
       const lower = transcript.toLowerCase();
-      const cleanedLower = lower.replace(/[^\p{L}\p{N}\s]/gu, "").trim();
-      const isSilenceToken = /^(you|uh|um|hmm+|mm+|eh+|ah+|ok+|okay)$/.test(cleanedLower);
       const isPromptLeak = isLikelyPromptLeakTranscript(transcript);
-      if (transcript.length < 2 || isSilenceToken || isPromptLeak) {
+      if (transcript.length < 2 || isPromptLeak) {
         if (CONVERSATION_DEBUG) console.log("[Translator] filtered:", transcript.slice(0, 40));
         return;
       }
@@ -1249,8 +1252,11 @@ export default function Conversation() {
       pc.onconnectionstatechange = () => {
         if (CONVERSATION_DEBUG) console.log("[Translator] state", pc.connectionState);
         if (["failed", "disconnected", "closed"].includes(pc.connectionState) && conversationActiveRef.current) {
-          setError((t as any).genericApiError || "Temporary error. Try again.");
-          stopConversation();
+          // Close Realtime session but keep the conversation alive via MediaRecorder fallback.
+          closeRealtimeSession();
+          setTimeout(() => {
+            if (conversationActiveRef.current) startListeningCallbackRef.current();
+          }, 300);
         }
       };
 
@@ -1397,6 +1403,11 @@ export default function Conversation() {
     }
   }, [ensureMicReady, releaseMicResources, scheduleListeningRestart, startSilenceDetection, startInterimRecognition]);
 
+  // Keep ref current so handlers defined before startListening can call it.
+  useEffect(() => {
+    startListeningCallbackRef.current = () => { void startListening(); };
+  }, [startListening]);
+
   // ─── Stop listening ───────────────────────────────────────────────────
 
   const stopListening = useCallback(() => {
@@ -1442,6 +1453,10 @@ export default function Conversation() {
       // Auto-speak translation — wait for TTS to finish before listening again
       if (autoSpeakRef.current && translatedText !== "...") {
         if (CONVERSATION_DEBUG) console.log("[Conversation] play translated TTS", { targetLang, translatedText: translatedText.slice(0, 60) });
+        // In Realtime-transcription mode, mute the WebRTC mic track while TTS
+        // plays so the server VAD doesn't re-transcribe our own output.
+        const inRealtimeTranscription = realtimeModeRef.current === "transcription";
+        if (inRealtimeTranscription) setRealtimeMicEnabled(false);
         setChatState("speaking");
         setPlayingId(newId);
         setMessages((prev) =>
@@ -1463,6 +1478,15 @@ export default function Conversation() {
           setMessages((prev) =>
             prev.map((m) => (m.id === newId ? { ...m, status: "done" } : m))
           );
+          if (inRealtimeTranscription) {
+            // Clear any audio buffered on the server while we were playing TTS,
+            // then re-enable the mic so the next speaker turn starts clean.
+            const dc = realtimeDcRef.current;
+            if (dc && dc.readyState === "open") {
+              try { dc.send(JSON.stringify({ type: "input_audio_buffer.clear" })); } catch {}
+            }
+            setRealtimeMicEnabled(true);
+          }
         }
       }
 
