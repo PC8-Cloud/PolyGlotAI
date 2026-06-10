@@ -794,9 +794,10 @@ export default function Conversation() {
       setError((t as any)[key] || fallback);
     } finally {
       processingRef.current = false;
-      if (conversationActiveRef.current) {
+      if (conversationActiveRef.current && !realtimeActiveRef.current) {
+        // Only restart MediaRecorder if Realtime has not taken over.
         scheduleListeningRestart();
-      } else {
+      } else if (!conversationActiveRef.current) {
         setChatState("idle");
       }
     }
@@ -1534,15 +1535,30 @@ export default function Conversation() {
     setMessages([]);
     setError(null);
     processingRef.current = false;
-    // Preferred: full-duplex speech-to-speech translator (lowest latency).
-    // Falls back to transcription-only realtime + client-side translate/TTS,
-    // and finally to the MediaRecorder pipeline if WebRTC is unavailable.
+
+    if (typeof RTCPeerConnection === "undefined") {
+      // No WebRTC support at all: go straight to MediaRecorder.
+      startListening();
+      return;
+    }
+
+    // Start MediaRecorder immediately so the user sees "In ascolto" right away
+    // without waiting for the Realtime API connection (~800ms). Realtime will
+    // take over once it connects and stopListening() will shut down the recorder.
+    void startListening();
+
     const translatorStarted = await startRealtimeTranslator();
-    if (!translatorStarted && conversationActiveRef.current) {
+    if (translatorStarted && conversationActiveRef.current) {
+      stopListening();
+      return;
+    }
+
+    if (conversationActiveRef.current) {
       const transcriptionStarted = await startRealtimeConversation();
-      if (!transcriptionStarted && conversationActiveRef.current) {
-        startListening();
+      if (transcriptionStarted && conversationActiveRef.current) {
+        stopListening();
       }
+      // Both Realtime modes failed: MediaRecorder is already running, nothing to do.
     }
   };
 
