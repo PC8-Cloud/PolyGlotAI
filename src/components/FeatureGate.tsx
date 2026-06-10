@@ -1,6 +1,6 @@
 import React, { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { Lock } from "lucide-react";
+import { Lock, ChevronLeft } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { hasFeature, PLAN_FEATURES } from "../lib/subscription";
@@ -21,6 +21,15 @@ export default function FeatureGate({ feature, children }: FeatureGateProps) {
 
   return (
     <div className="min-h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans">
+      <div className="flex items-center px-4 pt-[calc(env(safe-area-inset-top)+0.75rem)] pb-3">
+        <button
+          onClick={() => navigate(-1)}
+          className="p-2 rounded-xl hover:bg-white/10 transition-colors"
+          aria-label="Go back"
+        >
+          <ChevronLeft className="w-6 h-6" />
+        </button>
+      </div>
       <div className="flex-1 flex flex-col items-center justify-center p-6 gap-6">
         <div className="w-20 h-20 rounded-full bg-[#295BDB]/20 flex items-center justify-center">
           <Lock className="w-10 h-10 text-[#295BDB]" />

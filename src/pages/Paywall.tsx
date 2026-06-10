@@ -1,6 +1,6 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
-import { Check, Crown, Zap, Building2, Palmtree, Ticket, Loader2 } from "lucide-react";
+import { Check, Crown, Zap, Building2, Palmtree, Ticket, Loader2, ChevronLeft } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { useAuth } from "../components/AuthProvider";
@@ -89,7 +89,16 @@ export default function Paywall() {
 
   return (
     <div className="min-h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans">
-      <div className="flex-1 overflow-y-auto px-6 pb-6 pt-[calc(env(safe-area-inset-top)+1.5rem)]">
+      <div className="flex items-center px-4 pt-[calc(env(safe-area-inset-top)+0.75rem)] pb-1">
+        <button
+          onClick={() => navigate(-1)}
+          className="p-2 rounded-xl hover:bg-white/10 transition-colors"
+          aria-label="Go back"
+        >
+          <ChevronLeft className="w-6 h-6" />
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto px-6 pb-6">
         {/* Title */}
         <div className="text-center mb-8 pt-4">
           <h1 className="text-2xl font-black mb-2">{t("choosePlan")}</h1>
