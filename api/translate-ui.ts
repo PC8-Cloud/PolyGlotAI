@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import OpenAI from "openai";
-import { requireApiAccess } from "./auth.js";
+import { requireApiAccess, resolveModel } from "./auth.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -27,7 +27,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       : targetLanguageCode;
 
     const response = await client.chat.completions.create({
-      model: model || "gpt-4o",
+      model: resolveModel("text", model, "gpt-4o"),
       temperature: 0.15,
       response_format: { type: "json_object" },
       messages: [

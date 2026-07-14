@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import OpenAI from "openai";
-import { requireApiAccess } from "./auth.js";
+import { requireApiAccess, resolveModel } from "./auth.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 type AccessFeature = "conversation" | "megaphone" | "room" | "phrases" | "converter";
@@ -291,7 +291,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const { text, sourceLanguage, sourceLanguageName, targetLanguages, targetLanguageNames, model, mode, glossaryHints } = req.body;
     if (!text?.trim() || !targetLanguages?.length) return res.json({});
-    const modelName = model || "gpt-4.1-mini";
+    const modelName = resolveModel("text", model, "gpt-4.1-mini");
     const translationMode = String(mode || "general");
     const source = {
       code: String(sourceLanguage || "").trim(),

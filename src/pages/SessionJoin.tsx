@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { db } from "../firebase";
 import { doc, getDoc } from "firebase/firestore";
 import { joinSession } from "../lib/firebase-helpers";
+import { ensureSignedIn } from "../lib/auth";
 import { useUserStore } from "../lib/store";
 import { LanguageSwitcher } from "../components/LanguageSwitcher";
 import { useTranslation } from "../lib/i18n";
@@ -27,15 +28,22 @@ export default function SessionJoin() {
 
   useEffect(() => {
     if (!sessionId) return;
-    getDoc(doc(db, "sessions", sessionId)).then((d) => {
-      if (d.exists()) {
-        setSession(d.data());
-        if (d.data().targetLanguages && d.data().targetLanguages.length > 0) {
-          setLanguage(d.data().targetLanguages[0]);
+    // Session reads require authentication; sign in (anonymously) first.
+    ensureSignedIn()
+      .then(() => getDoc(doc(db, "sessions", sessionId)))
+      .then((d) => {
+        if (d.exists()) {
+          setSession(d.data());
+          if (d.data().targetLanguages && d.data().targetLanguages.length > 0) {
+            setLanguage(d.data().targetLanguages[0]);
+          }
         }
-      }
-      setLoading(false);
-    });
+        setLoading(false);
+      })
+      .catch((e) => {
+        console.error("Failed to load session", e);
+        setLoading(false);
+      });
   }, [sessionId]);
 
   const handleJoin = async () => {

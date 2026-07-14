@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import OpenAI, { toFile } from "openai";
-import { requireApiAccess } from "./auth.js";
+import { requireApiAccess, resolveModel } from "./auth.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 type MeteredFeature = "conversation" | "megaphone";
@@ -79,7 +79,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!filePart?.data) return res.status(400).json({ error: "No audio file" });
 
       const language = languagePart?.data?.toString() || undefined;
-      const model = modelPart?.data?.toString() || "gpt-4o-transcribe";
+      const model = resolveModel("transcribe", modelPart?.data?.toString(), "gpt-4o-transcribe");
       const requestedFeature = featurePart?.data?.toString() === "megaphone" ? "megaphone" : "conversation";
       const feature: MeteredFeature = includeTimestampsPart?.data?.toString() === "true"
         ? "conversation"

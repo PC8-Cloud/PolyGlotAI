@@ -104,10 +104,6 @@ export function isPlanActive(): boolean {
 
 // Check if user has access to a specific feature
 export function hasFeature(feature: keyof typeof PLAN_FEATURES.free): boolean {
-  // Optional local override (only when explicitly enabled).
-  if (typeof import.meta !== "undefined" && String((import.meta as any).env?.VITE_DEV_UNLOCK_ALL_FEATURES || "").toLowerCase() === "true") {
-    return true;
-  }
   const { plan } = useUserStore.getState();
   const activePlan = isPlanActive() ? plan : "free";
   if (activePlan === "free" && isTrialActive()) {

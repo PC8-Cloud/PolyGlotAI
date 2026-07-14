@@ -89,6 +89,31 @@ const TRIAL_FEATURES: Record<Feature, boolean> = {
   voiceClone: false,
 };
 
+type ModelCategory = "text" | "vision" | "tts" | "transcribe" | "realtime";
+
+// Server-side allowlist of OpenAI models the client is allowed to request, per
+// category. Every entry is a model we are willing to pay for; anything outside
+// the list is ignored in favour of the endpoint's default.
+const ALLOWED_MODELS: Record<ModelCategory, readonly string[]> = {
+  text: ["gpt-4.1-mini", "gpt-4.1", "gpt-4o-mini", "gpt-4o"],
+  vision: ["gpt-4.1-mini", "gpt-4o-mini", "gpt-4.1", "gpt-4o"],
+  tts: ["gpt-4o-mini-tts", "tts-1", "tts-1-hd"],
+  transcribe: ["gpt-4o-transcribe", "gpt-4o-mini-transcribe", "whisper-1"],
+  realtime: ["gpt-realtime"],
+};
+
+/**
+ * Resolve the OpenAI model server-side. The client may *request* a model, but
+ * only one from the category allowlist is honoured; anything else (including a
+ * tampered localStorage value or a hand-crafted request aimed at a pricier
+ * model) falls back to `fallback`. This caps the per-call cost the caller can
+ * force onto the owner's OpenAI key.
+ */
+export function resolveModel(category: ModelCategory, requested: unknown, fallback: string): string {
+  const value = typeof requested === "string" ? requested.trim() : "";
+  return ALLOWED_MODELS[category].includes(value) ? value : fallback;
+}
+
 function readBearerToken(req: VercelRequest): string | null {
   const raw = req.headers.authorization || "";
   const match = String(raw).match(/^Bearer\s+(.+)$/i);

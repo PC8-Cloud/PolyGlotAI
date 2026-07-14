@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import OpenAI from "openai";
-import { requireApiAccess } from "./auth.js";
+import { requireApiAccess, resolveModel } from "./auth.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -32,7 +32,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       : undefined;
 
     const response = await client.audio.speech.create({
-      model: model || "gpt-4o-mini-tts",
+      model: resolveModel("tts", model, "gpt-4o-mini-tts"),
       voice: voice || "nova",
       input: text,
       speed: speed || 1.0,

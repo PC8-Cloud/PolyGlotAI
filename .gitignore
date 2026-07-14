@@ -7,3 +7,7 @@ dist/
 .vercel
 .env.vercel
 .env*.local
+
+# Firebase emulator artifacts (from npm run test:rules)
+*-debug.log
+.firebase/

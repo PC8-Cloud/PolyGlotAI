@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { requireApiAccess } from "./auth.js";
+import { requireApiAccess, resolveModel } from "./auth.js";
 
 const OPENAI_API_BASE = "https://api.openai.com/v1";
 
@@ -47,9 +47,10 @@ function buildTranslatorInstructions(yourLang: unknown, theirLang: unknown): str
   // sourceLang→targetLang instructions, so this only kicks in if a response
   // is ever generated without override.
   return [
-    `You are a silent translation engine between ${A} and ${B}.`,
-    `You only translate verbatim. You never greet, acknowledge, apologise, summarise, answer questions, or comment.`,
-    `If the request does not specify a target language, do nothing.`,
+    `You are a pure verbatim translation machine between ${A} and ${B}. You are NOT a chatbot or assistant.`,
+    `ABSOLUTE RULES: Output ONLY the exact translation of the spoken words. NEVER greet, respond, answer, acknowledge, comment, add context, or generate any text that was not literally spoken by the human.`,
+    `NEVER produce conversational replies (e.g. "How are you?", "I hear you loud and clear", "Thank you"). If in doubt, translate literally or output nothing.`,
+    `If the request does not specify a target language, output nothing.`,
   ].join(" ");
 }
 
@@ -78,8 +79,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const yourLang = languages[0];
       const theirLang = languages[1];
       const voice = String(req.body?.voice || "marin").trim();
-      const transcribeModel = String(req.body?.transcribeModel || "gpt-4o-transcribe").trim();
-      const model = String(req.body?.model || "gpt-realtime").trim();
+      const transcribeModel = resolveModel("transcribe", req.body?.transcribeModel, "gpt-4o-transcribe");
+      const model = resolveModel("realtime", req.body?.model, "gpt-realtime");
 
       sessionBody = {
         type: "realtime",
@@ -115,7 +116,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         instructions: buildTranslatorInstructions(yourLang, theirLang),
       };
     } else {
-      const model = String(req.body?.model || "gpt-4o-transcribe").trim();
+      const model = resolveModel("transcribe", req.body?.model, "gpt-4o-transcribe");
       sessionBody = {
         type: "transcription",
         audio: {

@@ -57,12 +57,27 @@ service cloud.firestore {
              get(/databases/$(database)/documents/sessions/$(sessionId)/participants/$(participantId)).data.userId == request.auth.uid;
     }
 
+    // The caller must belong to the session to post: either its host, or a
+    // participant it owns (isParticipantOwner checks the participant doc's
+    // userId == caller, so nobody can post as a participant they don't own).
+    // The removed `senderId == request.auth.uid` branch was the hole: it let
+    // any signed-in user (including anonymous) inject messages into any room
+    // whose id they knew, without ever joining it.
     function canSendSessionMessage(sessionId, senderId) {
       return isAuthenticated() &&
              (
                sessionHostId(sessionId) == request.auth.uid ||
-               senderId == request.auth.uid ||
                isParticipantOwner(sessionId, senderId)
+             );
+    }
+
+    // A session member is its host or a participant it owns. Used to gate
+    // reading the message stream and the participant list.
+    function isSessionMember(sessionId) {
+      return isAuthenticated() &&
+             (
+               sessionHostId(sessionId) == request.auth.uid ||
+               isParticipantOwner(sessionId, request.auth.uid)
              );
     }
 
@@ -97,9 +112,12 @@ service cloud.firestore {
 
     match /app_usage_daily/{docId} {
       allow read: if isAdmin();
-      // Anonymous client telemetry. Validate the document shape to prevent
-      // arbitrary writes; no auth required so first-open metrics still work.
+      // Client telemetry. Requires an authenticated caller (anonymous is fine,
+      // and the app signs in before writing) so the collection can't be
+      // stuffed with arbitrary documents by unauthenticated requests. Shape is
+      // still validated to bound what a legitimate client can write.
       allow create, update: if
+        isAuthenticated() &&
         request.resource.data.dayKey is string &&
         request.resource.data.dayKey.size() <= 16 &&
         request.resource.data.deviceId is string &&
@@ -122,8 +140,12 @@ service cloud.firestore {
     // ─── Sessions and sub-collections ───────────────────────────────────────
 
     match /sessions/{sessionId} {
-      // Anyone can read a session (needed for guests joining via link/code).
-      allow read: if true;
+      // A guest must be able to read a session before joining it (to join via
+      // link or resolve a room code), so this can't be membership-gated. It is
+      // still narrowed from fully public to authenticated-only; the client
+      // signs in (anonymously) before these reads. Stronger protection against
+      // scraping session metadata is App Check, not rules.
+      allow read: if isAuthenticated();
       allow create: if isAuthenticated() &&
                     isValidSession(request.resource.data) &&
                     request.resource.data.hostId == request.auth.uid;
@@ -134,7 +156,9 @@ service cloud.firestore {
       allow delete: if isAuthenticated() && resource.data.hostId == request.auth.uid;
 
       match /participants/{participantId} {
-        allow read: if true;
+        // Only the host or a participant may see the participant list (it holds
+        // other people's display names). Guests don't read it before joining.
+        allow read: if isSessionMember(sessionId);
         allow create: if isAuthenticated() &&
                       isValidParticipant(request.resource.data) &&
                       request.resource.data.sessionId == sessionId;
@@ -155,7 +179,7 @@ service cloud.firestore {
       }
 
       match /messages/{messageId} {
-        allow read: if true;
+        allow read: if isSessionMember(sessionId);
         allow create: if isAuthenticated() &&
                       isValidMessage(request.resource.data) &&
                       request.resource.data.sessionId == sessionId &&

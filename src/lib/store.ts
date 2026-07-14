@@ -17,7 +17,6 @@ interface UserState {
   favoriteLanguages: string[];
   userName: string;
   userGender: "male" | "female" | "";
-  betaUnlocked: boolean;
   textModel: string;
   transcribeModel: string;
   ttsModel: string;
@@ -42,7 +41,6 @@ interface UserState {
   setFavoriteLanguages: (langs: string[]) => void;
   setUserName: (name: string) => void;
   setUserGender: (gender: "male" | "female" | "") => void;
-  setBetaUnlocked: (unlocked: boolean) => void;
   setTextModel: (model: string) => void;
   setTranscribeModel: (model: string) => void;
   setTtsModel: (model: string) => void;
@@ -73,7 +71,6 @@ export const useUserStore = create<UserState>()(
       favoriteLanguages: ["en", "it", "es", "fr", "de", "pt", "zh", "ar", "ja", "ru"],
       userName: "",
       userGender: "",
-      betaUnlocked: false,
       textModel: "gpt-4.1-mini",
       transcribeModel: "gpt-4o-transcribe",
       ttsModel: "gpt-4o-mini-tts",
@@ -98,7 +95,6 @@ export const useUserStore = create<UserState>()(
       setFavoriteLanguages: (langs) => set({ favoriteLanguages: langs }),
       setUserName: (name) => set({ userName: name }),
       setUserGender: (gender) => set({ userGender: gender }),
-      setBetaUnlocked: (unlocked) => set({ betaUnlocked: unlocked }),
       setTextModel: (model) => set({ textModel: model }),
       setTranscribeModel: (model) => set({ transcribeModel: model }),
       setTtsModel: (model) => set({ ttsModel: model }),
@@ -122,6 +118,7 @@ export const useUserStore = create<UserState>()(
       migrate: (persistedState: unknown) => {
         if (persistedState && typeof persistedState === "object") {
           delete (persistedState as Record<string, unknown>).openaiApiKey;
+          delete (persistedState as Record<string, unknown>).betaUnlocked;
         }
         return persistedState as UserState;
       },

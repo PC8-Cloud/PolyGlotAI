@@ -140,6 +140,9 @@ export async function createRoom(hostLang: string) {
 }
 
 export async function findRoomByCode(code: string): Promise<string | null> {
+  // Session reads now require authentication, so make sure we have an identity
+  // before querying (guests hit this before joining).
+  await ensureSignedIn();
   const q = query(
     collection(db, "sessions"),
     where("roomCode", "==", code),
@@ -152,8 +155,11 @@ export async function findRoomByCode(code: string): Promise<string | null> {
 
 export async function joinRoom(sessionId: string, language: string, displayName: string) {
   const uid = await ensureSignedIn();
-  // Use a unique ID per join (not auth UID) so multiple tabs/devices work independently
-  const participantId = doc(collection(db, "sessions", sessionId, "participants")).id;
+  // Key the participant doc by the auth UID (same as joinSession). The security
+  // rules verify room membership by looking up participants/{uid}, so a random
+  // per-join id would make message reads/writes fail for legitimate guests.
+  // A returning user reuses their doc instead of leaving a ghost participant.
+  const participantId = uid;
 
   await setDoc(
     doc(db, "sessions", sessionId, "participants", participantId),
