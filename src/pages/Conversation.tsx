@@ -43,6 +43,12 @@ const WEAK_PEAK_THRESHOLD = 0.025;
 const MIN_AVG_RMS_THRESHOLD = 0.012;
 const MIN_AUDIO_BLOB_BYTES = 1000;
 const MAX_DUPLICATE_SIMILARITY = 0.8; // reject if >80% similar to a recent message
+// How long after the model stops speaking we keep dropping mic input, to cover
+// speaker decay/latency so the tail of the app's own audio isn't re-ingested.
+const ECHO_TAIL_MS = 700;
+// Safety cap: even if the "model finished" event never arrives, echo
+// suppression auto-lifts after this long (no single utterance runs longer).
+const MAX_MODEL_SPEECH_MS = 15000;
 const CONVERSATION_DEBUG = typeof import.meta !== "undefined" ? Boolean((import.meta as any).env?.DEV) : false;
 const REALTIME_WEBRTC_URL = "https://api.openai.com/v1/realtime/calls";
 
@@ -197,6 +203,11 @@ export default function Conversation() {
   const translatorLastInputItemRef = useRef<string | null>(null);
   // Last transcript the model spoke, used to reject mic echo before re-translating it.
   const lastOutputTranscriptRef = useRef<string>("");
+  // While the model is speaking (and a short tail after, for speaker decay), any
+  // transcription can only be the app's own output echoing back through the
+  // speaker. Drop everything captured before this timestamp. Hardware-agnostic:
+  // works with or without headphones/echo-cancellation.
+  const suppressInputUntilRef = useRef<number>(0);
   // True while the model is generating audio for us. Used to mute the mic
   // track so the model's own speech (echo from speakers) does not feed back
   // into the input buffer and get re-transcribed as the next "user turn".
@@ -1073,6 +1084,13 @@ export default function Conversation() {
       realtimeTranscriptRef.current[evItemId] = "";
       setInterimText("");
       if (!transcript) return;
+      // Hard echo gate: if the model is (or just was) speaking, this audio is
+      // the app hearing itself through the speaker. Drop it, no matter the
+      // headphones/AEC situation, so the translation is never fed back.
+      if (Date.now() < suppressInputUntilRef.current) {
+        if (CONVERSATION_DEBUG) console.log("[Translator] suppressed echo (model speaking):", transcript.slice(0, 40));
+        return;
+      }
       const lower = transcript.toLowerCase();
       const isPromptLeak = isLikelyPromptLeakTranscript(transcript);
       if (transcript.length < 2 || isPromptLeak) {
@@ -1122,8 +1140,11 @@ export default function Conversation() {
         ensureTranslatorBubble(lastItemId);
       }
       // Mute mic while the model speaks to prevent TTS echo from being
-      // re-transcribed as a new "Loro" turn. Re-enabled on output_audio_buffer.stopped.
+      // re-transcribed as a new turn. Re-enabled on output_audio_buffer.stopped.
+      // The suppression window (dropping transcriptions) is the real guarantee;
+      // the mute is defence-in-depth. Capped so we can't get stuck suppressing.
       modelSpeakingRef.current = true;
+      suppressInputUntilRef.current = Date.now() + MAX_MODEL_SPEECH_MS;
       setRealtimeMicEnabled(false);
       setChatState("translating");
       return;
@@ -1174,8 +1195,9 @@ export default function Conversation() {
         );
       }
       modelSpeakingRef.current = false;
-      // Clear any echo that was buffered while the model was speaking,
-      // then re-enable the mic for the next human turn.
+      // Keep dropping input for a short tail so the speaker's decay isn't
+      // re-ingested, then clear the buffered echo and re-open the mic.
+      suppressInputUntilRef.current = Date.now() + ECHO_TAIL_MS;
       const dc = realtimeDcRef.current;
       if (dc && dc.readyState === "open") {
         try { dc.send(JSON.stringify({ type: "input_audio_buffer.clear" })); } catch {}
@@ -1192,8 +1214,11 @@ export default function Conversation() {
     }
 
     if (type === "input_audio_buffer.speech_started") {
-      // User has started speaking (interrupt). Re-enable mic if it was muted,
-      // then mark the model as idle so the next response.create is not blocked.
+      // While the model is speaking, a "speech started" is almost always the
+      // echo of its own output, not a real barge-in. Ignore it so we don't
+      // re-open the mic mid-utterance and feed the loop.
+      if (Date.now() < suppressInputUntilRef.current) return;
+      // Genuine start of a user turn.
       modelSpeakingRef.current = false;
       setRealtimeMicEnabled(true);
       setChatState("listening");
