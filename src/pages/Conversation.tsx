@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { ChevronLeft, Mic, MicOff, Send, Volume2, VolumeX, ArrowRightLeft, Check, CheckCheck, Upload, MessagesSquare } from "lucide-react";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
-import { LANGUAGES, getLabelForCode, getLocaleForCode, getPromptLanguageName } from "../lib/languages";
+import { LANGUAGES, getLabelForCode, getLocaleForCode } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
 import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudioDetectLang, suspendAudioForMic, withTimeout, createRealtimeTranscriptionToken, createRealtimeTranslatorToken } from "../lib/openai";
 import { detectPitch, classifyGender } from "../lib/gender-detect";
@@ -133,7 +133,7 @@ export default function Conversation() {
     uiLanguage === "en" ? "it" : "en",
   );
   const [messages, setMessages] = useState<Message[]>([]);
-  const [chatState, setChatState] = useState<"idle" | "listening" | "transcribing" | "translating" | "speaking">("idle");
+  const [chatState, setChatState] = useState<"idle" | "connecting" | "listening" | "transcribing" | "translating" | "speaking">("idle");
   const [autoSpeak, setAutoSpeak] = useState(true);
   const [playingId, setPlayingId] = useState<number | null>(null);
   const [conversationActive, setConversationActive] = useState(false);
@@ -195,6 +195,8 @@ export default function Conversation() {
   // Most recent input item the server created from the user's speech.
   // We use this to associate the next response.created with the right turn.
   const translatorLastInputItemRef = useRef<string | null>(null);
+  // Last transcript the model spoke, used to reject mic echo before re-translating it.
+  const lastOutputTranscriptRef = useRef<string>("");
   // True while the model is generating audio for us. Used to mute the mic
   // track so the model's own speech (echo from speakers) does not feed back
   // into the input buffer and get re-transcribed as the next "user turn".
@@ -1005,26 +1007,24 @@ export default function Conversation() {
    * the embedded transcript, not its own audio interpretation, which
    * eliminates "Sorry / Mi scusi" hallucinations on noisy or empty audio.
    */
-  const sendTranslateResponse = useCallback((transcript: string, sourceLang: string, targetLang: string) => {
+  const sendTranslateResponse = useCallback((transcript: string) => {
     const dc = realtimeDcRef.current;
     if (!dc || dc.readyState !== "open") return;
-    const srcName = getPromptLanguageName(sourceLang) || sourceLang;
-    const tgtName = getPromptLanguageName(targetLang) || targetLang;
-    const instructions = [
-      `TRANSLATION TASK ONLY. You are a machine, not a chatbot.`,
-      `Output ONLY the ${tgtName} translation of the ${srcName} text below. Nothing else.`,
-      `DO NOT greet. DO NOT answer. DO NOT respond. DO NOT add any word that is not a direct translation.`,
-      `DO NOT produce conversational replies under any circumstances, even if the input sounds like a greeting or a question.`,
-      `If the input is ambiguous or untranslatable, output it as-is.`,
-      ``,
-      `${srcName} text to translate: """${transcript}"""`,
-    ].join("\n");
     try {
       dc.send(JSON.stringify({
         type: "response.create",
         response: {
           output_modalities: ["audio"],
-          instructions,
+          // Isolate this turn: hand the model exactly this text as its input,
+          // not the running bilingual history. Direction is chosen by the
+          // session's bidirectional instructions from the language of the text.
+          input: [
+            {
+              type: "message",
+              role: "user",
+              content: [{ type: "input_text", text: transcript }],
+            },
+          ],
         },
       }));
     } catch (e) {
@@ -1079,15 +1079,21 @@ export default function Conversation() {
         if (CONVERSATION_DEBUG) console.log("[Translator] filtered:", transcript.slice(0, 40));
         return;
       }
-      // Side detection — Whisper's language tag is the authoritative signal.
-      // Text-based keyword scoring is only a fallback for the rare case where
-      // the API returns no language (very short utterances).
-      const sideFromLang = detectedLang ? detectSideFromLanguage(detectedLang) : null;
-      const side: "you" | "them" = sideFromLang ?? detectSideFromText(transcript);
-      if (CONVERSATION_DEBUG) console.log("[Translator] side:", side, "lang:", detectedLang, "text:", transcript.slice(0, 60));
+      // Echo guard: if this "utterance" is essentially the model's own last
+      // spoken output picked up by the mic, drop it instead of translating it
+      // back and starting a loop.
+      const lastOut = lastOutputTranscriptRef.current;
+      if (lastOut && textSimilarity(lower, lastOut.toLowerCase()) > 0.8) {
+        if (CONVERSATION_DEBUG) console.log("[Translator] dropped echo:", transcript.slice(0, 40));
+        return;
+      }
+      // Direction is decided by the model (bidirectional session instructions).
+      // We only guess a side for bubble alignment/labelling — a wrong guess is
+      // cosmetic and never changes what gets translated.
+      const side: "you" | "them" = detectSideFromText(transcript);
       lastDetectedSideRef.current = side;
       const sourceLang = side === "you" ? yourLangRef.current : theirLangRef.current;
-      const targetLang = side === "you" ? theirLangRef.current : yourLangRef.current;
+      if (CONVERSATION_DEBUG) console.log("[Translator] in:", transcript.slice(0, 60), "lang:", detectedLang, "cosmeticSide:", side);
       const messageId = ensureTranslatorBubble(evItemId);
       setMessages((prev) =>
         prev.map((m) =>
@@ -1096,9 +1102,8 @@ export default function Conversation() {
             : m,
         ),
       );
-      // Tell the server which response we're about to ask for, then issue it.
       translatorLastInputItemRef.current = evItemId;
-      sendTranslateResponse(transcript, sourceLang, targetLang);
+      sendTranslateResponse(transcript);
       return;
     }
 
@@ -1142,6 +1147,7 @@ export default function Conversation() {
 
     if (type === "response.output_audio_transcript.done" || type === "response.audio_transcript.done") {
       const transcript = String(event?.transcript || "").trim();
+      if (transcript) lastOutputTranscriptRef.current = transcript;
       const targetItemId = translatorResponseToItemRef.current[responseId];
       const messageId = targetItemId ? translatorMessageMapRef.current[targetItemId] : undefined;
       if (messageId == null) return;
@@ -1522,24 +1528,22 @@ export default function Conversation() {
       return;
     }
 
-    // Start MediaRecorder immediately so the user sees "In ascolto" right away
-    // without waiting for the Realtime API connection (~800ms). Realtime will
-    // take over once it connects and stopListening() will shut down the recorder.
-    void startListening();
+    // Wait for a Realtime session before opening the mic. Starting the
+    // MediaRecorder in parallel used to split the first utterance between two
+    // engines (recorder caught the start, Realtime the rest). Show a short
+    // "connecting" state instead; the mic only opens once we have a session.
+    setChatState("connecting");
 
     const translatorStarted = await startRealtimeTranslator();
-    if (translatorStarted && conversationActiveRef.current) {
-      stopListening();
-      return;
-    }
+    if (translatorStarted && conversationActiveRef.current) return;
 
     if (conversationActiveRef.current) {
       const transcriptionStarted = await startRealtimeConversation();
-      if (transcriptionStarted && conversationActiveRef.current) {
-        stopListening();
-      }
-      // Both Realtime modes failed: MediaRecorder is already running, nothing to do.
+      if (transcriptionStarted && conversationActiveRef.current) return;
     }
+
+    // No Realtime available at all: fall back to the MediaRecorder pipeline.
+    if (conversationActiveRef.current) void startListening();
   };
 
   const stopConversation = () => {
@@ -1625,7 +1629,7 @@ export default function Conversation() {
 
 
   const isListening = chatState === "listening";
-  const busy = chatState === "translating" || chatState === "speaking" || chatState === "transcribing";
+  const busy = chatState === "connecting" || chatState === "translating" || chatState === "speaking" || chatState === "transcribing";
 
   const handleShareConversation = async () => {
     const yourLabel = LANGUAGES.find((l) => l.code === yourLang)?.label || yourLang;
@@ -1751,6 +1755,14 @@ export default function Conversation() {
             </button>
           </div>
         ))}
+
+        {/* Connecting indicator — Realtime session is being established */}
+        {chatState === "connecting" && (
+          <div className="flex items-center justify-center gap-3 py-2">
+            <div className="w-3 h-3 rounded-full animate-pulse bg-amber-500" />
+            <span className="text-sm text-[#F4F4F4]/60">{t("loading")}</span>
+          </div>
+        )}
 
         {/* Listening indicator */}
         {(chatState === "listening" || chatState === "transcribing") && (

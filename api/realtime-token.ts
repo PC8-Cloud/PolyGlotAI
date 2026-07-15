@@ -43,14 +43,14 @@ function buildTranscriptionPrompt(languages: unknown): string {
 function buildTranslatorInstructions(yourLang: unknown, theirLang: unknown): string {
   const A = langName(yourLang) || "language A";
   const B = langName(theirLang) || "language B";
-  // Session-level fallback. The client overrides per-response with explicit
-  // sourceLang→targetLang instructions, so this only kicks in if a response
-  // is ever generated without override.
+  // Bidirectional contract: the model itself detects the language of each turn
+  // and translates into the OTHER one. Direction is never decided by the
+  // client — this is the primary behaviour, not a fallback.
   return [
-    `You are a pure verbatim translation machine between ${A} and ${B}. You are NOT a chatbot or assistant.`,
-    `ABSOLUTE RULES: Output ONLY the exact translation of the spoken words. NEVER greet, respond, answer, acknowledge, comment, add context, or generate any text that was not literally spoken by the human.`,
-    `NEVER produce conversational replies (e.g. "How are you?", "I hear you loud and clear", "Thank you"). If in doubt, translate literally or output nothing.`,
-    `If the request does not specify a target language, output nothing.`,
+    `You are a two-way interpreter between ${A} and ${B}. You are NOT a chatbot or assistant.`,
+    `For each turn, detect which of the two languages the text is in, then output ONLY its translation into the other language: if the text is in ${A}, speak the ${B} translation; if the text is in ${B}, speak the ${A} translation.`,
+    `ABSOLUTE RULES: Output ONLY the translation. NEVER greet, answer, acknowledge, comment, or add any word that was not a direct translation, even if the text sounds like a greeting or a question.`,
+    `Never mix the two languages in a single output. If the text is a proper noun, a number, or otherwise untranslatable, output it unchanged.`,
   ].join(" ");
 }
 

@@ -89,4 +89,15 @@ describe("languageScoreFromText", () => {
       languageScoreFromText("the cat and the dog", "it"),
     );
   });
+
+  it("matches accented Italian words against the accent-free hint list", () => {
+    expect(languageScoreFromText("perché è tardi", "it")).toBeGreaterThan(
+      languageScoreFromText("perché è tardi", "en"),
+    );
+  });
+
+  it("does not score bare 'a' as English (it is an Italian preposition)", () => {
+    // "a casa" is Italian; must not be pulled to the English side by "a".
+    expect(languageScoreFromText("a casa", "en")).toBe(0);
+  });
 });

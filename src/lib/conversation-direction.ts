@@ -16,7 +16,9 @@ export type Side = "you" | "them";
 
 // Common function words per language. Kept deliberately short but discriminative.
 const LANGUAGE_HINTS: Record<string, string[]> = {
-  en: ["the", "a", "an", "and", "is", "are", "do", "does", "did", "have", "has", "you", "we", "they", "can", "what", "where", "why", "how", "to", "of", "hello", "thanks", "thank"],
+  // Note: "a" is intentionally excluded — it is also a very common Italian
+  // preposition and caused Italian speech to be scored as English.
+  en: ["the", "an", "and", "is", "are", "do", "does", "did", "have", "has", "you", "we", "they", "can", "what", "where", "why", "how", "of", "hello", "thanks", "thank"],
   it: ["il", "lo", "la", "gli", "le", "un", "una", "e", "sei", "sono", "hai", "avete", "come", "dove", "perche", "che", "non", "di", "per", "con", "ho", "ciao", "grazie", "bene", "va"],
   es: ["el", "la", "los", "las", "un", "una", "y", "es", "eres", "tienes", "como", "donde", "por", "que", "no", "de", "hola", "gracias", "muy", "bien"],
   fr: ["le", "la", "les", "un", "une", "et", "est", "suis", "etes", "avez", "comme", "ou", "pourquoi", "que", "je", "vous", "bonjour", "merci", "pas", "de"],
@@ -71,8 +73,13 @@ function baseCode(langCode: string): string {
 export function languageScoreFromText(text: string, langCode: string): number {
   const base = baseCode(langCode);
   const hints = LANGUAGE_HINTS[base];
+  // Strip accents before matching so "perché"/"è" match the (accent-free)
+  // hint lists. The accent itself is still rewarded via ORTHOGRAPHIC_HINTS,
+  // which runs on the raw text below.
   const words = text
     .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .split(/\s+/)
     .filter(Boolean);
