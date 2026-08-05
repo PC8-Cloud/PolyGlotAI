@@ -814,6 +814,128 @@ export function stopAllAudio() {
   }
 }
 
+// ─── Streaming PCM playback ──────────────────────────────────────────────────
+// The server relays raw PCM (24kHz 16-bit mono LE) while OpenAI is still
+// generating it; we schedule each chunk gaplessly on the shared AudioContext.
+// Playback starts after a small prebuffer instead of after the full file has
+// been generated, downloaded and decoded — typically 2-4s sooner per turn.
+// Works on iOS Safari (no MediaSource needed: fetch streaming + Web Audio).
+
+const PCM_SAMPLE_RATE = 24000;
+const PCM_PREBUFFER_SAMPLES = Math.floor(PCM_SAMPLE_RATE * 0.3); // ~0.3s before first sound
+
+async function playStreamingPcmTTS(
+  text: string,
+  voice: TTSVoice,
+  speed: number,
+  langCode?: string,
+): Promise<void> {
+  const ctx = _audioCtx;
+  if (!ctx) throw new Error("streaming-tts: no AudioContext");
+  if (ctx.state === "suspended") {
+    try { await ctx.resume(); } catch {}
+  }
+  if (ctx.state !== "running") throw new Error("streaming-tts: AudioContext not running");
+
+  const t0 = Date.now();
+  const authHeaders = await getApiAuthHeaders();
+  const res = await fetch("/api/tts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders },
+    body: JSON.stringify({ text, voice, speed, langCode, stream: true, model: getModels().tts }),
+  });
+  if (!res.ok || !res.body) {
+    throw new ApiError("TTS stream failed", res.status);
+  }
+
+  const reader = res.body.getReader();
+  let carry: Uint8Array | null = null; // odd byte between chunks (16-bit alignment)
+  let started = false;
+  let nextTime = 0;
+  let pending: Float32Array[] = [];
+  let pendingCount = 0;
+  let lastSource: AudioBufferSourceNode | null = null;
+
+  const schedule = (samples: Float32Array) => {
+    if (samples.length === 0) return;
+    const buf = ctx.createBuffer(1, samples.length, PCM_SAMPLE_RATE);
+    buf.getChannelData(0).set(samples);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(ctx.destination);
+    if (!started) {
+      started = true;
+      nextTime = ctx.currentTime + 0.05;
+      reportResponseTime(Date.now() - t0); // time-to-first-audio
+      if (AUDIO_DEBUG) console.log("[Audio] streaming TTS first chunk", { ms: Date.now() - t0 });
+    }
+    const startAt = Math.max(nextTime, ctx.currentTime);
+    src.start(startAt);
+    nextTime = startAt + buf.duration;
+    lastSource = src;
+  };
+
+  const flushPending = () => {
+    if (pendingCount === 0) return;
+    const merged = new Float32Array(pendingCount);
+    let offset = 0;
+    for (const part of pending) {
+      merged.set(part, offset);
+      offset += part.length;
+    }
+    pending = [];
+    pendingCount = 0;
+    schedule(merged);
+  };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value || value.length === 0) continue;
+    let bytes = value;
+    if (carry) {
+      const joined = new Uint8Array(carry.length + bytes.length);
+      joined.set(carry, 0);
+      joined.set(bytes, carry.length);
+      bytes = joined;
+      carry = null;
+    }
+    const usable = bytes.length - (bytes.length % 2);
+    if (usable === 0) {
+      carry = bytes;
+      continue;
+    }
+    if (usable < bytes.length) carry = bytes.slice(usable);
+    const view = new DataView(bytes.buffer, bytes.byteOffset, usable);
+    const samples = new Float32Array(usable / 2);
+    for (let i = 0; i < samples.length; i++) {
+      samples[i] = view.getInt16(i * 2, true) / 32768;
+    }
+    pending.push(samples);
+    pendingCount += samples.length;
+    if (started || pendingCount >= PCM_PREBUFFER_SAMPLES) flushPending();
+  }
+  flushPending(); // short utterances that never reached the prebuffer start here
+
+  const tail: AudioBufferSourceNode | null = lastSource;
+  if (!tail) return; // stream produced no audio
+
+  // Resolve when the tail finishes. Bounded by the remaining scheduled time so
+  // a suspended/closed context (muteAudio/stopAllAudio) can never hang us.
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (!settled) {
+        settled = true;
+        resolve();
+      }
+    };
+    tail.onended = finish;
+    const remainingMs = Math.max(0, (nextTime - ctx.currentTime) * 1000) + 300;
+    setTimeout(finish, remainingMs);
+  });
+}
+
 export async function playTTS(
   text: string,
   voice?: TTSVoice,
@@ -837,6 +959,17 @@ export async function playTTS(
     if (canUseLocalTTS()) {
       if (AUDIO_DEBUG) console.log("[Audio] playTTS -> localTTS (offline)", { langCode, textPreview: spokenText.slice(0, 60) });
       return playLocalTTS(spokenText, langCode);
+    }
+  }
+
+  // Strategy 0: streaming PCM — voice starts on the first generated chunks
+  // instead of after the whole file. Any failure falls through to the
+  // buffered strategies below, so worst case equals today's behaviour.
+  if (typeof ReadableStream !== "undefined" && _audioCtx) {
+    try {
+      return await playStreamingPcmTTS(spokenText, selectedVoice, selectedSpeed, langCode);
+    } catch (e) {
+      if (AUDIO_DEBUG) console.warn("[Audio] streaming TTS failed, falling back to buffered", e);
     }
   }
 
