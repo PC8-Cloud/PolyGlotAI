@@ -6,7 +6,6 @@ import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLabelForCode, getLocaleForCode } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
 import { translateText, translateAuto, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudioDetectLang, suspendAudioForMic, withTimeout, createRealtimeTranscriptionToken, createRealtimeTranslatorToken } from "../lib/openai";
-import { detectPitch, classifyGender } from "../lib/gender-detect";
 import { getTrialUpgradeMessage } from "../lib/trial";
 import { getMicPermissionState } from "../lib/mic-permission";
 import { chooseSideByText, languageScoreFromText } from "../lib/conversation-direction";
@@ -24,7 +23,6 @@ interface Message {
   translatedText: string;
   sourceLang: string;
   status: MsgStatus;
-  gender?: "male" | "female" | "";
 }
 
 
@@ -183,7 +181,6 @@ export default function Conversation() {
   const keepAliveCtxRef = useRef<AudioContext | null>(null);
   const keepAliveOscRef = useRef<OscillatorNode | null>(null);
   const wakeLockReleaseHandlerRef = useRef<(() => void) | null>(null);
-  const detectedGenderRef = useRef<"male" | "female" | "">("");
   const lastDetectedSideRef = useRef<"you" | "them" | null>(null);
   const realtimePcRef = useRef<RTCPeerConnection | null>(null);
   const realtimeDcRef = useRef<RTCDataChannel | null>(null);
@@ -442,7 +439,6 @@ export default function Conversation() {
 
   const startSilenceDetection = useCallback((analyser: AnalyserNode) => {
     const dataArray = new Uint8Array(analyser.fftSize);
-    const floatData = new Float32Array(analyser.fftSize);
     let silenceStart: number | null = null;
     let allZeroCount = 0;
     const startTime = Date.now();
@@ -450,9 +446,6 @@ export default function Conversation() {
     let hasSpeechStarted = false;
     let speechStartTime: number | null = null;
     let lastSpeechTime: number | null = null;
-    // Pitch-based gender detection
-    const pitchSamples: number[] = [];
-    const sampleRate = audioCtxRef.current?.sampleRate || 44100;
 
     const check = () => {
       analyser.getByteTimeDomainData(dataArray);
@@ -476,12 +469,6 @@ export default function Conversation() {
           if (!hasSpeechStarted) {
             hasSpeechStarted = true;
             speechStartTime = Date.now();
-          }
-          // Pitch detection via autocorrelation (sample every ~10 frames to save CPU)
-          if (pitchSamples.length < 60 && speechFrames % 10 === 0) {
-            analyser.getFloatTimeDomainData(floatData);
-            const pitch = detectPitch(floatData, sampleRate);
-            if (pitch > 0) pitchSamples.push(pitch);
           }
         }
       } else {
@@ -517,8 +504,6 @@ export default function Conversation() {
 
             if (silenceDuration > timeout) {
               if (CONVERSATION_DEBUG) console.log("[Conversation] silence stop", { silenceDuration: silenceDuration.toFixed(1), speechDuration: speechDuration.toFixed(1), timeout });
-              detectedGenderRef.current = classifyGender(pitchSamples);
-              if (CONVERSATION_DEBUG) console.log("[Conversation] detected gender:", detectedGenderRef.current, "from", pitchSamples.length, "samples");
               playCutoffChime();
               stopListening();
               return;
@@ -528,7 +513,6 @@ export default function Conversation() {
           silenceStart = null;
         }
       } else if ((Date.now() - startTime) > NO_SPEECH_TIMEOUT_MS) {
-        detectedGenderRef.current = classifyGender(pitchSamples);
         noSpeechCaptureRef.current = true;
         stopListening();
         return;
@@ -1005,7 +989,6 @@ export default function Conversation() {
         translatedText: "...",
         sourceLang,
         status: "sent",
-        gender: detectedGenderRef.current || userGender,
       },
     ]);
     return newId;
@@ -1066,7 +1049,7 @@ export default function Conversation() {
       suppressInputUntilRef.current = Date.now() + MAX_MODEL_SPEECH_MS;
       setRealtimeMicEnabled(false);
       try {
-        const speakerGender = detectedGenderRef.current || userGender;
+        const speakerGender = userGender;
         await withTimeout(
           playTTS(translated, undefined, undefined, targetLang, speakerGender),
           TTS_PLAYBACK_TIMEOUT_MS,
@@ -1508,7 +1491,7 @@ export default function Conversation() {
 
     setMessages((prev) => [
       ...prev,
-      { id: newId, side, originalText: text, translatedText: "...", sourceLang, status: "sent", gender: detectedGenderRef.current || userGender },
+      { id: newId, side, originalText: text, translatedText: "...", sourceLang, status: "sent" },
     ]);
     setInterimText("");
 
@@ -1541,8 +1524,7 @@ export default function Conversation() {
         );
 
         try {
-          // Voice matches the detected speaker's gender (pitch analysis), fallback to user profile
-          const speakerGender = detectedGenderRef.current || userGender;
+          const speakerGender = userGender;
           await withTimeout(
             playTTS(translatedText, undefined, undefined, targetLang, speakerGender),
             TTS_PLAYBACK_TIMEOUT_MS,
@@ -1669,7 +1651,7 @@ export default function Conversation() {
     }
   };
 
-  const handleSpeak = async (text: string, id: number, langCode: string, side: "you" | "them", msgGender?: "male" | "female" | "") => {
+  const handleSpeak = async (text: string, id: number, langCode: string, side: "you" | "them") => {
     if (playingId !== null) return;
     // Pause mic so playback doesn't get re-captured
     const wasListening = chatState === "listening";
@@ -1679,7 +1661,7 @@ export default function Conversation() {
     setPlayingId(id);
     setChatState("speaking");
     try {
-      const speakerGender = msgGender || userGender;
+      const speakerGender = userGender;
       await withTimeout(
         playTTS(text, undefined, undefined, langCode, speakerGender),
         TTS_PLAYBACK_TIMEOUT_MS,
@@ -1820,7 +1802,7 @@ export default function Conversation() {
               </div>
             </div>
             <button
-              onClick={() => handleSpeak(msg.translatedText, msg.id, msg.side === "you" ? theirLang : yourLang, msg.side, msg.gender)}
+              onClick={() => handleSpeak(msg.translatedText, msg.id, msg.side === "you" ? theirLang : yourLang, msg.side)}
               disabled={playingId !== null}
               className={`px-2 py-1 rounded-lg transition-colors ${
                 playingId === msg.id ? "text-[#295BDB] animate-pulse" : "text-[#F4F4F4]/60 hover:text-[#F4F4F4]/80"
