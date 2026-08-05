@@ -5,7 +5,7 @@ import { useTranslation } from "../lib/i18n";
 import { useUserStore } from "../lib/store";
 import { LANGUAGES, getLabelForCode, getLocaleForCode } from "../lib/languages";
 import { LanguageOptions } from "../components/LanguageOptions";
-import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudioDetectLang, suspendAudioForMic, withTimeout, createRealtimeTranscriptionToken, createRealtimeTranslatorToken } from "../lib/openai";
+import { translateText, translateAuto, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMessage, transcribeAudioDetectLang, suspendAudioForMic, withTimeout, createRealtimeTranscriptionToken, createRealtimeTranslatorToken } from "../lib/openai";
 import { detectPitch, classifyGender } from "../lib/gender-detect";
 import { getTrialUpgradeMessage } from "../lib/trial";
 import { getMicPermissionState } from "../lib/mic-permission";
@@ -1029,26 +1029,24 @@ export default function Conversation() {
     const B = theirLangRef.current;
     setChatState("translating");
     try {
-      const translations = await translateText(transcript, "", [A, B], {
-        mode: "live",
+      // One call: the constrained text model detects which language was spoken
+      // and translates into the other. No direction heuristic, no double
+      // translation, and it structurally cannot reply conversationally.
+      const { detected, target, translation } = await translateAuto(transcript, [A, B], {
         feature: "conversation",
         consumeTextQuota: false,
-        cache: false,
       });
-      const outA = (translations[A] || "").trim();
-      const outB = (translations[B] || "").trim();
-      const src = transcript.toLowerCase();
-      const simA = outA ? textSimilarity(src, outA.toLowerCase()) : 1;
-      const simB = outB ? textSimilarity(src, outB.toLowerCase()) : 1;
-      const targetLang = simA <= simB ? A : B;
-      const translated = (simA <= simB ? outA : outB) || outB || outA;
-      if (!translated) {
+      const translated = translation.trim();
+      const targetLang =
+        target === A || target === B ? target : detected === A ? B : detected === B ? A : B;
+      const sourceLang = targetLang === A ? B : A;
+      if (!translated || detected === "und") {
+        // Unintelligible / not one of the two languages: don't speak garbage.
         setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, status: "done" } : m)));
         if (conversationActiveRef.current) setChatState("listening");
         return;
       }
       lastOutputTranscriptRef.current = translated;
-      const sourceLang = targetLang === A ? B : A;
       const side: "you" | "them" = sourceLang === yourLangRef.current ? "you" : "them";
       setMessages((prev) =>
         prev.map((m) => (m.id === messageId ? { ...m, translatedText: translated, side, sourceLang, status: "translated" } : m)),

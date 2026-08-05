@@ -435,6 +435,48 @@ export async function translateText(
   return request;
 }
 
+/**
+ * Two-way live translation: given the two conversation languages, detect which
+ * one the text is in and translate into the other, in a single server call.
+ * Direction is decided by the constrained text model (which cannot reply
+ * conversationally), not by a client heuristic. Low retry budget for liveness.
+ */
+export async function translateAuto(
+  text: string,
+  candidateLanguages: string[],
+  options?: {
+    feature?: "conversation" | "megaphone" | "room" | "phrases" | "converter";
+    consumeTextQuota?: boolean;
+  },
+): Promise<{ detected: string; target: string; translation: string }> {
+  const empty = { detected: "", target: "", translation: "" };
+  const candidates = [...new Set(candidateLanguages.map((c) => String(c || "").trim().toLowerCase()).filter(Boolean))];
+  if (!text.trim() || candidates.length !== 2) return empty;
+  const response = await withRetry(
+    () =>
+      apiFetch("translate", {
+        text,
+        autoDetect: true,
+        candidateLanguages: candidates,
+        mode: "live",
+        feature: options?.feature,
+        consumeTextQuota: options?.consumeTextQuota,
+        model: getModels().text,
+      }),
+    1,
+  );
+  try {
+    const data = await response.json();
+    return {
+      detected: String(data?.detected || "").trim().toLowerCase(),
+      target: String(data?.target || "").trim().toLowerCase(),
+      translation: typeof data?.translation === "string" ? data.translation.trim() : "",
+    };
+  } catch {
+    return empty;
+  }
+}
+
 // ─── UI Translation (for i18n dynamic translations) ─────────────────────────
 
 export async function translateUIChunk(

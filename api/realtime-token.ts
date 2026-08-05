@@ -99,7 +99,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               // Capture 700ms of audio before VAD trips so the attack of the
               // first word is never lost when listening resumes.
               prefix_padding_ms: 700,
-              silence_duration_ms: 800,
+              silence_duration_ms: 500,
               // The client validates the transcript first, then issues an
               // explicit response.create with source→target instructions.
               // This prevents the model from inventing "Sorry / Mi scusi"
