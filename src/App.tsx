@@ -14,9 +14,6 @@ import { MessageCircle, Send, X, Star, Bug, Lightbulb, Heart, HelpCircle } from 
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
 import Home from "./pages/Home";
-import SessionHost from "./pages/SessionHost";
-import SessionJoin from "./pages/SessionJoin";
-import SessionAudience from "./pages/SessionAudience";
 import Conversation from "./pages/Conversation";
 import CameraTranslate from "./pages/CameraTranslate";
 import Converter from "./pages/Converter";
@@ -347,12 +344,6 @@ export default function App() {
           <Route path="/learn" element={<FeatureGate feature="conversation"><Learn /></FeatureGate>} />
           <Route path="/plans" element={<Paywall />} />
           <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/session/:sessionId/host" element={<SessionHost />} />
-          <Route path="/join/:sessionId" element={<SessionJoin />} />
-          <Route
-            path="/session/:sessionId/audience"
-            element={<SessionAudience />}
-          />
         </Routes>
       </BrowserRouter>
         </div>
