@@ -107,6 +107,7 @@ Rules:
     });
   } catch (err: any) {
     const status = err?.status || 500;
+    console.error("[api/analyze-image]", JSON.stringify({ status, error: err?.message }));
     res.status(status).json({ error: err?.message || "Image analysis failed", status });
   }
 }

@@ -53,6 +53,7 @@ const TRIAL_DAILY_LIMITS = {
   megaphone_ms: numberEnv("TRIAL_MEGAPHONE_MS", 6 * 60 * 1000),
   camera_scans: numberEnv("TRIAL_CAMERA_SCANS", 8),
   text_translate_requests: numberEnv("TRIAL_TEXT_TRANSLATE_REQUESTS", 15),
+  tts_requests: numberEnv("TRIAL_TTS_REQUESTS", 60),
 };
 
 function todayUtcKey(date = new Date()) {
@@ -90,6 +91,7 @@ function normalizeUsage(raw) {
       megaphone_ms: Math.max(0, Number(base?.usage?.megaphone_ms || 0)),
       camera_scans: Math.max(0, Number(base?.usage?.camera_scans || 0)),
       text_translate_requests: Math.max(0, Number(base?.usage?.text_translate_requests || 0)),
+      tts_requests: Math.max(0, Number(base?.usage?.tts_requests || 0)),
     },
   };
 }
@@ -416,6 +418,7 @@ exports.consumeTrialQuota = onRequest(
             megaphone_ms: 0,
             camera_scans: 0,
             text_translate_requests: 0,
+            tts_requests: 0,
           };
         }
 
@@ -673,5 +676,44 @@ exports.createLicenseKey = onRequest(
     });
 
     return res.status(201).json({ success: true, code: code.trim().toUpperCase() });
+  },
+);
+
+// GDPR art. 17 — right to erasure. Deletes the caller's user document and
+// their Firebase Auth account. Session/message documents are keyed by
+// anonymous uids and contain no profile data; they expire with the rooms.
+exports.deleteAccount = onRequest(
+  { cors: true, invoker: "public" },
+  async (req, res) => {
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
+    }
+    if (req.method !== "POST") {
+      res.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    try {
+      const token = readBearerToken(req);
+      if (!token) {
+        res.status(401).json({ error: "Missing bearer token" });
+        return;
+      }
+      const decoded = await admin.auth().verifyIdToken(token);
+      const uid = decoded?.uid;
+      if (!uid) {
+        res.status(401).json({ error: "Invalid auth token" });
+        return;
+      }
+
+      await db.doc(`users/${uid}`).delete();
+      await admin.auth().deleteUser(uid);
+
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("deleteAccount error:", err);
+      res.status(500).json({ error: "Account deletion failed" });
+    }
   },
 );

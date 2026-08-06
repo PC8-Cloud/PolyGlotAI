@@ -22,13 +22,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const { sourceObj, targetLanguageCode, targetLanguageName, model } = req.body;
     if (!sourceObj || !targetLanguageCode) return res.status(400).json({ error: "sourceObj and targetLanguageCode required" });
+    // A UI language pack is a bounded payload; anything bigger is someone
+    // using this endpoint as a free general-purpose translator.
+    const serialized = JSON.stringify(sourceObj);
+    if (serialized.length > 30000) {
+      return res.status(400).json({ error: "sourceObj too large", status: 400 });
+    }
     const targetDescriptor = targetLanguageName
       ? `${targetLanguageName} (${targetLanguageCode})`
       : targetLanguageCode;
 
     const response = await client.chat.completions.create({
-      model: resolveModel("text", model, "gpt-4o"),
+      model: resolveModel("text", model, "gpt-4.1-mini"),
       temperature: 0.15,
+      max_tokens: 8000,
       response_format: { type: "json_object" },
       messages: [
         {
@@ -52,6 +59,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.json(cleaned);
   } catch (err: any) {
     const status = err?.status || 500;
+    console.error("[api/translate-ui]", JSON.stringify({ uid: access.uid, status, error: err?.message }));
     res.status(status).json({ error: err?.message || "UI translation failed", status });
   }
 }

@@ -21,14 +21,27 @@ const TTS_LANGUAGE_HINTS: Record<string, string> = {
   ar: "Arabic",
 };
 
+// Hard cap on synthesized text. Room broadcasts are chunked at ≤1900 chars
+// client-side; anything larger than this is not a legitimate app request.
+const MAX_TTS_CHARS = 2200;
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
-  const access = await requireApiAccess(req, res, { feature: "conversation" });
+  // Metered: without a quota key this endpoint was free and unlimited for any
+  // anonymous token — the single most expensive hole in the audit.
+  const access = await requireApiAccess(req, res, {
+    feature: "conversation",
+    quotaKey: "tts_requests",
+    quotaAmount: 1,
+  });
   if (!access) return;
 
   try {
     const { text, voice, speed, format, model, langCode, stream } = req.body;
     if (!text) return res.status(400).json({ error: "text required" });
+    if (String(text).length > MAX_TTS_CHARS) {
+      return res.status(400).json({ error: `text too long (max ${MAX_TTS_CHARS} chars)`, status: 400 });
+    }
     const normalizedLang = String(langCode || "").toLowerCase().split("-")[0];
     const langName = TTS_LANGUAGE_HINTS[normalizedLang];
 
@@ -87,6 +100,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.send(buffer);
   } catch (err: any) {
     const status = err?.status || 500;
+    console.error("[api/tts]", JSON.stringify({ uid: access.uid, status, error: err?.message }));
     res.status(status).json({ error: err?.message || "TTS failed", status });
   }
 }

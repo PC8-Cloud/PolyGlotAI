@@ -320,11 +320,14 @@ export default function RoomJoin() {
 
       let translations: Record<string, string> = {};
       if (allLangs.length > 0 && allLangs[0] !== myLang) {
-        translations = await translateText(text, myLang, allLangs, {
-          mode: "question",
-          feature: "room",
-          consumeTextQuota: false,
-        });
+        // Guests are usually free users: "room" is a paid-host feature, so the
+        // question is translated under the standard text quota instead. If the
+        // quota is gone the question still reaches the host, untranslated.
+        try {
+          translations = await translateText(text, myLang, allLangs, { mode: "question" });
+        } catch (translateErr) {
+          console.warn("Question translation failed, sending untranslated:", translateErr);
+        }
       }
       translations[myLang] = text;
 

@@ -23,6 +23,7 @@ import MegaphonePage from "./pages/Megaphone";
 import RoomHost from "./pages/RoomHost";
 import RoomJoin from "./pages/RoomJoin";
 import Paywall from "./pages/Paywall";
+import { Privacy, Terms } from "./pages/Legal";
 import Learn from "./pages/Learn";
 import NetworkCheck from "./components/NetworkCheck";
 import FeatureGate from "./components/FeatureGate";
@@ -343,6 +344,8 @@ export default function App() {
           <Route path="/join" element={<RoomJoin />} />
           <Route path="/learn" element={<FeatureGate feature="conversation"><Learn /></FeatureGate>} />
           <Route path="/plans" element={<Paywall />} />
+          <Route path="/privacy" element={<Privacy />} />
+          <Route path="/terms" element={<Terms />} />
           <Route path="/dashboard" element={<Dashboard />} />
         </Routes>
       </BrowserRouter>

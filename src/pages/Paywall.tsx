@@ -189,6 +189,13 @@ export default function Paywall() {
             {t("continueFree")}
           </button>
         </div>
+
+        {/* Legal — required next to the purchase action */}
+        <div className="mt-4 flex items-center justify-center gap-4 text-xs text-[#F4F4F4]/60">
+          <button onClick={() => navigate("/privacy")} className="underline">Privacy</button>
+          <button onClick={() => navigate("/terms")} className="underline">{isIt ? "Termini" : "Terms"}</button>
+          <a href="mailto:polyglot.app2@gmail.com" className="underline">{isIt ? "Supporto" : "Support"}</a>
+        </div>
       </div>
 
       {/* License activation success popup */}

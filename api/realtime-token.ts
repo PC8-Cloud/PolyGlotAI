@@ -58,10 +58,14 @@ function buildTranslatorInstructions(yourLang: unknown, theirLang: unknown): str
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
+  // Each token is billed as a 2-minute block up front. WebRTC then runs
+  // directly between browser and OpenAI, so per-second metering is not
+  // possible from here — a flat block per session start is the honest
+  // approximation (the old 1000ms charge made the trial cap meaningless).
   const access = await requireApiAccess(req, res, {
     feature: "conversation",
     quotaKey: "conversation_ms",
-    quotaAmount: 1000,
+    quotaAmount: 120000,
   });
   if (!access) return;
 
@@ -145,7 +149,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         "OpenAI-Safety-Identifier": access.uid,
       },
       body: JSON.stringify({
-        expires_after: { anchor: "created_at", seconds: 600 },
+        // The token only needs to survive session establishment; 120s is
+        // ample and stops a leaked token from being farmed for 10 minutes.
+        expires_after: { anchor: "created_at", seconds: 120 },
         session: sessionBody,
       }),
     });

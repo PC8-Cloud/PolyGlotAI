@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { createSession } from "../lib/firebase-helpers";
 import { Settings, Camera, MessagesSquare, Coins, MessageSquarePlus, Users, Globe, ChevronLeft, WifiOff, Download, Check, Loader2, GraduationCap, Plus, X, Search, User, Pencil, Lock, Mic } from "lucide-react";
-import { auth } from "../firebase";
+import { auth, cloudFunctionUrl } from "../firebase";
 import { signInWithGoogle } from "../lib/auth";
 import { getMicPermissionState, requestMicPermission, watchMicPermission, type MicPermissionState } from "../lib/mic-permission";
 import { useTranslation } from "../lib/i18n";
@@ -38,6 +38,7 @@ export default function Home() {
   const [settingsLang, setSettingsLang] = useState("");
   const [settingsSpeed, setSettingsSpeed] = useState(1.0);
   const [settingsTranslationPerformance, setSettingsTranslationPerformance] = useState<"auto" | "fast" | "balanced">("auto");
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   const {
     uiLanguage,
@@ -75,6 +76,32 @@ export default function Home() {
     setSettingsSpeed(ttsSpeed);
     setSettingsTranslationPerformance(translationPerformance);
     setShowSettings(true);
+  };
+
+  const handleDeleteAccount = async () => {
+    const msg = isIt
+      ? "Eliminare definitivamente l'account e tutti i dati? L'operazione è irreversibile."
+      : "Permanently delete your account and all data? This cannot be undone.";
+    if (!window.confirm(msg)) return;
+    const user = auth.currentUser;
+    if (!user) return;
+    setDeletingAccount(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(cloudFunctionUrl("deleteAccount"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) throw new Error(`Delete failed (${res.status})`);
+      try { localStorage.clear(); } catch {}
+      window.location.href = "/";
+    } catch (e) {
+      console.error("Account deletion failed:", e);
+      alert(isIt ? "Eliminazione non riuscita. Riprova o scrivi a polyglot.app2@gmail.com" : "Deletion failed. Try again or write to polyglot.app2@gmail.com");
+    } finally {
+      setDeletingAccount(false);
+    }
   };
 
   const handleSaveSettings = () => {
@@ -599,6 +626,30 @@ export default function Home() {
               >
                 {t("save")}
               </button>
+
+              <div className="border-t border-[#FFFFFF14]" />
+
+              {/* Legal & account */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-center gap-4 text-xs">
+                  <button onClick={() => { setShowSettings(false); navigate("/privacy"); }} className="text-[#7FAAFF] underline">
+                    Privacy
+                  </button>
+                  <button onClick={() => { setShowSettings(false); navigate("/terms"); }} className="text-[#7FAAFF] underline">
+                    {isIt ? "Termini" : "Terms"}
+                  </button>
+                  <a href="mailto:polyglot.app2@gmail.com" className="text-[#7FAAFF] underline">
+                    {isIt ? "Supporto" : "Support"}
+                  </a>
+                </div>
+                <button
+                  onClick={handleDeleteAccount}
+                  disabled={deletingAccount}
+                  className="w-full py-2.5 rounded-xl border border-red-500/30 text-red-400 text-xs font-medium hover:bg-red-500/10 disabled:opacity-50 transition-colors"
+                >
+                  {deletingAccount ? "..." : isIt ? "Elimina account e dati" : "Delete account and data"}
+                </button>
+              </div>
 
               <div className="border-t border-[#FFFFFF14]" />
 

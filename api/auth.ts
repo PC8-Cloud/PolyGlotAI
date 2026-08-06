@@ -8,7 +8,7 @@ const FIREBASE_WEB_API_KEY =
 
 type Plan = "free" | "tourist_weekly" | "tourist" | "pro" | "business";
 type Feature = "conversation" | "camera" | "megaphone" | "room" | "phrases" | "converter" | "voiceClone";
-type TrialQuotaKey = "conversation_ms" | "megaphone_ms" | "camera_scans" | "text_translate_requests";
+type TrialQuotaKey = "conversation_ms" | "megaphone_ms" | "camera_scans" | "text_translate_requests" | "tts_requests";
 
 interface AccessOptions {
   feature?: Feature;
@@ -32,8 +32,11 @@ type FirestoreValue = {
 };
 
 const PLAN_FEATURES: Record<Plan, Record<Feature, boolean>> = {
+  // "free" is the post-trial state. Nothing that costs OpenAI money is true
+  // here: during the 5-day trial, access flows through the trial gates
+  // (trialActive / per-key quotas), afterwards it requires a paid plan.
   free: {
-    conversation: true,
+    conversation: false,
     camera: false,
     megaphone: false,
     room: false,

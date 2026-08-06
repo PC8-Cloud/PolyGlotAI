@@ -85,6 +85,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.json(normalizeTutorPayload(content));
   } catch (err: any) {
     const status = err?.status || 500;
+    console.error("[api/chat]", JSON.stringify({ status, error: err?.message }));
     res.status(status).json({ error: err?.message || "Chat failed", status });
   }
 }

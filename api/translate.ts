@@ -278,19 +278,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         : mode === "phrases"
           ? "phrases"
           : "conversation";
-  const consumeTextQuota =
-    typeof req.body?.consumeTextQuota === "boolean"
-      ? req.body.consumeTextQuota
-      : true;
+  // Whether a call consumes text quota is the SERVER's decision — the old
+  // client-supplied consumeTextQuota flag let anyone opt out with a curl.
+  // Quota-free paths are the ones metered elsewhere or feature-gated:
+  //   - live conversation & auto-detect (metered via conversation_ms)
+  //   - megaphone ("tourism", metered via megaphone_ms)
+  //   - room broadcasts (hosting is a paid-plan feature)
+  //   - phrasebook packs (bounded canned content, cached client-side)
+  const quotaFreeModes = new Set(["live", "tourism", "room", "phrases"]);
+  const skipTextQuota = req.body?.autoDetect === true || quotaFreeModes.has(mode);
   const access = await requireApiAccess(req, res, {
     feature,
-    ...(consumeTextQuota ? { quotaKey: "text_translate_requests" as const, quotaAmount: 1 } : {}),
+    ...(skipTextQuota ? {} : { quotaKey: "text_translate_requests" as const, quotaAmount: 1 }),
   });
   if (!access) return;
 
   try {
     const { text, sourceLanguage, sourceLanguageName, targetLanguages, targetLanguageNames, model, mode, glossaryHints } = req.body;
     if (!text?.trim()) return res.json({});
+    // Room broadcasts are chunked at ≤1900 chars; a long megaphone speech can
+    // legitimately exceed that, but nothing in the app produces 6000+.
+    if (String(text).length > 6000) {
+      return res.status(400).json({ error: "text too long (max 6000 chars)", status: 400 });
+    }
     const modelName = resolveModel("text", model, "gpt-4.1-mini");
     const translationMode = String(mode || "general");
 
@@ -391,6 +401,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.json(result);
   } catch (err: any) {
     const status = err?.status || 500;
+    console.error("[api/translate]", JSON.stringify({ uid: access.uid, mode, feature, status, error: err?.message }));
     res.status(status).json({ error: err?.message || "Translation failed", status });
   }
 }

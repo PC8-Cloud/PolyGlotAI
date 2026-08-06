@@ -74,7 +74,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const includeTimestampsPart = parts.find((p) => p.name === "include_timestamps");
       const expectedLanguagesPart = parts.find((p) => p.name === "expected_languages");
       const featurePart = parts.find((p) => p.name === "feature");
-      const quotaAmountPart = parts.find((p) => p.name === "quota_amount_ms");
 
       if (!filePart?.data) return res.status(400).json({ error: "No audio file" });
 
@@ -84,7 +83,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const feature: MeteredFeature = includeTimestampsPart?.data?.toString() === "true"
         ? "conversation"
         : requestedFeature;
-      const quotaAmount = Math.max(1, Math.floor(Number(quotaAmountPart?.data?.toString()) || 1000));
+      // Estimate duration from the audio payload itself instead of trusting a
+      // client-declared quota_amount_ms (which let a curl bill 1s for any
+      // recording). MediaRecorder emits opus/aac at roughly 6-16 KB/s; 12 KB/s
+      // keeps the estimate within ~2x of reality in both directions.
+      const quotaAmount = Math.min(600000, Math.max(1000, Math.floor(filePart.data.length / 12)));
       const access = await requireApiAccess(req, res, {
         feature,
         quotaKey: feature === "megaphone" ? "megaphone_ms" : "conversation_ms",
@@ -141,6 +144,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: "Expected multipart/form-data" });
   } catch (err: any) {
     const status = err?.status || 500;
+    console.error("[api/transcribe]", JSON.stringify({ status, error: err?.message }));
     res.status(status).json({ error: err?.message || "Transcription failed", status });
   }
 }
