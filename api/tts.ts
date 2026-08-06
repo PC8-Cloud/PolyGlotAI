@@ -27,6 +27,13 @@ const MAX_TTS_CHARS = 2200;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  // Validate the payload before consuming quota: a rejected request must not
+  // cost the user anything.
+  const { text, voice, speed, format, model, langCode, stream } = req.body || {};
+  if (!text) return res.status(400).json({ error: "text required" });
+  if (String(text).length > MAX_TTS_CHARS) {
+    return res.status(400).json({ error: `text too long (max ${MAX_TTS_CHARS} chars)`, status: 400 });
+  }
   // Metered: without a quota key this endpoint was free and unlimited for any
   // anonymous token — the single most expensive hole in the audit.
   const access = await requireApiAccess(req, res, {
@@ -37,11 +44,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!access) return;
 
   try {
-    const { text, voice, speed, format, model, langCode, stream } = req.body;
-    if (!text) return res.status(400).json({ error: "text required" });
-    if (String(text).length > MAX_TTS_CHARS) {
-      return res.status(400).json({ error: `text too long (max ${MAX_TTS_CHARS} chars)`, status: 400 });
-    }
     const normalizedLang = String(langCode || "").toLowerCase().split("-")[0];
     const langName = TTS_LANGUAGE_HINTS[normalizedLang];
 
