@@ -31,20 +31,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!text) return res.status(400).json({ error: "text required" });
     const normalizedLang = String(langCode || "").toLowerCase().split("-")[0];
     const langName = TTS_LANGUAGE_HINTS[normalizedLang];
-    const instructions = langName
-      ? `Speak naturally in ${langName} with native pronunciation and conversational intonation.`
-      : undefined;
+
+    // gpt-4o-mini-tts ignores the `speed` parameter (known limitation): pacing
+    // must be steered through `instructions`. We still pass `speed` for the
+    // legacy tts-1/tts-1-hd models, which honor it and ignore `instructions`.
+    const rate = Number(speed) || 1.0;
+    const pace =
+      rate >= 1.35 ? "at a fast pace" :
+      rate >= 1.15 ? "at a slightly brisk pace" :
+      rate <= 0.8 ? "slowly, articulating every word clearly" :
+      rate <= 0.95 ? "at a calm, unhurried pace" :
+      "at a natural conversational pace";
+    const instructions =
+      `Warm, natural, human voice — never robotic or flat. ` +
+      (langName ? `Speak in ${langName} with native pronunciation. ` : "") +
+      `Use conversational intonation, ${pace}.`;
 
     const wantsStream = stream === true;
+    const resolvedModel = resolveModel("tts", model, "gpt-4o-mini-tts");
     const response = await client.audio.speech.create({
-      model: resolveModel("tts", model, "gpt-4o-mini-tts"),
-      voice: voice || "nova",
+      model: resolvedModel,
+      voice: voice || "marin",
       input: text,
-      speed: speed || 1.0,
+      speed: rate,
       // Streaming path uses raw PCM (24kHz 16-bit mono LE): playable chunk by
       // chunk client-side with Web Audio, no container to wait for.
       response_format: wantsStream ? "pcm" : (format || "opus"),
-      ...(instructions ? { instructions } : {}),
+      ...(resolvedModel.startsWith("gpt-") ? { instructions } : {}),
     });
 
     if (wantsStream) {

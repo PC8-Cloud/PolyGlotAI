@@ -513,6 +513,8 @@ export type TTSVoice =
   | "nova"
   | "sage"
   | "shimmer"
+  | "marin"
+  | "cedar"
   | string;
 
 export interface OpenAIVoiceConsent {
@@ -528,41 +530,12 @@ export interface OpenAICustomVoice {
   created_at?: number;
 }
 
-// Gender-aware voice mapping per language
-// Male voices: echo, onyx, ash, fable
-// Female voices: nova, shimmer, alloy, coral, sage, ballad
-const AUTO_TTS_VOICE_BY_LANG_FEMALE: Record<string, TTSVoice> = {
-  it: "nova",
-  en: "nova",
-  de: "alloy",
-  es: "coral",
-  fr: "shimmer",
-  pt: "nova",
-  zh: "ballad",
-  ja: "alloy",
-  ko: "ballad",
-  ar: "sage",
-};
-
-const AUTO_TTS_VOICE_BY_LANG_MALE: Record<string, TTSVoice> = {
-  it: "onyx",
-  en: "echo",
-  de: "onyx",
-  es: "fable",
-  fr: "echo",
-  pt: "onyx",
-  zh: "echo",
-  ja: "ash",
-  ko: "ash",
-  ar: "fable",
-};
-
-export function getAutoVoiceForLanguage(langCode?: string, gender?: "male" | "female" | ""): TTSVoice {
-  const base = String(langCode || "").toLowerCase().split("-")[0];
-  if (gender === "male") return AUTO_TTS_VOICE_BY_LANG_MALE[base] || "echo";
-  if (gender === "female") return AUTO_TTS_VOICE_BY_LANG_FEMALE[base] || "nova";
-  // Default: use female voices (backward compatible)
-  return AUTO_TTS_VOICE_BY_LANG_FEMALE[base] || "nova";
+// Gender-aware voice selection. marin (female) and cedar (male) are the
+// realtime-generation voices OpenAI recommends for best quality on
+// gpt-4o-mini-tts — noticeably more natural than the legacy nova/onyx set.
+// All OpenAI voices are multilingual, so no per-language mapping is needed.
+export function getAutoVoiceForLanguage(_langCode?: string, gender?: "male" | "female" | ""): TTSVoice {
+  return gender === "male" ? "cedar" : "marin";
 }
 
 export async function listOpenAIVoices(): Promise<OpenAICustomVoice[]> {
@@ -944,9 +917,12 @@ export async function playTTS(
   gender?: "male" | "female" | "",
 ): Promise<void> {
   const state = useUserStore.getState();
-  // Use custom cloned voice if available, then gender-aware auto voice, then store preference
-  // Gender-aware selection takes priority over store default when gender is specified
-  const selectedVoice = (voice || state.customVoiceId || (gender ? getAutoVoiceForLanguage(langCode, gender) : null) || state.ttsVoice || getAutoVoiceForLanguage(langCode) || "nova") as TTSVoice;
+  // Explicit voice, then custom cloned voice, then gender-aware auto voice.
+  // The caller's gender wins over the settings preference; the legacy
+  // state.ttsVoice is deliberately skipped — it has no UI and would pin
+  // everyone to its persisted "nova" default.
+  const effectiveGender = gender || state.userGender || "";
+  const selectedVoice = (voice || state.customVoiceId || getAutoVoiceForLanguage(langCode, effectiveGender)) as TTSVoice;
   const userSpeed = state.ttsSpeed || 1.0;
   const baseSpeed = typeof speed === "number" ? speed : 1.0;
   const selectedSpeed = Math.max(0.7, Math.min(1.8, baseSpeed * userSpeed));
