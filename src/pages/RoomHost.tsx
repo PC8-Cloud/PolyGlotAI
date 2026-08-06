@@ -9,6 +9,7 @@ import { LanguageOptions } from "../components/LanguageOptions";
 import { translateText, getApiErrorMessage, getRealtimeTranslationConfig, suspendAudioForMic } from "../lib/openai";
 import { extractTextFromFile } from "../lib/file-reader";
 import { createRoom, sendMessage } from "../lib/firebase-helpers";
+import { ensureSignedIn } from "../lib/auth";
 import { db } from "../firebase";
 import { collection, doc, getDoc, onSnapshot, orderBy, query, updateDoc, where, getDocs, limit } from "firebase/firestore";
 import { openWhatsAppShare } from "../lib/share";
@@ -56,6 +57,7 @@ export default function RoomHost() {
   const [shareNotice, setShareNotice] = useState<string | null>(null);
 
   const recognitionRef = useRef<any>(null);
+  const participantsRef = useRef<Participant[]>([]);
   const transcriptRef = useRef("");
   const isListeningRef = useRef(false);
   const hasSpokenRef = useRef(false);
@@ -209,6 +211,10 @@ export default function RoomHost() {
           const data = d.data();
           list.push({ id: d.id, language: data.language, displayName: data.displayName });
         });
+        // Keep a ref in sync: the speech-recognition callbacks capture stale
+        // closures, so translations must read the participant list from here
+        // or a guest who joins mid-speech never gets their language.
+        participantsRef.current = list;
         setParticipants(list);
       },
     );
@@ -272,10 +278,19 @@ export default function RoomHost() {
       }
       const sessionDoc = snap.docs[0];
       const data = sessionDoc.data();
+      // Only the original host identity can broadcast to this room — the
+      // security rules key everything on hostId, so rejoining someone else's
+      // room would show an empty page whose sends all fail.
+      const uid = await ensureSignedIn();
+      if (data.hostId !== uid) {
+        setError(t("roomNotFound"));
+        setRejoining(false);
+        return;
+      }
       setSessionId(sessionDoc.id);
       setRoomCode(codeToUse);
       setHostId(data.hostId);
-      setSpeakerLang(data.hostLanguage || uiLanguage);
+      setSpeakerLang(data.sourceLanguage || uiLanguage);
       const roomData = { code: codeToUse, sessionId: sessionDoc.id, hostId: data.hostId };
       localStorage.setItem("polyglot_last_room", JSON.stringify(roomData));
       setLastRoom(roomData);
@@ -391,7 +406,7 @@ export default function RoomHost() {
   };
 
   const getTargetLangs = () =>
-    [...new Set(participants.map((p) => p.language))].filter((l): l is string => l !== speakerLang);
+    [...new Set(participantsRef.current.map((p) => p.language))].filter((l): l is string => l !== speakerLang);
 
   const ensureMicrophoneAccess = async () => {
     if (micAccessPrimedRef.current) return true;
@@ -646,6 +661,13 @@ export default function RoomHost() {
     try {
       const targetLangs = getTargetLangs();
 
+      // A transcript over the Firestore size cap must go through the chunked
+      // path or the send is denied and the whole speech is lost.
+      if (fullText.length > MAX_MSG_CHARS) {
+        await broadcastText(fullText);
+        return;
+      }
+
       // Translate remaining segments
       if (shouldUsePreview(fullText)) {
         translatePendingSegments();
@@ -673,19 +695,26 @@ export default function RoomHost() {
         !remaining;
       const { recomputeFinalAfterPreview } = getRealtimeTranslationConfig(targetLangs.length || 1);
 
-      if (targetLangs.length > 0) {
-        const translations = canReusePreviewAsFinal
-          ? await chunkTranslationsRef.current[0]
-          : !recomputeFinalAfterPreview && chunkTranslationsRef.current.length > 0
-            ? await mergeChunkTranslations(targetLangs)
-          : await translateText(fullText, speakerLang, targetLangs, {
-              mode: "room",
-              feature: "room",
-              consumeTextQuota: false,
-            });
-        translations[speakerLang] = fullText;
-        if (msgId) {
+      if (targetLangs.length > 0 && msgId) {
+        try {
+          const translations = canReusePreviewAsFinal
+            ? await chunkTranslationsRef.current[0]
+            : !recomputeFinalAfterPreview && chunkTranslationsRef.current.length > 0
+              ? await mergeChunkTranslations(targetLangs)
+            : await translateText(fullText, speakerLang, targetLangs, {
+                mode: "room",
+                feature: "room",
+                consumeTextQuota: false,
+              });
+          translations[speakerLang] = fullText;
           await updateDoc(doc(db, "sessions", sessionId, "messages", msgId), { translations });
+        } catch (e) {
+          // Same degradation as broadcastText: original text beats an
+          // endless "translating…" placeholder on the guests' screens.
+          const fallbackTranslations: Record<string, string> = { [speakerLang]: fullText };
+          targetLangs.forEach((l) => { fallbackTranslations[l] = fullText; });
+          await updateDoc(doc(db, "sessions", sessionId, "messages", msgId), { translations: fallbackTranslations }).catch(() => {});
+          throw e;
         }
       }
     } catch (e: any) {
@@ -720,6 +749,51 @@ export default function RoomHost() {
   });
 
 
+  // Firestore rules cap sourceText at 2000 chars: anything longer must be
+  // split or the write is denied and the whole text is lost.
+  const MAX_MSG_CHARS = 1900;
+
+  const splitForSend = (text: string): string[] => {
+    const out: string[] = [];
+    let rest = text.trim();
+    while (rest.length > MAX_MSG_CHARS) {
+      let cut = rest.lastIndexOf(". ", MAX_MSG_CHARS);
+      if (cut < MAX_MSG_CHARS * 0.5) cut = rest.lastIndexOf(" ", MAX_MSG_CHARS);
+      if (cut <= 0) cut = MAX_MSG_CHARS;
+      out.push(rest.slice(0, cut + 1).trim());
+      rest = rest.slice(cut + 1).trim();
+    }
+    if (rest) out.push(rest);
+    return out;
+  };
+
+  /** Send text as one or more messages, translating each chunk. On translation
+   *  failure the message falls back to the original text for every language,
+   *  so guests see the source instead of an endless "translating…" placeholder. */
+  const broadcastText = async (text: string) => {
+    if (!sessionId || !hostId) return;
+    const targetLangs = getTargetLangs();
+    for (const chunk of splitForSend(text)) {
+      const initialTranslations: Record<string, string> = { [speakerLang]: chunk };
+      const msgId = await sendMessage(sessionId, hostId, "BROADCAST", speakerLang, chunk, initialTranslations);
+      if (targetLangs.length === 0 || !msgId) continue;
+      try {
+        const translations = await translateText(chunk, speakerLang, targetLangs, {
+          mode: "room",
+          feature: "room",
+          consumeTextQuota: false,
+        });
+        translations[speakerLang] = chunk;
+        await updateDoc(doc(db, "sessions", sessionId, "messages", msgId), { translations });
+      } catch (e) {
+        const fallbackTranslations: Record<string, string> = { [speakerLang]: chunk };
+        targetLangs.forEach((l) => { fallbackTranslations[l] = chunk; });
+        await updateDoc(doc(db, "sessions", sessionId, "messages", msgId), { translations: fallbackTranslations }).catch(() => {});
+        throw e;
+      }
+    }
+  };
+
   const handleLoadedText = async (text: string) => {
     if (!text.trim() || !sessionId || !hostId || processingRef.current) return;
     processingRef.current = true;
@@ -727,21 +801,7 @@ export default function RoomHost() {
     setError(null);
 
     try {
-      const targetLangs = getTargetLangs();
-      const initialTranslations: Record<string, string> = { [speakerLang]: text };
-      const msgId = await sendMessage(sessionId, hostId, "BROADCAST", speakerLang, text, initialTranslations);
-
-      if (targetLangs.length > 0) {
-        const translations = await translateText(text, speakerLang, targetLangs, {
-          mode: "room",
-          feature: "room",
-          consumeTextQuota: false,
-        });
-        translations[speakerLang] = text;
-        if (msgId) {
-          await updateDoc(doc(db, "sessions", sessionId, "messages", msgId), { translations });
-        }
-      }
+      await broadcastText(text);
     } catch (e: any) {
       console.error("Translation/broadcast failed:", e);
       const { key, fallback } = getApiErrorMessage(e);

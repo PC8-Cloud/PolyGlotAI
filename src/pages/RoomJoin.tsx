@@ -498,8 +498,12 @@ export default function RoomJoin() {
               ttsQueueRef.current = [];
               ttsPlayingRef.current = false;
               muteAudio();
+            } else {
+              // Only messages arriving from now on get spoken — re-enabling
+              // must not read out everything missed while muted.
+              messages.forEach((m) => spokenMsgIds.current.add(m.id));
+              prepareAudioForSafari();
             }
-            else prepareAudioForSafari();
           }}
           className={`p-2 rounded-xl transition-colors ${
             autoSpeak ? "bg-[#295BDB]/20 text-[#295BDB]" : "bg-[#123182] text-[#F4F4F4]/60"
@@ -539,8 +543,12 @@ export default function RoomJoin() {
           const myText = msg.translations[myLang] || msg.sourceText;
           const isQuestion = msg.type === "QUESTION";
           const isMyQuestion = isQuestion && msg.senderId === participantId;
+          // Messages sent before we joined will never receive our language:
+          // show their source text instead of a spinner that can't resolve.
+          const createdAtMs = getCreatedAtMs(msg.createdAt);
+          const isBacklog = createdAtMs !== null && createdAtMs < joinedAtRef.current - 1500;
           // Translation is pending only if: no translation for our lang, source is in a different lang, and it's a broadcast
-          const isTranslationPending = !hasMyTranslation && !!msg.sourceLanguage && msg.sourceLanguage !== myLang && !isQuestion;
+          const isTranslationPending = !hasMyTranslation && !!msg.sourceLanguage && msg.sourceLanguage !== myLang && !isQuestion && !isBacklog;
 
           return (
             <div
