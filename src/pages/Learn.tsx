@@ -695,7 +695,7 @@ export default function Learn() {
       const translatedObj = await translateText(seg.text, sourceLanguage, [targetLang], { mode: "live" });
       const translatedText = (translatedObj[targetLang] || "").trim();
       if (!translatedText) continue;
-      const audioBuffer = await textToSpeech(translatedText, undefined, 1.0);
+      const audioBuffer = await textToSpeech(translatedText, undefined, 1.0, targetLang);
       const audioBlob = new Blob([audioBuffer]);
       const audioUrl = URL.createObjectURL(audioBlob);
       out.push({
