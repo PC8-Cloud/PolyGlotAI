@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import OpenAI from "openai";
-import { requireApiAccess, resolveModel } from "./auth.js";
+import { requireApiAccess } from "./auth.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -70,11 +70,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!access) return;
 
   try {
-    const { messages, model } = req.body;
+    const { messages } = req.body;
     if (!messages?.length) return res.status(400).json({ error: "messages required" });
+    // The client assembles the tutor conversation (including its system
+    // prompt), which makes this endpoint usable as a generic LLM by anyone
+    // with a token. Bound the blast radius: generous caps that a real Learn
+    // session never hits, and the cheap model regardless of what was asked.
+    if (messages.length > 80) {
+      return res.status(400).json({ error: "too many messages", status: 400 });
+    }
+    const totalChars = messages.reduce(
+      (sum: number, m: any) => sum + String(m?.content ?? "").length,
+      0,
+    );
+    if (totalChars > 60000) {
+      return res.status(400).json({ error: "conversation too large", status: 400 });
+    }
 
     const response = await client.chat.completions.create({
-      model: resolveModel("text", model, "gpt-4.1-mini"),
+      model: "gpt-4.1-mini",
       temperature: 0.4,
       max_tokens: 1024,
       response_format: { type: "json_object" },
