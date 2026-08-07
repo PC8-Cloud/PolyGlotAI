@@ -401,7 +401,7 @@ export const translations = {
     megaphoneDesc: "Parla e la traduzione verrà riprodotta ad alta voce, come un megafono",
     multilingualRoom: "Auditorium",
     multilingualRoomDesc: "Tu parli, ognuno ascolta nella sua lingua",
-    connectionWeakNotice: "La connessione a Internet qui sembra debole: le funzioni vocali di PolyGlotAI potrebbero scattare o interrompersi.",
+    connectionWeakNotice: "La connessione a Internet qui sembra debole: le funzioni vocali di PolyGlotAI potrebbero non funzionare nel migliore dei modi.",
     connectionWeakLabel: "Connessione debole",
     connectionOfflineLabel: "Nessuna connessione",
     createRoom: "Crea Stanza",
