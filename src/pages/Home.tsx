@@ -4,7 +4,7 @@ import { createSession } from "../lib/firebase-helpers";
 import { Settings, Camera, MessagesSquare, Coins, MessageSquarePlus, Users, Globe, ChevronLeft, WifiOff, Download, Check, Loader2, GraduationCap, Plus, X, Search, User, Pencil, Lock, Mic } from "lucide-react";
 import { auth, cloudFunctionUrl } from "../firebase";
 import { signInWithGoogle } from "../lib/auth";
-import { getMicPermissionState, watchMicPermission, type MicPermissionState } from "../lib/mic-permission";
+import { getMicPermissionState, requestMicPermission, watchMicPermission, type MicPermissionState } from "../lib/mic-permission";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore, useNetworkStore } from "../lib/store";
 import { LANGUAGES } from "../lib/languages";
@@ -146,16 +146,23 @@ export default function Home() {
   const [downloadingPhrases, setDownloadingPhrases] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState("");
 
-  // Mic permission: no upfront popup — the OS prompt appears naturally the
-  // first time a voice feature opens the microphone. We only watch the state
-  // to warn when access has been denied.
+  // Mic permission: every feature of the app needs the microphone, so the OS
+  // prompt fires right at startup instead of surprising the user mid-feature.
+  // No in-app popup — just the system dialog, and a warning banner if denied.
+  // Browsers that insist on a user gesture simply fall back to the existing
+  // per-feature request on first mic use.
   const [micState, setMicState] = useState<MicPermissionState>("unknown");
 
   useEffect(() => {
     let unsub: (() => void) | undefined;
     void (async () => {
-      setMicState(await getMicPermissionState());
+      const initial = await getMicPermissionState();
+      setMicState(initial);
       unsub = await watchMicPermission(setMicState);
+      if (initial !== "granted" && initial !== "denied") {
+        const granted = await requestMicPermission();
+        setMicState(granted ? "granted" : await getMicPermissionState());
+      }
     })();
     return () => { unsub?.(); };
   }, []);
