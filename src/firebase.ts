@@ -2,7 +2,7 @@ import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getAnalytics, isSupported, logEvent as fbLogEvent, type Analytics } from "firebase/analytics";
-import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
+import { initializeAppCheck, ReCaptchaV3Provider, getToken as getAppCheckTokenRaw, type AppCheck } from "firebase/app-check";
 import firebaseConfig from "../firebase-applet-config.json";
 
 const app = initializeApp(firebaseConfig);
@@ -19,8 +19,9 @@ const APPCHECK_SITE_KEY =
 if ((import.meta as any).env?.DEV) {
   (self as any).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
 }
+let appCheck: AppCheck | null = null;
 try {
-  initializeAppCheck(app, {
+  appCheck = initializeAppCheck(app, {
     provider: new ReCaptchaV3Provider(APPCHECK_SITE_KEY),
     isTokenAutoRefreshEnabled: true,
   });
@@ -29,6 +30,19 @@ try {
   // reCAPTCHA cannot load): without enforcement requests still pass, and
   // with enforcement the backend rejects them anyway.
   console.warn("App Check init failed:", e);
+}
+
+/** Current App Check token, or null when unavailable. The API layer forwards
+ *  it to Firestore/Auth REST calls so server-side entitlement checks keep
+ *  working with App Check enforcement enabled. */
+export async function getAppCheckToken(): Promise<string | null> {
+  if (!appCheck) return null;
+  try {
+    const res = await getAppCheckTokenRaw(appCheck, false);
+    return res.token || null;
+  } catch {
+    return null;
+  }
 }
 export const db = getFirestore(app);
 export const auth = getAuth(app);

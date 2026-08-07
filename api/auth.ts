@@ -147,12 +147,15 @@ function isFuture(raw: string | null): boolean {
   return Number.isFinite(ms) && ms > Date.now();
 }
 
-async function verifyFirebaseToken(idToken: string): Promise<{ uid: string; email?: string }> {
+async function verifyFirebaseToken(idToken: string, appCheckToken?: string): Promise<{ uid: string; email?: string }> {
   const res = await fetch(
     `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(FIREBASE_WEB_API_KEY)}`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(appCheckToken ? { "X-Firebase-AppCheck": appCheckToken } : {}),
+      },
       body: JSON.stringify({ idToken }),
     },
   );
@@ -164,10 +167,17 @@ async function verifyFirebaseToken(idToken: string): Promise<{ uid: string; emai
   return { uid: String(user.localId), email: typeof user.email === "string" ? user.email : undefined };
 }
 
-async function fetchUserDoc(uid: string, idToken: string): Promise<FirestoreDoc | null> {
+async function fetchUserDoc(uid: string, idToken: string, appCheckToken?: string): Promise<FirestoreDoc | null> {
+  // With App Check enforcement on Firestore, this read is rejected unless the
+  // client's App Check token travels along with the user's ID token.
   const res = await fetch(
     `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/users/${encodeURIComponent(uid)}`,
-    { headers: { Authorization: `Bearer ${idToken}` } },
+    {
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+        ...(appCheckToken ? { "X-Firebase-AppCheck": appCheckToken } : {}),
+      },
+    },
   );
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`User entitlements unavailable (${res.status})`);
@@ -219,9 +229,11 @@ export async function requireApiAccess(
     return null;
   }
 
+  const appCheckToken = String(req.headers["x-firebase-appcheck"] || "") || undefined;
+
   try {
-    const user = await verifyFirebaseToken(token);
-    const doc = await fetchUserDoc(user.uid, token);
+    const user = await verifyFirebaseToken(token, appCheckToken);
+    const doc = await fetchUserDoc(user.uid, token, appCheckToken);
     const access = readAccess(doc);
     const feature = options.feature || "conversation";
 

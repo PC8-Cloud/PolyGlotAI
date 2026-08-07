@@ -1,7 +1,7 @@
 import { useUserStore } from "./store";
 import { getPromptLanguageName } from "./languages";
 import { isConnectionSlow, isOnline as isOnlineCheck, reportResponseTime, canUseLocalTTS, playLocalTTS, getLastResponseTime } from "./offline";
-import { auth } from "../firebase";
+import { auth, getAppCheckToken } from "../firebase";
 import { ensureSignedIn } from "./auth";
 
 // ─── User-friendly API error messages ────────────────────────────────────────
@@ -97,7 +97,13 @@ export async function getApiAuthHeaders(): Promise<Record<string, string>> {
   await ensureSignedIn();
   const token = await auth.currentUser?.getIdToken();
   if (!token) throw new Error("Authentication required");
-  return { Authorization: `Bearer ${token}` };
+  // The server forwards the App Check token to Firestore/Auth: without it,
+  // enforcement would reject the server's entitlement reads.
+  const appCheckToken = await getAppCheckToken();
+  return {
+    Authorization: `Bearer ${token}`,
+    ...(appCheckToken ? { "X-Firebase-AppCheck": appCheckToken } : {}),
+  };
 }
 
 export async function createRealtimeTranscriptionToken(
