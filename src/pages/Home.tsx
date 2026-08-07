@@ -22,6 +22,7 @@ import { ALL_PHRASE_TEXTS } from "../lib/phrases-data";
 import { getTrialStatus, getTrialRemainingDaily } from "../lib/trial";
 import { hasFeature } from "../lib/subscription";
 import VoiceCloneSetup from "../components/VoiceCloneSetup";
+import { ConnectionStartupNotice } from "../components/ConnectionAlert";
 
 export default function Home() {
   const navigate = useNavigate();
@@ -281,6 +282,13 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col items-center justify-center px-6 pb-6 pt-[calc(env(safe-area-inset-top)+1.5rem)] font-sans relative">
       <h1 className="sr-only">PolyGlot AI</h1>
+
+      {/* Startup connection-quality check: silent when the line is good */}
+      {!isOffline && (
+        <div className="w-full max-w-md">
+          <ConnectionStartupNotice />
+        </div>
+      )}
 
       {/* Offline mode banner */}
       {isOffline && (

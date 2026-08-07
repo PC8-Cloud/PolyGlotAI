@@ -13,6 +13,7 @@ import { translateText, playTTS, prepareAudioForSafari, muteAudio, getApiErrorMe
 const TTS_PLAYBACK_TIMEOUT_MS = 90_000;
 import { extractTextFromFile } from "../lib/file-reader";
 import { consumeTrialQuota, getTrialUpgradeMessage } from "../lib/trial";
+import { ConnectionFrame } from "../components/ConnectionAlert";
 
 interface Entry {
   id: number;
@@ -553,6 +554,7 @@ export default function MegaphonePage() {
 
   return (
     <div className="h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans overflow-hidden">
+      <ConnectionFrame />
       <header className="flex items-center gap-3 px-4 pb-4 pt-[calc(env(safe-area-inset-top)+1rem)] border-b border-[#FFFFFF14] bg-[#0E2666] shrink-0">
         <button onClick={() => { muteAudio(); navigate("/group"); }} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
           <ChevronLeft className="w-6 h-6" />

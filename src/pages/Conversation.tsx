@@ -9,6 +9,7 @@ import { translateText, translateAuto, playTTS, prepareAudioForSafari, muteAudio
 import { getTrialUpgradeMessage } from "../lib/trial";
 import { getMicPermissionState } from "../lib/mic-permission";
 import { chooseSideByText, languageScoreFromText } from "../lib/conversation-direction";
+import { ConnectionFrame } from "../components/ConnectionAlert";
 
 // Hard cap on a single TTS playback so a suspended AudioContext (screen off,
 // app backgrounded) cannot deadlock the conversation loop.
@@ -1711,6 +1712,7 @@ export default function Conversation() {
 
   return (
     <div className="h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col font-sans overflow-hidden">
+      <ConnectionFrame />
       <header className="flex items-center gap-3 px-4 pb-4 pt-[calc(env(safe-area-inset-top)+1rem)] border-b border-[#FFFFFF14] bg-[#0E2666] shrink-0">
         <button onClick={() => { stopConversation(); navigate("/"); }} className="text-[#F4F4F4]/60 hover:text-[#F4F4F4]">
           <ChevronLeft className="w-6 h-6" />
