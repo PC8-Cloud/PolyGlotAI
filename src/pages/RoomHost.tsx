@@ -486,7 +486,7 @@ export default function RoomHost() {
       await ensureMicrophoneAccess();
     } catch (e: any) {
       console.error("[RoomHost] microphone preflight failed", e);
-      setError(e?.message || "Microphone permission denied");
+      setError(t("micDeniedNotice"));
       setIsListening(false);
       return;
     }
@@ -533,7 +533,7 @@ export default function RoomHost() {
       setIsListening(false);
       releaseWakeLock();
       if (event?.error === "not-allowed" || event?.error === "service-not-allowed") {
-        setError("Microphone permission denied in Chrome. Allow mic access in site settings and macOS Privacy > Microphone.");
+        setError(t("micDeniedNotice"));
       } else if (event?.error === "audio-capture") {
         setError("No microphone available");
       } else if (event?.error === "network") {

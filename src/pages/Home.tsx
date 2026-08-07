@@ -4,7 +4,7 @@ import { createSession } from "../lib/firebase-helpers";
 import { Settings, Camera, MessagesSquare, Coins, MessageSquarePlus, Users, Globe, ChevronLeft, WifiOff, Download, Check, Loader2, GraduationCap, Plus, X, Search, User, Pencil, Lock, Mic } from "lucide-react";
 import { auth, cloudFunctionUrl } from "../firebase";
 import { signInWithGoogle } from "../lib/auth";
-import { getMicPermissionState, requestMicPermission, watchMicPermission, type MicPermissionState } from "../lib/mic-permission";
+import { getMicPermissionState, watchMicPermission, type MicPermissionState } from "../lib/mic-permission";
 import { useTranslation } from "../lib/i18n";
 import { useUserStore, useNetworkStore } from "../lib/store";
 import { LANGUAGES } from "../lib/languages";
@@ -146,42 +146,19 @@ export default function Home() {
   const [downloadingPhrases, setDownloadingPhrases] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState("");
 
-  // Mic permission status — drives the upfront grant popup.
+  // Mic permission: no upfront popup — the OS prompt appears naturally the
+  // first time a voice feature opens the microphone. We only watch the state
+  // to warn when access has been denied.
   const [micState, setMicState] = useState<MicPermissionState>("unknown");
-  const [requestingMic, setRequestingMic] = useState(false);
-  const [showMicModal, setShowMicModal] = useState(false);
-  const [micModalDismissed, setMicModalDismissed] = useState(false);
 
   useEffect(() => {
     let unsub: (() => void) | undefined;
     void (async () => {
-      const initial = await getMicPermissionState();
-      setMicState(initial);
-      if (initial !== "granted") setShowMicModal(true);
-      unsub = await watchMicPermission((s) => {
-        setMicState(s);
-        if (s === "granted") setShowMicModal(false);
-      });
+      setMicState(await getMicPermissionState());
+      unsub = await watchMicPermission(setMicState);
     })();
     return () => { unsub?.(); };
   }, []);
-
-  const handleGrantMic = async () => {
-    if (requestingMic) return;
-    setRequestingMic(true);
-    try {
-      const granted = await requestMicPermission();
-      setMicState(granted ? "granted" : "denied");
-      if (granted) setShowMicModal(false);
-    } finally {
-      setRequestingMic(false);
-    }
-  };
-
-  const handleDismissMicModal = () => {
-    setShowMicModal(false);
-    setMicModalDismissed(true);
-  };
 
   // Refresh offline status when modal opens
   useEffect(() => {
@@ -282,6 +259,14 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-[#02114A] text-[#F4F4F4] flex flex-col items-center justify-center px-6 pb-6 pt-[calc(env(safe-area-inset-top)+1.5rem)] font-sans relative">
       <h1 className="sr-only">PolyGlot AI</h1>
+
+      {/* Mic denied: the voice features are the product — say it plainly */}
+      {micState === "denied" && (
+        <div role="alert" className="w-full max-w-md mb-4 bg-red-500/10 border border-red-500/30 rounded-2xl p-3 flex items-center gap-3">
+          <Mic className="w-5 h-5 text-red-400 shrink-0" aria-hidden="true" />
+          <p className="text-sm text-red-300 flex-1">{t("micDeniedNotice")}</p>
+        </div>
+      )}
 
       {/* Startup connection-quality check: silent when the line is good */}
       {!isOffline && (
@@ -792,45 +777,6 @@ export default function Home() {
       )}
 
       {/* Microphone permission popup — appears on Home open until granted. */}
-      {showMicModal && !micModalDismissed && micState !== "granted" && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="mic-permission-title"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-        >
-          <div className="w-full max-w-sm bg-[#0E2666] border border-[#FFFFFF14] rounded-2xl shadow-2xl p-6 flex flex-col items-center text-center">
-            <div className="w-16 h-16 rounded-full bg-[#295BDB]/20 flex items-center justify-center mb-4">
-              <Mic className="w-8 h-8 text-[#295BDB]" aria-hidden="true" />
-            </div>
-            <h2 id="mic-permission-title" className="text-lg font-bold text-[#F4F4F4] mb-2">
-              {t("micPermissionTitle")}
-            </h2>
-            <p className="text-sm text-[#F4F4F4]/60 mb-6 leading-relaxed">
-              {micState === "denied" ? t("micPermissionDeniedDesc") : t("micPermissionDesc")}
-            </p>
-            <div className="w-full flex flex-col gap-2">
-              {micState !== "denied" && (
-                <button
-                  type="button"
-                  onClick={handleGrantMic}
-                  disabled={requestingMic}
-                  className="w-full bg-[#295BDB] hover:bg-[#3A6BEA] disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors flex items-center justify-center"
-                >
-                  {requestingMic ? <Loader2 className="w-5 h-5 animate-spin" /> : t("micPermissionAllow")}
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={handleDismissMicModal}
-                className="w-full text-[#F4F4F4]/60 hover:text-[#F4F4F4] text-sm py-2"
-              >
-                {t("micPermissionLater")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </main>
   );
 }
