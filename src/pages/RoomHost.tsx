@@ -1149,7 +1149,8 @@ export default function RoomHost() {
         <div ref={bottomRef} />
       </div>
 
-      <div className="border-t border-[#FFFFFF14] bg-[#0E2666] px-6 pt-6 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] flex flex-col items-center gap-3 shrink-0">
+      {/* Same footer height as Conversation: compact paddings, tight label */}
+      <div className="border-t border-[#FFFFFF14] bg-[#0E2666] px-6 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] flex flex-col items-center gap-1.5 shrink-0">
         <button
           onClick={toggleListening}
           disabled={isTranslating || participants.length === 0}
@@ -1161,7 +1162,7 @@ export default function RoomHost() {
         >
           <Mic className="w-9 h-9" />
         </button>
-        <span className="text-xs text-[#F4F4F4]/60">
+        <span className="text-[11px] text-[#F4F4F4]/60">
           {participants.length === 0 ? t("waitingForParticipants") : isListening ? t("tapToStop") : t("tapToSpeak")}
         </span>
       </div>
